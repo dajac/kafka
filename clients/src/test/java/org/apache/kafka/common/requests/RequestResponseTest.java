@@ -234,9 +234,14 @@ public class RequestResponseTest {
         checkErrorResponse(createSaslAuthenticateRequest(), new UnknownServerException(), true);
         checkResponse(createSaslAuthenticateResponse(), 0, true);
         checkResponse(createSaslAuthenticateResponse(), 1, true);
-        checkRequest(createApiVersionRequest(), true);
-        checkErrorResponse(createApiVersionRequest(), new UnknownServerException(), true);
+        checkRequest(createApiVersionRequest(2), true);
+        checkErrorResponse(createApiVersionRequest(2), new UnknownServerException(), true);
+        checkRequest(createApiVersionRequest(3), true);
+        checkErrorResponse(createApiVersionRequest(3), new UnknownServerException(), true);
         checkResponse(createApiVersionResponse(), 0, true);
+        checkResponse(createApiVersionResponse(), 1, true);
+        checkResponse(createApiVersionResponse(), 2, true);
+        checkResponse(createApiVersionResponse(), 3, true);
         checkRequest(createCreateTopicRequest(0), true);
         checkErrorResponse(createCreateTopicRequest(0), new UnknownServerException(), true);
         checkResponse(createCreateTopicResponse(), 0, true);
@@ -1226,8 +1231,14 @@ public class RequestResponseTest {
         return new SaslAuthenticateResponse(data);
     }
 
-    private ApiVersionsRequest createApiVersionRequest() {
-        return new ApiVersionsRequest.Builder().build();
+    private ApiVersionsRequest createApiVersionRequest(int version) {
+        if (version > 2)
+            return new ApiVersionsRequest.Builder()
+                .clientName("Name")
+                .clientVersion("Version")
+                .build((short) version);
+        else
+            return new ApiVersionsRequest.Builder().build((short) version);
     }
 
     private ApiVersionsResponse createApiVersionResponse() {

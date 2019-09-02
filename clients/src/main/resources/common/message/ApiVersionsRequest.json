@@ -18,7 +18,12 @@
   "type": "request",
   "name": "ApiVersionsRequest",
   // Versions 0 through 2 of ApiVersionsRequest are the same.
-  "validVersions": "0-2",
+  // Starting in version 3, ClientName and ClientVersion are present.
+  "validVersions": "0-3",
   "fields": [
+    {"name": "ClientName", "type": "string", "versions": "3+",
+     "about": "The name of the client."},
+    {"name": "ClientVersion", "type": "string", "versions": "3+",
+     "about": "The version of the client."}
   ]
 }

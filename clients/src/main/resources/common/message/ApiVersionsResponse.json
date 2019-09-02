@@ -19,7 +19,8 @@
   "name": "ApiVersionsResponse",
   // Version 1 adds throttle time to the response.
   // Starting in version 2, on quota violation, brokers send out responses before throttling.
-  "validVersions": "0-2",
+  // Version 3 is similar to version 2.
+  "validVersions": "0-3",
   "fields": [
     { "name": "ErrorCode", "type": "int16", "versions": "0+",
       "about": "The top-level error code." },

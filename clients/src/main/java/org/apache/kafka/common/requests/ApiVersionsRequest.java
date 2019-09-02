@@ -16,8 +16,11 @@
  */
 package org.apache.kafka.common.requests;
 
+import static org.apache.kafka.common.protocol.types.Type.STRING;
+
 import org.apache.kafka.common.protocol.ApiKeys;
 import org.apache.kafka.common.protocol.Errors;
+import org.apache.kafka.common.protocol.types.Field;
 import org.apache.kafka.common.protocol.types.Schema;
 import org.apache.kafka.common.protocol.types.Struct;
 
@@ -25,6 +28,9 @@ import java.nio.ByteBuffer;
 import java.util.Collections;
 
 public class ApiVersionsRequest extends AbstractRequest {
+    private static final String CLIENT_NAME_KEY_NAME = "client_name";
+    private static final String CLIENT_VERSION_KEY_NAME = "client_version";
+
     private static final Schema API_VERSIONS_REQUEST_V0 = new Schema();
 
     /* v1 request is the same as v0. Throttle time has been added to response */
@@ -35,11 +41,22 @@ public class ApiVersionsRequest extends AbstractRequest {
      */
     private static final Schema API_VERSIONS_REQUEST_V2 = API_VERSIONS_REQUEST_V1;
 
+    private static final Schema API_VERSIONS_REQUEST_V3 = new Schema(
+        new Field(CLIENT_NAME_KEY_NAME, STRING, "The name of the client."),
+        new Field(CLIENT_VERSION_KEY_NAME, STRING, "The version of the client.")
+    );
+
     public static Schema[] schemaVersions() {
-        return new Schema[]{API_VERSIONS_REQUEST_V0, API_VERSIONS_REQUEST_V1, API_VERSIONS_REQUEST_V2};
+        return new Schema[]{
+            API_VERSIONS_REQUEST_V0,
+            API_VERSIONS_REQUEST_V1,
+            API_VERSIONS_REQUEST_V2,
+            API_VERSIONS_REQUEST_V3};
     }
 
     public static class Builder extends AbstractRequest.Builder<ApiVersionsRequest> {
+        private String clientName = null;
+        private String clientVersion = null;
 
         public Builder() {
             super(ApiKeys.API_VERSIONS);
@@ -49,24 +66,45 @@ public class ApiVersionsRequest extends AbstractRequest {
             super(ApiKeys.API_VERSIONS, version);
         }
 
+        public Builder clientName(String clientName) {
+            this.clientName = clientName;
+            return this;
+        }
+
+        public Builder clientVersion(String clientVersion) {
+            this.clientVersion = clientVersion;
+            return this;
+        }
+
         @Override
         public ApiVersionsRequest build(short version) {
-            return new ApiVersionsRequest(version);
+            return new ApiVersionsRequest(version, null, this.clientName, this.clientVersion);
         }
 
         @Override
         public String toString() {
-            return "(type=ApiVersionsRequest)";
+            StringBuilder bld = new StringBuilder();
+            bld.append("(type=ApiVersionsRequest")
+                .append(", clientName=").append(clientName != null ? clientName : "")
+                .append(", clientVersion=").append(clientVersion != null ? clientVersion : "")
+                .append("'");
+            return bld.toString();
         }
     }
 
     private final Short unsupportedRequestVersion;
+    private final String clientName;
+    private final String clientVersion;
 
     public ApiVersionsRequest(short version) {
         this(version, null);
     }
 
     public ApiVersionsRequest(short version, Short unsupportedRequestVersion) {
+        this(version, unsupportedRequestVersion, null, null);
+    }
+
+    public ApiVersionsRequest(short version, Short unsupportedRequestVersion, String clientName, String clientVersion) {
         super(ApiKeys.API_VERSIONS, version);
 
         // Unlike other request types, the broker handles ApiVersion requests with higher versions than
@@ -75,19 +113,45 @@ public class ApiVersionsRequest extends AbstractRequest {
         // a broker supports when this request is sent, so instead of assuming the lowest supported version,
         // it can use the most recent version and only fallback to the old version when necessary.
         this.unsupportedRequestVersion = unsupportedRequestVersion;
+
+        this.clientName = clientName;
+        this.clientVersion = clientVersion;
     }
 
     public ApiVersionsRequest(Struct struct, short version) {
-        this(version, null);
+        super(ApiKeys.API_VERSIONS, version);
+
+        this.unsupportedRequestVersion = null;
+
+        if (struct.hasField(CLIENT_NAME_KEY_NAME))
+            this.clientName = (String) struct.get(CLIENT_NAME_KEY_NAME);
+        else
+            this.clientName = null;
+
+        if (struct.hasField(CLIENT_VERSION_KEY_NAME))
+            this.clientVersion = (String) struct.get(CLIENT_VERSION_KEY_NAME);
+        else
+            this.clientVersion = null;
     }
 
     public boolean hasUnsupportedRequestVersion() {
         return unsupportedRequestVersion != null;
     }
 
+    public String clientName() {
+        return clientName;
+    }
+
+    public String clientVersion() {
+        return clientVersion;
+    }
+
     @Override
     protected Struct toStruct() {
-        return new Struct(ApiKeys.API_VERSIONS.requestSchema(version()));
+        Struct struct = new Struct(ApiKeys.API_VERSIONS.requestSchema(version()));
+        struct.setIfExists(CLIENT_NAME_KEY_NAME, clientName);
+        struct.setIfExists(CLIENT_VERSION_KEY_NAME, clientVersion);
+        return struct;
     }
 
     @Override
@@ -98,6 +162,7 @@ public class ApiVersionsRequest extends AbstractRequest {
                 return new ApiVersionsResponse(Errors.forException(e), Collections.emptyList());
             case 1:
             case 2:
+            case 3:
                 return new ApiVersionsResponse(throttleTimeMs, Errors.forException(e), Collections.emptyList());
             default:
                 throw new IllegalArgumentException(String.format("Version %d is not valid. Valid versions for %s are 0 to %d",

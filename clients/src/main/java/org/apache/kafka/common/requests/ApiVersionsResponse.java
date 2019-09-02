@@ -59,11 +59,18 @@ public class ApiVersionsResponse extends AbstractResponse {
      */
     private static final Schema API_VERSIONS_RESPONSE_V2 = API_VERSIONS_RESPONSE_V1;
 
+    /* v3 request is the same as v2. Client's metadata have been added to the request */
+    private static final Schema API_VERSIONS_RESPONSE_V3 = API_VERSIONS_RESPONSE_V2;
+
     // initialized lazily to avoid circular initialization dependence with ApiKeys
     private static volatile ApiVersionsResponse defaultApiVersionsResponse;
 
     public static Schema[] schemaVersions() {
-        return new Schema[]{API_VERSIONS_RESPONSE_V0, API_VERSIONS_RESPONSE_V1, API_VERSIONS_RESPONSE_V2};
+        return new Schema[]{
+            API_VERSIONS_RESPONSE_V0,
+            API_VERSIONS_RESPONSE_V1,
+            API_VERSIONS_RESPONSE_V2,
+            API_VERSIONS_RESPONSE_V3};
     }
 
     /**
