@@ -97,6 +97,7 @@ import org.apache.kafka.common.record.CompressionType;
 import org.apache.kafka.common.record.MemoryRecords;
 import org.apache.kafka.common.record.RecordBatch;
 import org.apache.kafka.common.record.SimpleRecord;
+import org.apache.kafka.common.requests.ApiVersionsResponse.ApiVersion;
 import org.apache.kafka.common.requests.CreateAclsRequest.AclCreation;
 import org.apache.kafka.common.requests.CreateAclsResponse.AclCreationResponse;
 import org.apache.kafka.common.requests.CreatePartitionsRequest.PartitionDetails;
@@ -138,6 +139,7 @@ import static org.apache.kafka.common.requests.FetchMetadata.INVALID_SESSION_ID;
 import static org.apache.kafka.test.TestUtils.toBuffer;
 import static org.junit.Assert.assertEquals;
 import static org.junit.Assert.assertFalse;
+import static org.junit.Assert.assertNull;
 import static org.junit.Assert.assertThrows;
 import static org.junit.Assert.assertTrue;
 import static org.junit.Assert.fail;
@@ -749,6 +751,68 @@ public class RequestResponseTest {
         assertTrue(string.contains("group1"));
     }
 
+    @Test
+    public void testApiVersionsRequestBackwardComptability() {
+        final short latestVersion = ApiKeys.API_VERSIONS.latestVersion();
+        final short oldestVersion = ApiKeys.API_VERSIONS.oldestVersion();
+        final ApiVersionsRequest request = createApiVersionRequest(latestVersion);
+
+        ByteBuffer buffer = ByteBuffer.allocate(request.toStruct().sizeOf());
+        request.toStruct().writeTo(buffer);
+        buffer.flip();
+        buffer.mark();
+
+        for (short version = latestVersion; version >= oldestVersion; version--) {
+            Struct struct = ApiKeys.API_VERSIONS.parseRequest(version, buffer);
+            ApiVersionsRequest deserialized = new ApiVersionsRequest(struct, version);
+
+            if (version > 2) {
+                assertEquals(request.clientName(), deserialized.clientName());
+                assertEquals(request.clientVersion(), deserialized.clientVersion());
+            } else {
+                assertNull(deserialized.clientName());
+                assertNull(deserialized.clientVersion());
+            }
+
+            buffer.reset();
+        }
+    }
+
+    @Test
+    public void testApiVersionsResponseBackwardComptability() {
+        final short latestVersion = ApiKeys.API_VERSIONS.latestVersion();
+        final short oldestVersion = ApiKeys.API_VERSIONS.oldestVersion();
+
+        for (short version = latestVersion; version >= oldestVersion; version--) {
+            final ApiVersionsResponse response = createApiVersionResponse();
+            final List<ApiVersion> apiVersions = new ArrayList<>(response.apiVersions());
+
+            ByteBuffer buffer = ByteBuffer.allocate(response.toStruct(latestVersion).sizeOf());
+            response.toStruct(version).writeTo(buffer);
+            buffer.flip();
+            buffer.mark();
+
+            Struct struct = ApiKeys.API_VERSIONS.responseSchema(version).read(buffer);
+            ApiVersionsResponse deserialized = new ApiVersionsResponse(struct);
+
+            assertEquals(deserialized.error().code(), response.error().code());
+
+            final List<ApiVersion> deserializedApiVersions = new ArrayList<>(deserialized.apiVersions());
+            for (int i = 0; i < apiVersions.size(); i++) {
+                assertEquals(apiVersions.get(i).apiKey, deserializedApiVersions.get(i).apiKey);
+                assertEquals(apiVersions.get(i).minVersion, deserializedApiVersions.get(i).minVersion);
+                assertEquals(apiVersions.get(i).maxVersion, deserializedApiVersions.get(i).maxVersion);
+            }
+
+            if (version > 0)
+                assertEquals(deserialized.throttleTimeMs(), response.throttleTimeMs());
+            else
+                assertEquals(deserialized.throttleTimeMs(), AbstractResponse.DEFAULT_THROTTLE_TIME);
+
+            buffer.reset();
+        }
+    }
+
     private ResponseHeader createResponseHeader() {
         return new ResponseHeader(10);
     }
@@ -1243,7 +1307,7 @@ public class RequestResponseTest {
 
     private ApiVersionsResponse createApiVersionResponse() {
         List<ApiVersionsResponse.ApiVersion> apiVersions = asList(new ApiVersionsResponse.ApiVersion((short) 0, (short) 0, (short) 2));
-        return new ApiVersionsResponse(Errors.NONE, apiVersions);
+        return new ApiVersionsResponse(100, Errors.NONE, apiVersions);
     }
 
     private CreateTopicsRequest createCreateTopicRequest(int version) {
