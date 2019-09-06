@@ -21,15 +21,20 @@ import org.apache.kafka.common.Node;
 import org.apache.kafka.common.TopicPartition;
 import org.apache.kafka.common.errors.UnsupportedVersionException;
 import org.apache.kafka.common.network.NetworkReceive;
+import org.apache.kafka.common.network.Send;
 import org.apache.kafka.common.protocol.ApiKeys;
 import org.apache.kafka.common.protocol.CommonFields;
 import org.apache.kafka.common.protocol.Errors;
 import org.apache.kafka.common.protocol.types.Struct;
 import org.apache.kafka.common.record.MemoryRecords;
+import org.apache.kafka.common.requests.ApiVersionsRequest;
 import org.apache.kafka.common.requests.ApiVersionsResponse;
+import org.apache.kafka.common.requests.ByteBufferChannel;
 import org.apache.kafka.common.requests.MetadataRequest;
 import org.apache.kafka.common.requests.ProduceRequest;
+import org.apache.kafka.common.requests.RequestHeader;
 import org.apache.kafka.common.requests.ResponseHeader;
+import org.apache.kafka.common.utils.AppInfoParser;
 import org.apache.kafka.common.utils.LogContext;
 import org.apache.kafka.common.utils.MockTime;
 import org.apache.kafka.test.DelayedReceive;
@@ -39,6 +44,7 @@ import org.apache.kafka.test.TestUtils;
 import org.junit.Before;
 import org.junit.Test;
 
+import java.io.IOException;
 import java.nio.ByteBuffer;
 import java.util.ArrayList;
 import java.util.Arrays;
@@ -74,7 +80,7 @@ public class NetworkClientTest {
 
     private NetworkClient createNetworkClientWithStaticNodes() {
         return new NetworkClient(selector, metadataUpdater,
-                "mock-static", Integer.MAX_VALUE, 0, 0, 64 * 1024, 64 * 1024, defaultRequestTimeoutMs,
+                "mock", Integer.MAX_VALUE, 0, 0, 64 * 1024, 64 * 1024, defaultRequestTimeoutMs,
                 ClientDnsLookup.DEFAULT, time, true, new ApiVersions(), new LogContext());
     }
 
@@ -187,12 +193,32 @@ public class NetworkClientTest {
         selector.delayedReceive(new DelayedReceive(node.idString(), new NetworkReceive(node.idString(), buffer)));
     }
 
+    private ByteBuffer serialize(RequestHeader header, ApiVersionsRequest request) {
+        Send send = request.toSend(node.idString(), header);
+        try (ByteBufferChannel discardChannel = new ByteBufferChannel(send.size())) {
+            while (!send.completed()) {
+                send.writeTo(discardChannel);
+            }
+            return discardChannel.buffer();
+        } catch (IOException e) {
+            return ByteBuffer.allocate(0);
+        }
+    }
+
     private void awaitReady(NetworkClient client, Node node) {
         if (client.discoverBrokerVersions()) {
             setExpectedApiVersionsResponse(ApiVersionsResponse.defaultApiVersionsResponse());
         }
         while (!client.ready(node, time.milliseconds()))
             client.poll(1, time.milliseconds());
+        if (client.discoverBrokerVersions()) {
+            assertEquals(1, selector.completedSends().size());
+            RequestHeader header = new RequestHeader(ApiKeys.API_VERSIONS, ApiKeys.API_VERSIONS.latestVersion(), "mock", 0);
+            ApiVersionsRequest req = new ApiVersionsRequest.Builder(AppInfoParser.getClientName(), AppInfoParser.getVersion()).build();
+            ByteBuffer buffer = serialize(header, req);
+            ByteBuffer bufferSent = selector.completedSendBuffers().get(0).buffer();
+            assertEquals(buffer, bufferSent);
+        }
         selector.clear();
     }
 

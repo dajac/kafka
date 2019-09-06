@@ -36,6 +36,8 @@ public class AppInfoParser {
     private static final String VERSION;
     private static final String COMMIT_ID;
 
+    private static final String CLIENT_NAME = "apache-kafka-java";
+
     protected static final String DEFAULT_VALUE = "unknown";
 
     static {
@@ -47,6 +49,10 @@ public class AppInfoParser {
         }
         VERSION = props.getProperty("version", DEFAULT_VALUE).trim();
         COMMIT_ID = props.getProperty("commitId", DEFAULT_VALUE).trim();
+    }
+
+    public static String getClientName() {
+        return CLIENT_NAME;
     }
 
     public static String getVersion() {
