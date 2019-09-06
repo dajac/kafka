@@ -28,6 +28,9 @@ import java.nio.ByteBuffer;
 import java.util.Collections;
 
 public class ApiVersionsRequest extends AbstractRequest {
+    public static final String CLIENT_NAME_UNKNOWN = "Unknown";
+    public static final String CLIENT_VERSION_UNKNOWN = "Unknown";
+
     private static final String CLIENT_NAME_KEY_NAME = "client_name";
     private static final String CLIENT_VERSION_KEY_NAME = "client_version";
 
@@ -55,25 +58,21 @@ public class ApiVersionsRequest extends AbstractRequest {
     }
 
     public static class Builder extends AbstractRequest.Builder<ApiVersionsRequest> {
-        private String clientName = null;
-        private String clientVersion = null;
+        private String clientName = "";
+        private String clientVersion = "";
 
         public Builder() {
             super(ApiKeys.API_VERSIONS);
         }
 
+        public Builder(String clientName, String clientVersion) {
+            super(ApiKeys.API_VERSIONS);
+            this.clientName = clientName;
+            this.clientVersion = clientVersion;
+        }
+
         public Builder(short version) {
             super(ApiKeys.API_VERSIONS, version);
-        }
-
-        public Builder clientName(String clientName) {
-            this.clientName = clientName;
-            return this;
-        }
-
-        public Builder clientVersion(String clientVersion) {
-            this.clientVersion = clientVersion;
-            return this;
         }
 
         @Override
@@ -85,8 +84,8 @@ public class ApiVersionsRequest extends AbstractRequest {
         public String toString() {
             StringBuilder bld = new StringBuilder();
             bld.append("(type=ApiVersionsRequest")
-                .append(", clientName=").append(clientName != null ? clientName : "")
-                .append(", clientVersion=").append(clientVersion != null ? clientVersion : "")
+                .append(", clientName=").append(!clientName.isEmpty() ? clientName : CLIENT_NAME_UNKNOWN)
+                .append(", clientVersion=").append(!clientVersion.isEmpty() ? clientVersion : CLIENT_NAME_UNKNOWN)
                 .append("'");
             return bld.toString();
         }
@@ -126,12 +125,12 @@ public class ApiVersionsRequest extends AbstractRequest {
         if (struct.hasField(CLIENT_NAME_KEY_NAME))
             this.clientName = (String) struct.get(CLIENT_NAME_KEY_NAME);
         else
-            this.clientName = null;
+            this.clientName = "";
 
         if (struct.hasField(CLIENT_VERSION_KEY_NAME))
             this.clientVersion = (String) struct.get(CLIENT_VERSION_KEY_NAME);
         else
-            this.clientVersion = null;
+            this.clientVersion = "";
     }
 
     public boolean hasUnsupportedRequestVersion() {
@@ -139,11 +138,17 @@ public class ApiVersionsRequest extends AbstractRequest {
     }
 
     public String clientName() {
-        return clientName;
+        if (clientName.isEmpty())
+            return CLIENT_NAME_UNKNOWN;
+        else
+            return clientName;
     }
 
     public String clientVersion() {
-        return clientVersion;
+        if (clientVersion.isEmpty())
+            return CLIENT_VERSION_UNKNOWN;
+        else
+            return clientVersion;
     }
 
     @Override

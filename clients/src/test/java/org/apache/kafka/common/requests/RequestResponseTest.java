@@ -139,7 +139,6 @@ import static org.apache.kafka.common.requests.FetchMetadata.INVALID_SESSION_ID;
 import static org.apache.kafka.test.TestUtils.toBuffer;
 import static org.junit.Assert.assertEquals;
 import static org.junit.Assert.assertFalse;
-import static org.junit.Assert.assertNull;
 import static org.junit.Assert.assertThrows;
 import static org.junit.Assert.assertTrue;
 import static org.junit.Assert.fail;
@@ -770,8 +769,8 @@ public class RequestResponseTest {
                 assertEquals(request.clientName(), deserialized.clientName());
                 assertEquals(request.clientVersion(), deserialized.clientVersion());
             } else {
-                assertNull(deserialized.clientName());
-                assertNull(deserialized.clientVersion());
+                assertEquals(ApiVersionsRequest.CLIENT_NAME_UNKNOWN, deserialized.clientName());
+                assertEquals(ApiVersionsRequest.CLIENT_VERSION_UNKNOWN, deserialized.clientVersion());
             }
 
             buffer.reset();
@@ -1296,13 +1295,7 @@ public class RequestResponseTest {
     }
 
     private ApiVersionsRequest createApiVersionRequest(int version) {
-        if (version > 2)
-            return new ApiVersionsRequest.Builder()
-                .clientName("Name")
-                .clientVersion("Version")
-                .build((short) version);
-        else
-            return new ApiVersionsRequest.Builder().build((short) version);
+        return new ApiVersionsRequest.Builder("Name", "Version").build((short) version);
     }
 
     private ApiVersionsResponse createApiVersionResponse() {
