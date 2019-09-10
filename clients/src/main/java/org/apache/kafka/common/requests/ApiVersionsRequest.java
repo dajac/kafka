@@ -31,8 +31,9 @@ public class ApiVersionsRequest extends AbstractRequest {
     public static final String CLIENT_NAME_UNKNOWN = "Unknown";
     public static final String CLIENT_VERSION_UNKNOWN = "Unknown";
 
-    private static final String CLIENT_NAME_KEY_NAME = "client_name";
-    private static final String CLIENT_VERSION_KEY_NAME = "client_version";
+    /* public for testing */
+    public static final String CLIENT_NAME_KEY_NAME = "client_name";
+    public static final String CLIENT_VERSION_KEY_NAME = "client_version";
 
     private static final Schema API_VERSIONS_REQUEST_V0 = new Schema();
 
@@ -100,7 +101,7 @@ public class ApiVersionsRequest extends AbstractRequest {
     }
 
     public ApiVersionsRequest(short version, Short unsupportedRequestVersion) {
-        this(version, unsupportedRequestVersion, null, null);
+        this(version, unsupportedRequestVersion, "", "");
     }
 
     public ApiVersionsRequest(short version, Short unsupportedRequestVersion, String clientName, String clientVersion) {
@@ -118,17 +119,26 @@ public class ApiVersionsRequest extends AbstractRequest {
     }
 
     public ApiVersionsRequest(Struct struct, short version) {
+        this(struct, version, null);
+    }
+
+    public ApiVersionsRequest(Struct struct, short version, Short unsupportedRequestVersion) {
         super(ApiKeys.API_VERSIONS, version);
 
-        this.unsupportedRequestVersion = null;
+        // Unlike other request types, the broker handles ApiVersion requests with higher versions than
+        // supported. It does so by treating the request as if it were v0 and returns a response using
+        // the v0 response schema. The reason for this is that the client does not yet know what versions
+        // a broker supports when this request is sent, so instead of assuming the lowest supported version,
+        // it can use the most recent version and only fallback to the old version when necessary.
+        this.unsupportedRequestVersion = unsupportedRequestVersion;
 
         if (struct.hasField(CLIENT_NAME_KEY_NAME))
-            this.clientName = (String) struct.get(CLIENT_NAME_KEY_NAME);
+            this.clientName = struct.getString(CLIENT_NAME_KEY_NAME);
         else
             this.clientName = "";
 
         if (struct.hasField(CLIENT_VERSION_KEY_NAME))
-            this.clientVersion = (String) struct.get(CLIENT_VERSION_KEY_NAME);
+            this.clientVersion = struct.getString(CLIENT_VERSION_KEY_NAME);
         else
             this.clientVersion = "";
     }

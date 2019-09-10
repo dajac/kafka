@@ -92,6 +92,7 @@ import org.apache.kafka.common.network.ListenerName;
 import org.apache.kafka.common.network.Send;
 import org.apache.kafka.common.protocol.ApiKeys;
 import org.apache.kafka.common.protocol.Errors;
+import org.apache.kafka.common.protocol.types.SchemaException;
 import org.apache.kafka.common.protocol.types.Struct;
 import org.apache.kafka.common.record.CompressionType;
 import org.apache.kafka.common.record.MemoryRecords;
@@ -810,6 +811,50 @@ public class RequestResponseTest {
 
             buffer.reset();
         }
+    }
+
+    @Test
+    public void testApiVersionsResponseParseResponseFailBack() {
+        final short latestVersion = ApiKeys.API_VERSIONS.latestVersion();
+        final short oldestVersion = ApiKeys.API_VERSIONS.oldestVersion();
+
+        for (short version = latestVersion; version >= oldestVersion; version--) {
+            final ApiVersionsResponse response = createApiVersionResponse();
+            final List<ApiVersion> apiVersions = new ArrayList<>(response.apiVersions());
+
+            ByteBuffer buffer = ByteBuffer.allocate(response.toStruct(version).sizeOf());
+            response.toStruct(version).writeTo(buffer);
+            buffer.flip();
+            buffer.mark();
+
+            Struct struct = ApiKeys.API_VERSIONS.parseResponse(latestVersion, buffer);
+            ApiVersionsResponse deserialized = new ApiVersionsResponse(struct);
+
+            assertEquals(deserialized.error().code(), response.error().code());
+
+            final List<ApiVersion> deserializedApiVersions = new ArrayList<>(deserialized.apiVersions());
+            for (int i = 0; i < apiVersions.size(); i++) {
+                assertEquals(apiVersions.get(i).apiKey, deserializedApiVersions.get(i).apiKey);
+                assertEquals(apiVersions.get(i).minVersion, deserializedApiVersions.get(i).minVersion);
+                assertEquals(apiVersions.get(i).maxVersion, deserializedApiVersions.get(i).maxVersion);
+            }
+
+            if (version > 0)
+                assertEquals(deserialized.throttleTimeMs(), response.throttleTimeMs());
+            else
+                assertEquals(deserialized.throttleTimeMs(), AbstractResponse.DEFAULT_THROTTLE_TIME);
+
+            buffer.reset();
+        }
+    }
+
+    @Test(expected = SchemaException.class)
+    public void testApiVersionsResponseParseResponseFailBackWithCrap() {
+        ByteBuffer buffer = ByteBuffer.allocate(8);
+        buffer.putInt(3709234);
+        buffer.putInt(29034);
+
+        ApiKeys.API_VERSIONS.parseResponse(ApiKeys.API_VERSIONS.latestVersion(), buffer);
     }
 
     private ResponseHeader createResponseHeader() {

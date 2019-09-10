@@ -309,17 +309,21 @@ public enum ApiKeys {
         return responseSchema(version).read(buffer);
     }
 
-    protected Struct parseResponse(short version, ByteBuffer buffer, short fallbackVersion) {
-        int bufferPosition = buffer.position();
-        try {
-            return responseSchema(version).read(buffer);
-        } catch (SchemaException e) {
-            if (version != fallbackVersion) {
-                buffer.position(bufferPosition);
-                return responseSchema(fallbackVersion).read(buffer);
-            } else
-                throw e;
+    protected Struct parseResponse(short version, ByteBuffer buffer, short minFallbackVersion) {
+        short currentVersion = version;
+
+        while (currentVersion > minFallbackVersion) {
+            int bufferPosition = buffer.position();
+            try {
+                return responseSchema(currentVersion).read(buffer);
+            } catch (SchemaException e) {
+                // Ignore, try out the next one
+            }
+            buffer.position(bufferPosition);
+            currentVersion--;
         }
+
+        return responseSchema(minFallbackVersion).read(buffer);
     }
 
     private Schema schemaFor(Schema[] versions, short version) {

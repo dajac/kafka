@@ -17,8 +17,12 @@
 
 package kafka.server
 
+import java.io.EOFException
+
+import org.apache.kafka.common.protocol.types.Struct
 import org.apache.kafka.common.protocol.{ApiKeys, Errors}
 import org.apache.kafka.common.requests.ApiVersionsResponse.ApiVersion
+import org.apache.kafka.common.requests.RequestContextTest
 import org.apache.kafka.common.requests.{ApiVersionsRequest, ApiVersionsResponse}
 import org.junit.Assert._
 import org.junit.Test
@@ -44,15 +48,40 @@ class ApiVersionsRequestTest extends BaseRequestTest {
 
   @Test
   def testApiVersionsRequest(): Unit = {
-    val apiVersionsResponse = sendApiVersionsRequest(new ApiVersionsRequest.Builder().build())
-    ApiVersionsRequestTest.validateApiVersionsResponse(apiVersionsResponse)
+    for (version <- ApiKeys.API_VERSIONS.oldestVersion() to ApiKeys.API_VERSIONS.latestVersion()) {
+      val sversion = version.asInstanceOf[Short]
+      val apiVersionsResponse = sendApiVersionsRequest(
+        new ApiVersionsRequest.Builder("name", "version").build(sversion),
+        Some(sversion),
+        sversion
+      )
+      assertEquals(Errors.NONE, apiVersionsResponse.error())
+      ApiVersionsRequestTest.validateApiVersionsResponse(apiVersionsResponse)
+    }
   }
 
   @Test
+  def testUnsupportedApiVersionsRequest(): Unit = {
+    // Test with a newer version the broker does not know about. As the version is prefixed
+    // by version 3, the broker will manage to fail back to it.
+    val struct = new Struct(RequestContextTest.API_VERSIONS_REQUEST_V4);
+    struct.setIfExists(ApiVersionsRequest.CLIENT_NAME_KEY_NAME, "Client Name");
+    struct.setIfExists(ApiVersionsRequest.CLIENT_VERSION_KEY_NAME, "Client Version");
+    struct.setIfExists(RequestContextTest.CLIENT_APP, "Client App");
+
+    // The broker does not support version 4 so it fails back to version 3, the latest
+    // it knows about
+    val response = connectAndSendStruct(struct, ApiKeys.API_VERSIONS, 4)
+    val apiVersionsResponse = ApiVersionsResponse.parse(response, 3)
+    assertEquals(Errors.NONE, apiVersionsResponse.error())
+    ApiVersionsRequestTest.validateApiVersionsResponse(apiVersionsResponse)
+  }
+
+  @Test(expected = classOf[EOFException])
   def testApiVersionsRequestWithUnsupportedVersion(): Unit = {
+    // Deserialization will fail, broker errors out
     val apiVersionsRequest = new ApiVersionsRequest(0)
-    val apiVersionsResponse = sendApiVersionsRequest(apiVersionsRequest, Some(Short.MaxValue), 0)
-    assertEquals(Errors.UNSUPPORTED_VERSION, apiVersionsResponse.error)
+    sendApiVersionsRequest(apiVersionsRequest, Some(Short.MaxValue), 0)
   }
 
   private def sendApiVersionsRequest(request: ApiVersionsRequest, apiVersion: Option[Short] = None, responseVersion: Short = 1): ApiVersionsResponse = {

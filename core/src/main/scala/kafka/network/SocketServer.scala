@@ -33,6 +33,8 @@ import kafka.network.RequestChannel.{CloseConnectionResponse, EndThrottlingRespo
 import kafka.network.Processor._
 import kafka.network.SocketServer._
 import kafka.security.CredentialProvider
+import kafka.server.ConnectionMetadata
+import kafka.server.ConnectionRegistry
 import kafka.server.{BrokerReconfigurable, KafkaConfig}
 import kafka.utils._
 import org.apache.kafka.common.config.ConfigException
@@ -43,6 +45,7 @@ import org.apache.kafka.common.metrics.stats.{CumulativeSum, Meter}
 import org.apache.kafka.common.network.KafkaChannel.ChannelMuteEvent
 import org.apache.kafka.common.network.{ChannelBuilder, ChannelBuilders, KafkaChannel, ListenerName, ListenerReconfigurable, Selectable, Send, Selector => KSelector}
 import org.apache.kafka.common.protocol.ApiKeys
+import org.apache.kafka.common.requests.ApiVersionsRequest
 import org.apache.kafka.common.requests.{RequestContext, RequestHeader}
 import org.apache.kafka.common.security.auth.SecurityProtocol
 import org.apache.kafka.common.utils.{KafkaThread, LogContext, Time}
@@ -98,6 +101,7 @@ class SocketServer(val config: KafkaConfig,
 
   private var nextProcessorId = 0
   private var connectionQuotas: ConnectionQuotas = _
+  private var connectionRegistry: ConnectionRegistry = _
   private var stoppedProcessingRequests = false
 
   /**
@@ -116,6 +120,7 @@ class SocketServer(val config: KafkaConfig,
   def startup(startupProcessors: Boolean = true): Unit = {
     this.synchronized {
       connectionQuotas = new ConnectionQuotas(config, time)
+      connectionRegistry = new ConnectionRegistry()
       createControlPlaneAcceptorAndProcessor(config.controlPlaneListener)
       createDataPlaneAcceptorsAndProcessors(config.numNetworkThreads, config.dataPlaneListeners)
       if (startupProcessors) {
@@ -305,6 +310,7 @@ class SocketServer(val config: KafkaConfig,
         stopProcessingRequests()
       dataPlaneRequestChannel.shutdown()
       controlPlaneRequestChannelOpt.foreach(_.shutdown())
+      connectionRegistry.close()
     }
     info("Shutdown completed")
   }
@@ -377,7 +383,8 @@ class SocketServer(val config: KafkaConfig,
       metrics,
       credentialProvider,
       memoryPool,
-      logContext
+      logContext,
+      connectionRegistry
     )
   }
 
@@ -674,6 +681,7 @@ private[kafka] class Processor(val id: Int,
                                credentialProvider: CredentialProvider,
                                memoryPool: MemoryPool,
                                logContext: LogContext,
+                               connectionRegistry: ConnectionRegistry,
                                connectionQueueSize: Int = ConnectionQueueSize) extends AbstractServerThread(connectionQuotas) with KafkaMetricsGroup {
 
   private object ConnectionId {
@@ -875,6 +883,7 @@ private[kafka] class Processor(val id: Int,
         openOrClosingChannel(receive.source) match {
           case Some(channel) =>
             val header = RequestHeader.parse(receive.payload)
+
             if (header.apiKey() == ApiKeys.SASL_HANDSHAKE && channel.maybeBeginServerReauthentication(receive, nowNanosSupplier))
               trace(s"Begin re-authentication: $channel")
             else {
@@ -885,10 +894,32 @@ private[kafka] class Processor(val id: Int,
                 expiredConnectionsKilledCount.record(null, 1, 0)
               } else {
                 val connectionId = receive.source
+                val connectionMetadata = connectionRegistry.getConnection(connectionId)
+
                 val context = new RequestContext(header, connectionId, channel.socketAddress,
-                  channel.principal, listenerName, securityProtocol)
+                  channel.principal, listenerName, securityProtocol,
+                  connectionMetadata.map(_.clientName).getOrElse(""),
+                  connectionMetadata.map(_.clientVersion).getOrElse(""))
                 val req = new RequestChannel.Request(processor = id, context = context,
                   startTimeNanos = nowNanos, memoryPool, receive.payload, requestChannel.metrics)
+
+
+                if (connectionMetadata.isEmpty && header.apiKey() == ApiKeys.API_VERSIONS) {
+                    val apiVersionRequest = req.body[ApiVersionsRequest]
+                    val clientName = if (apiVersionRequest.clientName() != null)
+                      apiVersionRequest.clientName()
+                    else
+                      ConnectionMetadata.UnknownClient
+                    val clientVersion = if (apiVersionRequest.clientVersion() != null)
+                      apiVersionRequest.clientVersion()
+                    else
+                      ConnectionMetadata.UnknownVersion
+
+                    connectionRegistry.putConnection(connectionId,
+                      ConnectionMetadata(header.clientId(), clientName, clientVersion, channel.socketAddress,
+                        channel.principal, listenerName.value, securityProtocol.name))
+                  }
+
                 requestChannel.sendRequest(req)
                 selector.mute(connectionId)
                 handleChannelMuteEvent(connectionId, ChannelMuteEvent.REQUEST_RECEIVED)
@@ -945,6 +976,9 @@ private[kafka] class Processor(val id: Int,
         inflightResponses.remove(connectionId).foreach(updateRequestMetrics)
         // the channel has been closed by the selector but the quotas still need to be updated
         connectionQuotas.dec(listenerName, InetAddress.getByName(remoteHost))
+
+        info(s"Disconnected $connectionId")
+        connectionRegistry.removeConnection(connectionId)
       } catch {
         case e: Throwable => processException(s"Exception while processing disconnection of $connectionId", e)
       }
@@ -968,13 +1002,15 @@ private[kafka] class Processor(val id: Int,
    */
   private def close(connectionId: String): Unit = {
     openOrClosingChannel(connectionId).foreach { channel =>
-      debug(s"Closing selector connection $connectionId")
+      info(s"Closing selector connection $connectionId")
       val address = channel.socketAddress
       if (address != null)
         connectionQuotas.dec(listenerName, address)
       selector.close(connectionId)
 
       inflightResponses.remove(connectionId).foreach(response => updateRequestMetrics(response))
+
+      connectionRegistry.removeConnection(connectionId)
     }
   }
 

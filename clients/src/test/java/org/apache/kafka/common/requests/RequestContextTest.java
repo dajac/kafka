@@ -20,6 +20,8 @@ import org.apache.kafka.common.network.ListenerName;
 import org.apache.kafka.common.network.Send;
 import org.apache.kafka.common.protocol.ApiKeys;
 import org.apache.kafka.common.protocol.Errors;
+import org.apache.kafka.common.protocol.types.Field;
+import org.apache.kafka.common.protocol.types.Schema;
 import org.apache.kafka.common.security.auth.SecurityProtocol;
 import org.apache.kafka.common.protocol.types.Struct;
 import org.apache.kafka.common.security.auth.KafkaPrincipal;
@@ -29,34 +31,109 @@ import java.net.InetAddress;
 import java.nio.ByteBuffer;
 import java.util.Collections;
 
+import static org.apache.kafka.common.protocol.types.Type.STRING;
+import static org.apache.kafka.common.requests.ApiVersionsRequest.CLIENT_NAME_KEY_NAME;
+import static org.apache.kafka.common.requests.ApiVersionsRequest.CLIENT_VERSION_KEY_NAME;
+
 import static org.junit.Assert.assertEquals;
+import static org.junit.Assert.assertFalse;
 import static org.junit.Assert.assertTrue;
 
 public class RequestContextTest {
 
+    public static final String CLIENT_APP = "client_app";
+
+    public static final Schema API_VERSIONS_REQUEST_V4 = new Schema(
+        new Field(CLIENT_NAME_KEY_NAME, STRING, "The name of the client."),
+        new Field(CLIENT_VERSION_KEY_NAME, STRING, "The version of the client."),
+        new Field(CLIENT_APP, STRING, "Whatever.")
+    );
+
     @Test
-    public void testSerdeUnsupportedApiVersionRequest() throws Exception {
+    public void testSerdeNewerApiVersionRequest() throws Exception {
         int correlationId = 23423;
 
-        RequestHeader header = new RequestHeader(ApiKeys.API_VERSIONS, Short.MAX_VALUE, "", correlationId);
+        RequestHeader header = new RequestHeader(ApiKeys.API_VERSIONS, (short) 4, "", correlationId);
         RequestContext context = new RequestContext(header, "0", InetAddress.getLocalHost(), KafkaPrincipal.ANONYMOUS,
-                new ListenerName("ssl"), SecurityProtocol.SASL_SSL);
-        assertEquals(0, context.apiVersion());
+            new ListenerName("ssl"), SecurityProtocol.SASL_SSL);
+        assertEquals(3, context.apiVersion());
 
-        // Write some garbage to the request buffer. This should be ignored since we will treat
-        // the unknown version type as v0 which has an empty request body.
-        ByteBuffer requestBuffer = ByteBuffer.allocate(8);
-        requestBuffer.putInt(3709234);
-        requestBuffer.putInt(29034);
+        Struct struct = new Struct(API_VERSIONS_REQUEST_V4);
+        struct.setIfExists(CLIENT_NAME_KEY_NAME, "Client Name");
+        struct.setIfExists(CLIENT_VERSION_KEY_NAME, "Client Version");
+        struct.setIfExists(CLIENT_APP, "Client App");
+
+        ByteBuffer requestBuffer = ByteBuffer.allocate(struct.sizeOf());
+        struct.writeTo(requestBuffer);
         requestBuffer.flip();
 
         RequestAndSize requestAndSize = context.parseRequest(requestBuffer);
         assertTrue(requestAndSize.request instanceof ApiVersionsRequest);
         ApiVersionsRequest request = (ApiVersionsRequest) requestAndSize.request;
         assertTrue(request.hasUnsupportedRequestVersion());
+        assertEquals("Client Name", request.clientName());
+        assertEquals("Client Version", request.clientVersion());
+    }
+
+    @Test
+    public void testSerdeLatestApiVersionRequest() throws Exception {
+        int correlationId = 23423;
+
+        RequestHeader header = new RequestHeader(ApiKeys.API_VERSIONS, (short) 3, "", correlationId);
+        RequestContext context = new RequestContext(header, "0", InetAddress.getLocalHost(), KafkaPrincipal.ANONYMOUS,
+            new ListenerName("ssl"), SecurityProtocol.SASL_SSL);
+        assertEquals(3, context.apiVersion());
+
+        Struct struct = new Struct(ApiKeys.API_VERSIONS.requestSchema((short) 3));
+        struct.setIfExists(CLIENT_NAME_KEY_NAME, "Client Name");
+        struct.setIfExists(CLIENT_VERSION_KEY_NAME, "Client Version");
+
+        ByteBuffer requestBuffer = ByteBuffer.allocate(struct.sizeOf());
+        struct.writeTo(requestBuffer);
+        requestBuffer.flip();
+
+        RequestAndSize requestAndSize = context.parseRequest(requestBuffer);
+        assertTrue(requestAndSize.request instanceof ApiVersionsRequest);
+        ApiVersionsRequest request = (ApiVersionsRequest) requestAndSize.request;
+        assertFalse(request.hasUnsupportedRequestVersion());
+        assertEquals("Client Name", request.clientName());
+        assertEquals("Client Version", request.clientVersion());
+    }
+
+    @Test
+    public void testSerdeOldestApiVersionRequest() throws Exception {
+        int correlationId = 23423;
+
+        RequestHeader header = new RequestHeader(ApiKeys.API_VERSIONS, (short) 0, "", correlationId);
+        RequestContext context = new RequestContext(header, "0", InetAddress.getLocalHost(), KafkaPrincipal.ANONYMOUS,
+            new ListenerName("ssl"), SecurityProtocol.SASL_SSL);
+        assertEquals(0, context.apiVersion());
+
+        Struct struct = new Struct(ApiKeys.API_VERSIONS.requestSchema((short) 0));
+
+        ByteBuffer requestBuffer = ByteBuffer.allocate(struct.sizeOf());
+        struct.writeTo(requestBuffer);
+        requestBuffer.flip();
+
+        RequestAndSize requestAndSize = context.parseRequest(requestBuffer);
+        assertTrue(requestAndSize.request instanceof ApiVersionsRequest);
+        ApiVersionsRequest request = (ApiVersionsRequest) requestAndSize.request;
+        assertFalse(request.hasUnsupportedRequestVersion());
+        assertEquals(ApiVersionsRequest.CLIENT_NAME_UNKNOWN, request.clientName());
+        assertEquals(ApiVersionsRequest.CLIENT_VERSION_UNKNOWN, request.clientVersion());
+    }
+
+    @Test
+    public void testBuildResponse() throws Exception {
+        int correlationId = 23423;
+
+        RequestHeader header = new RequestHeader(ApiKeys.API_VERSIONS, Short.MAX_VALUE, "", correlationId);
+        RequestContext context = new RequestContext(header, "0", InetAddress.getLocalHost(), KafkaPrincipal.ANONYMOUS,
+            new ListenerName("ssl"), SecurityProtocol.SASL_SSL);
+        assertEquals(3, context.apiVersion());
 
         Send send = context.buildResponse(new ApiVersionsResponse(0, Errors.UNSUPPORTED_VERSION,
-                Collections.<ApiVersionsResponse.ApiVersion>emptyList()));
+            Collections.<ApiVersionsResponse.ApiVersion>emptyList()));
         ByteBufferChannel channel = new ByteBufferChannel(256);
         send.writeTo(channel);
 
