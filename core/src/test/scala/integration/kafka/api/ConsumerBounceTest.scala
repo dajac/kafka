@@ -23,6 +23,7 @@ import org.apache.kafka.clients.consumer._
 import org.apache.kafka.clients.producer.{KafkaProducer, ProducerRecord}
 import org.apache.kafka.common.TopicPartition
 import org.apache.kafka.common.errors.GroupMaxSizeReachedException
+import org.apache.kafka.common.internals.Topic
 import org.apache.kafka.common.message.FindCoordinatorRequestData
 import org.apache.kafka.common.protocol.Errors
 import org.apache.kafka.common.requests.{FindCoordinatorRequest, FindCoordinatorResponse}
@@ -45,7 +46,7 @@ class ConsumerBounceTest extends AbstractConsumerTest with Logging {
 
   this.consumerConfig.setProperty(ConsumerConfig.ENABLE_AUTO_COMMIT_CONFIG, "true")
 
-  override def generateConfigs = {
+  override def generateConfigs: Seq[KafkaConfig] = {
     generateKafkaConfigs()
   }
 
@@ -58,10 +59,15 @@ class ConsumerBounceTest extends AbstractConsumerTest with Logging {
     properties.put(KafkaConfig.GroupMaxSizeProp, maxGroupSize)
     properties.put(KafkaConfig.UncleanLeaderElectionEnableProp, "true")
     properties.put(KafkaConfig.AutoCreateTopicsEnableProp, "false")
-    properties.put(KafkaConfig.AutoLeaderRebalanceEnableProp, "false")
 
     FixedPortTestUtils.createBrokerConfigs(brokerCount, zkConnect, enableControlledShutdown = false)
       .map(KafkaConfig.fromProps(_, properties))
+  }
+
+  private def alterKafkaConfig(config: KafkaConfig, maxGroupSize: String = maxGroupSize.toString): KafkaConfig = {
+    val originalConfig = config.originals
+    originalConfig.put(KafkaConfig.GroupMaxSizeProp, maxGroupSize)
+    new KafkaConfig(originalConfig)
   }
 
   @After
@@ -304,6 +310,9 @@ class ConsumerBounceTest extends AbstractConsumerTest with Logging {
     val maxGroupSize = 2
     val consumerCount = maxGroupSize + 1
     val partitionCount = consumerCount * 2
+    val topicPartition = new TopicPartition(Topic.GROUP_METADATA_TOPIC_NAME, 0)
+
+    val adminClient = createAdminClient()
 
     this.consumerConfig.setProperty(ConsumerConfig.MAX_POLL_INTERVAL_MS_CONFIG, "60000")
     this.consumerConfig.setProperty(ConsumerConfig.HEARTBEAT_INTERVAL_MS_CONFIG, "1000")
@@ -314,12 +323,13 @@ class ConsumerBounceTest extends AbstractConsumerTest with Logging {
       consumerPollers, List[String](topic), partitions, group)
 
     // roll all brokers with a lesser max group size to make sure coordinator has the new config
-    val newConfigs = generateKafkaConfigs(maxGroupSize.toString)
     for (serverIdx <- servers.indices) {
       killBroker(serverIdx)
-      val config = newConfigs(serverIdx)
+      // Alter the existing config to not loose the listeners, log.dir, etc.
+      val config = alterKafkaConfig(instanceConfigs(serverIdx), maxGroupSize.toString)
       servers(serverIdx) = TestUtils.createServer(config, time = brokerTime(config.brokerId))
       restartDeadBrokers()
+      TestUtils.waitForBrokersInIsr(adminClient, topicPartition, Set(0, 1, 2))
     }
 
     def raisedExceptions: Seq[Throwable] = {
