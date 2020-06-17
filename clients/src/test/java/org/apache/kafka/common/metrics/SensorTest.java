@@ -257,21 +257,21 @@ public class SensorTest {
 
         // Recording a first value at T+0s to bring the avg rate to 9. Value is accepted
         // because the quota is not exhausted yet.
-        sensor.record(90, time.milliseconds(), QuotaEnforcementType.LOOSE);
+        sensor.record(90, time.milliseconds(), QuotaEnforcementType.PERMISSIVE);
         assertEquals(9, rateMetric.measurableValue(time.milliseconds()), 0.1);
 
         // Recording a second value at T+1s to bring the avg rate to 18. Value is accepted
         // and rate is updated even though the quota is exhausted.
         time.sleep(1000);
         assertThrows(QuotaViolationException.class,
-            () -> sensor.record(90, time.milliseconds(), QuotaEnforcementType.LOOSE));
+            () -> sensor.record(90, time.milliseconds(), QuotaEnforcementType.PERMISSIVE));
         assertEquals(18, rateMetric.measurableValue(time.milliseconds()), 0.1);
 
         // Recording a second value at T+1s to bring the avg rate to 27. Value is accepted
         // and rate is updated even though the quota is exhausted.
         time.sleep(1000);
         assertThrows(QuotaViolationException.class,
-            () -> sensor.record(90, time.milliseconds(), QuotaEnforcementType.LOOSE));
+            () -> sensor.record(90, time.milliseconds(), QuotaEnforcementType.PERMISSIVE));
         assertEquals(27, rateMetric.measurableValue(time.milliseconds()), 0.1);
     }
 }

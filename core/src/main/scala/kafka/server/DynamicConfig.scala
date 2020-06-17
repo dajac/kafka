@@ -35,15 +35,15 @@ import scala.jdk.CollectionConverters._
 object DynamicConfig {
 
   object Broker {
-    //Properties
+    // Properties
     val LeaderReplicationThrottledRateProp = "leader.replication.throttled.rate"
     val FollowerReplicationThrottledRateProp = "follower.replication.throttled.rate"
     val ReplicaAlterLogDirsIoMaxBytesPerSecondProp = "replica.alter.log.dirs.io.max.bytes.per.second"
 
-    //Defaults
+    // Defaults
     val DefaultReplicationThrottledRate = ReplicationQuotaManagerConfig.QuotaBytesPerSecondDefault
 
-    //Documentation
+    // Documentation
     val LeaderReplicationThrottledRateDoc = "A long representing the upper bound (bytes/sec) on replication traffic for leaders enumerated in the " +
       s"property ${LogConfig.LeaderReplicationThrottledReplicasProp} (for each topic). This property can be only set dynamically. It is suggested that the " +
       s"limit be kept above 1MB/s for accurate behaviour."
@@ -53,9 +53,9 @@ object DynamicConfig {
     val ReplicaAlterLogDirsIoMaxBytesPerSecondDoc = "A long representing the upper bound (bytes/sec) on disk IO used for moving replica between log directories on the same broker. " +
       s"This property can be only set dynamically. It is suggested that the limit be kept above 1MB/s for accurate behaviour."
 
-    //Definitions
+    // Definitions
     val brokerConfigDef = new ConfigDef()
-      //round minimum value down, to make it easier for users.
+      // Round minimum value down, to make it easier for users.
       .define(LeaderReplicationThrottledRateProp, LONG, DefaultReplicationThrottledRate, atLeast(0), MEDIUM, LeaderReplicationThrottledRateDoc)
       .define(FollowerReplicationThrottledRateProp, LONG, DefaultReplicationThrottledRate, atLeast(0), MEDIUM, FollowerReplicationThrottledRateDoc)
       .define(ReplicaAlterLogDirsIoMaxBytesPerSecondProp, LONG, DefaultReplicationThrottledRate, atLeast(0), MEDIUM, ReplicaAlterLogDirsIoMaxBytesPerSecondDoc)
@@ -68,26 +68,31 @@ object DynamicConfig {
   }
 
   object Client {
-    //Properties
+    // Properties
     val ProducerByteRateOverrideProp = "producer_byte_rate"
     val ConsumerByteRateOverrideProp = "consumer_byte_rate"
     val RequestPercentageOverrideProp = "request_percentage"
+    val ControllerMutationOverrideProp = "controller_mutation_rate"
 
-    //Defaults
+    // Defaults
     val DefaultProducerOverride = ClientQuotaManagerConfig.QuotaBytesPerSecondDefault
     val DefaultConsumerOverride = ClientQuotaManagerConfig.QuotaBytesPerSecondDefault
     val DefaultRequestOverride = ClientQuotaManagerConfig.QuotaRequestPercentDefault
+    val DefaultControllerMutationOverride = Long.MaxValue // TODO Move this in the correct manager
 
-    //Documentation
+    // Documentation
     val ProducerOverrideDoc = "A rate representing the upper bound (bytes/sec) for producer traffic."
     val ConsumerOverrideDoc = "A rate representing the upper bound (bytes/sec) for consumer traffic."
     val RequestOverrideDoc = "A percentage representing the upper bound of time spent for processing requests."
+    val ControllerMutationOverrideDoc = "The rate at which mutations are accepted for the create topics request, " +
+      "the create partitions request and the delete topics request. The rate is accumulated by the number of partitions created or deleted."
 
-    //Definitions
+    // Definitions
     private val clientConfigs = new ConfigDef()
       .define(ProducerByteRateOverrideProp, LONG, DefaultProducerOverride, MEDIUM, ProducerOverrideDoc)
       .define(ConsumerByteRateOverrideProp, LONG, DefaultConsumerOverride, MEDIUM, ConsumerOverrideDoc)
       .define(RequestPercentageOverrideProp, DOUBLE, DefaultRequestOverride, MEDIUM, RequestOverrideDoc)
+      .define(ControllerMutationOverrideProp, LONG, DefaultConsumerOverride, MEDIUM, ControllerMutationOverrideDoc)
 
     def configKeys = clientConfigs.configKeys
 
@@ -97,12 +102,12 @@ object DynamicConfig {
   }
 
   object User {
-
-    //Definitions
+    // Definitions
     private val userConfigs = CredentialProvider.userCredentialConfigs
       .define(Client.ProducerByteRateOverrideProp, LONG, Client.DefaultProducerOverride, MEDIUM, Client.ProducerOverrideDoc)
       .define(Client.ConsumerByteRateOverrideProp, LONG, Client.DefaultConsumerOverride, MEDIUM, Client.ConsumerOverrideDoc)
       .define(Client.RequestPercentageOverrideProp, DOUBLE, Client.DefaultRequestOverride, MEDIUM, Client.RequestOverrideDoc)
+      .define(Client.ControllerMutationOverrideProp, LONG, Client.DefaultConsumerOverride, MEDIUM, Client.ControllerMutationOverrideDoc)
 
     def configKeys = userConfigs.configKeys
 
@@ -112,7 +117,7 @@ object DynamicConfig {
   }
 
   private def validate(configDef: ConfigDef, props: Properties, customPropsAllowed: Boolean) = {
-    //Validate Names
+    // Validate Names
     val names = configDef.names()
     val propKeys = props.keySet.asScala.map(_.asInstanceOf[String])
     if (!customPropsAllowed) {
@@ -120,7 +125,7 @@ object DynamicConfig {
       require(unknownKeys.isEmpty, s"Unknown Dynamic Configuration: $unknownKeys.")
     }
     val propResolved = DynamicBrokerConfig.resolveVariableConfigs(props)
-    //ValidateValues
+    // ValidateValues
     configDef.parse(propResolved)
   }
 }

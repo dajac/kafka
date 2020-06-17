@@ -155,11 +155,13 @@ object ClientQuotaManager {
  * @param config @ClientQuotaManagerConfig quota configs
  * @param metrics @Metrics Metrics instance
  * @param quotaType Quota type of this quota manager
+ * @param quotaEnforcementType Quota enforcement type of this quota manager
  * @param time @Time object to use
  */
 class ClientQuotaManager(private val config: ClientQuotaManagerConfig,
                          private val metrics: Metrics,
                          private val quotaType: QuotaType,
+                         private val quotaEnforcementType: QuotaEnforcementType,
                          private val time: Time,
                          threadNamePrefix: String,
                          clientQuotaCallback: Option[ClientQuotaCallback] = None) extends Logging {
@@ -253,7 +255,7 @@ class ClientQuotaManager(private val config: ClientQuotaManagerConfig,
   def recordAndGetThrottleTimeMs(session: Session, clientId: String, value: Double, timeMs: Long): Int = {
     val clientSensors = getOrCreateQuotaSensors(session, clientId)
     try {
-      clientSensors.quotaSensor.record(value, timeMs)
+      clientSensors.quotaSensor.record(value, timeMs, quotaEnforcementType)
       0
     } catch {
       case e: QuotaViolationException =>
@@ -374,7 +376,8 @@ class ClientQuotaManager(private val config: ClientQuotaManagerConfig,
         Some(getQuotaMetricConfig(metricTags)),
         new Rate
       ),
-      sensorAccessor.getOrCreate(getThrottleTimeSensorName(metricTags),
+      sensorAccessor.getOrCreate(
+        getThrottleTimeSensorName(metricTags),
         ClientQuotaManagerConfig.InactiveSensorExpirationTimeSeconds,
         throttleMetricName(metricTags),
         None,
@@ -537,6 +540,7 @@ class ClientQuotaManager(private val config: ClientQuotaManagerConfig,
       case QuotaType.Fetch => ClientQuotaType.FETCH
       case QuotaType.Produce => ClientQuotaType.PRODUCE
       case QuotaType.Request => ClientQuotaType.REQUEST
+      case QuotaType.ControllerMutation => ClientQuotaType.CONTROLLER_MUTATION
       case _ => throw new IllegalArgumentException(s"Not a client quota type: $quotaType")
     }
   }

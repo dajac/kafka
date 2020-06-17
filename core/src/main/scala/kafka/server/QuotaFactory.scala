@@ -20,6 +20,7 @@ import kafka.server.QuotaType._
 import kafka.utils.Logging
 import org.apache.kafka.common.TopicPartition
 import org.apache.kafka.common.metrics.Metrics
+import org.apache.kafka.common.metrics.Sensor.QuotaEnforcementType
 import org.apache.kafka.server.quota.ClientQuotaCallback
 import org.apache.kafka.common.utils.Time
 
@@ -27,6 +28,7 @@ object QuotaType  {
   case object Fetch extends QuotaType
   case object Produce extends QuotaType
   case object Request extends QuotaType
+  case object ControllerMutation extends QuotaType
   case object LeaderReplication extends QuotaType
   case object FollowerReplication extends QuotaType
   case object AlterLogDirsReplication extends QuotaType
@@ -44,6 +46,7 @@ object QuotaFactory extends Logging {
   case class QuotaManagers(fetch: ClientQuotaManager,
                            produce: ClientQuotaManager,
                            request: ClientRequestQuotaManager,
+                           controllerMutation: ClientQuotaManager,
                            leader: ReplicationQuotaManager,
                            follower: ReplicationQuotaManager,
                            alterLogDirs: ReplicationQuotaManager,
@@ -52,6 +55,7 @@ object QuotaFactory extends Logging {
       fetch.shutdown
       produce.shutdown
       request.shutdown
+      controllerMutation.shutdown
       clientQuotaCallback.foreach(_.close())
     }
   }
@@ -61,9 +65,13 @@ object QuotaFactory extends Logging {
     val clientQuotaCallback = Option(cfg.getConfiguredInstance(KafkaConfig.ClientQuotaCallbackClassProp,
       classOf[ClientQuotaCallback]))
     QuotaManagers(
-      new ClientQuotaManager(clientFetchConfig(cfg), metrics, Fetch, time, threadNamePrefix, clientQuotaCallback),
-      new ClientQuotaManager(clientProduceConfig(cfg), metrics, Produce, time, threadNamePrefix, clientQuotaCallback),
+      new ClientQuotaManager(clientFetchConfig(cfg), metrics, Fetch, QuotaEnforcementType.PERMISSIVE, time,
+        threadNamePrefix, clientQuotaCallback),
+      new ClientQuotaManager(clientProduceConfig(cfg), metrics, Produce, QuotaEnforcementType.PERMISSIVE, time,
+        threadNamePrefix, clientQuotaCallback),
       new ClientRequestQuotaManager(clientRequestConfig(cfg), metrics, time, threadNamePrefix, clientQuotaCallback),
+      new ClientQuotaManager(clientControllerMutationConfig(cfg), metrics, ControllerMutation,
+        QuotaEnforcementType.STRICT, time, threadNamePrefix, clientQuotaCallback),
       new ReplicationQuotaManager(replicationConfig(cfg), metrics, LeaderReplication, time),
       new ReplicationQuotaManager(replicationConfig(cfg), metrics, FollowerReplication, time),
       new ReplicationQuotaManager(alterLogDirsReplicationConfig(cfg), metrics, AlterLogDirsReplication, time),
@@ -95,6 +103,13 @@ object QuotaFactory extends Logging {
     ClientQuotaManagerConfig(
       numQuotaSamples = cfg.numQuotaSamples,
       quotaWindowSizeSeconds = cfg.quotaWindowSizeSeconds
+    )
+  }
+
+  def clientControllerMutationConfig(cfg: KafkaConfig): ClientQuotaManagerConfig = {
+    ClientQuotaManagerConfig(
+      numQuotaSamples = cfg.numControllerQuotaSamples,
+      quotaWindowSizeSeconds = cfg.controllerQuotaWindowSizeSeconds
     )
   }
 

@@ -115,7 +115,7 @@ public final class Sensor {
          * The quota is enforced after updating the sensor. An update
          * is always accepted even if the quota is already exhausted.
          */
-        LOOSE
+        PERMISSIVE
     }
 
     private final RecordingLevel recordingLevel;
@@ -168,7 +168,7 @@ public final class Sensor {
      */
     public void record() {
         if (shouldRecord()) {
-            recordInternal(1.0d, time.milliseconds(), QuotaEnforcementType.LOOSE);
+            recordInternal(1.0d, time.milliseconds(), QuotaEnforcementType.PERMISSIVE);
         }
     }
 
@@ -180,7 +180,7 @@ public final class Sensor {
      */
     public void record(double value) {
         if (shouldRecord()) {
-            recordInternal(value, time.milliseconds(), QuotaEnforcementType.LOOSE);
+            recordInternal(value, time.milliseconds(), QuotaEnforcementType.PERMISSIVE);
         }
     }
 
@@ -194,7 +194,7 @@ public final class Sensor {
      */
     public void record(double value, long timeMs) {
         if (shouldRecord()) {
-            recordInternal(value, timeMs, QuotaEnforcementType.LOOSE);
+            recordInternal(value, timeMs, QuotaEnforcementType.PERMISSIVE);
         }
     }
 
@@ -210,7 +210,7 @@ public final class Sensor {
     @Deprecated
     public void record(double value, long timeMs, boolean checkQuotas) {
         if (shouldRecord()) {
-            recordInternal(value, timeMs, checkQuotas ? QuotaEnforcementType.LOOSE : QuotaEnforcementType.NONE);
+            recordInternal(value, timeMs, checkQuotas ? QuotaEnforcementType.PERMISSIVE : QuotaEnforcementType.NONE);
         }
     }
 
@@ -239,7 +239,7 @@ public final class Sensor {
                 for (Stat stat : this.stats)
                     stat.record(config, value, timeMs);
             }
-            if (quotaEnforcementType == QuotaEnforcementType.LOOSE)
+            if (quotaEnforcementType == QuotaEnforcementType.PERMISSIVE)
                 checkQuotas(timeMs);
         }
         for (Sensor parent : parents)

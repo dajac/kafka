@@ -20,6 +20,7 @@ import java.util.concurrent.TimeUnit
 
 import kafka.network.RequestChannel
 import org.apache.kafka.common.MetricName
+import org.apache.kafka.common.metrics.Sensor.QuotaEnforcementType
 import org.apache.kafka.common.metrics._
 import org.apache.kafka.common.utils.Time
 import org.apache.kafka.server.quota.ClientQuotaCallback
@@ -32,7 +33,7 @@ class ClientRequestQuotaManager(private val config: ClientQuotaManagerConfig,
                                 private val time: Time,
                                 threadNamePrefix: String,
                                 quotaCallback: Option[ClientQuotaCallback])
-                                extends ClientQuotaManager(config, metrics, QuotaType.Request, time, threadNamePrefix, quotaCallback) {
+                                extends ClientQuotaManager(config, metrics, QuotaType.Request, QuotaEnforcementType.PERMISSIVE, time, threadNamePrefix, quotaCallback) {
   val maxThrottleTimeMs = TimeUnit.SECONDS.toMillis(this.config.quotaWindowSizeSeconds)
   def exemptSensor = getOrCreateSensor(exemptSensorName, exemptMetricName)
 
