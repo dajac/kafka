@@ -461,6 +461,11 @@ class ClientQuotaManagerTest {
   }
 
   @Test
+  def testControllerMutationQuotaViolation(): Unit = {
+
+  }
+
+  @Test
   def testExpireThrottleTimeSensor(): Unit = {
     val clientMetrics = new ClientQuotaManager(config, metrics, Produce, QuotaEnforcementType.PERMISSIVE, time, "")
     try {
