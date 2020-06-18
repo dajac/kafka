@@ -27,15 +27,20 @@ import org.apache.kafka.server.quota.ClientQuotaCallback
 
 import scala.jdk.CollectionConverters._
 
-
 class ClientRequestQuotaManager(private val config: ClientQuotaManagerConfig,
                                 private val metrics: Metrics,
                                 private val time: Time,
                                 threadNamePrefix: String,
                                 quotaCallback: Option[ClientQuotaCallback])
-                                extends ClientQuotaManager(config, metrics, QuotaType.Request, QuotaEnforcementType.PERMISSIVE, time, threadNamePrefix, quotaCallback) {
-  val maxThrottleTimeMs = TimeUnit.SECONDS.toMillis(this.config.quotaWindowSizeSeconds)
-  def exemptSensor = getOrCreateSensor(exemptSensorName, exemptMetricName)
+    extends ClientQuotaManager(config, metrics, QuotaType.Request, QuotaEnforcementType.PERMISSIVE,
+      time, threadNamePrefix, quotaCallback) {
+
+  private val maxThrottleTimeMs = TimeUnit.SECONDS.toMillis(this.config.quotaWindowSizeSeconds)
+  private val exemptMetricName: MetricName = metrics.metricName("exempt-request-time",
+    QuotaType.Request.toString, "Tracking exempt-request-time utilization percentage")
+  private val exemptSensorName: String = "exempt-" + QuotaType.Request
+
+  val exemptSensor: Sensor = getOrCreateSensor(exemptSensorName, exemptMetricName)
 
   def recordExempt(value: Double): Unit = {
     exemptSensor.record(value)
@@ -50,7 +55,7 @@ class ClientRequestQuotaManager(private val config: ClientQuotaManagerConfig,
   def maybeRecordAndGetThrottleTimeMs(request: RequestChannel.Request, timeMs: Long): Int = {
     if (quotasEnabled) {
       request.recordNetworkThreadTimeCallback = Some(timeNanos => recordNoThrottle(
-        getOrCreateQuotaSensors(request.session, request.header.clientId), nanosToPercentage(timeNanos)))
+        request.session, request.header.clientId, nanosToPercentage(timeNanos)))
       recordAndGetThrottleTimeMs(request.session, request.header.clientId,
         nanosToPercentage(request.requestThreadTimeNanos), timeMs)
     } else {
@@ -74,13 +79,6 @@ class ClientRequestQuotaManager(private val config: ClientQuotaManagerConfig,
       "Tracking request-time per user/client-id",
       quotaMetricTags.asJava)
   }
-
-  private def exemptMetricName: MetricName = {
-    metrics.metricName("exempt-request-time", QuotaType.Request.toString,
-                   "Tracking exempt-request-time utilization percentage")
-  }
-
-  private def exemptSensorName: String = "exempt-" + QuotaType.Request
 
   private def nanosToPercentage(nanos: Long): Double = nanos * ClientQuotaManagerConfig.NanosToPercentagePerSecond
 

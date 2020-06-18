@@ -23,6 +23,7 @@ import org.apache.kafka.common.metrics.Metrics
 import org.apache.kafka.common.metrics.Sensor.QuotaEnforcementType
 import org.apache.kafka.server.quota.ClientQuotaCallback
 import org.apache.kafka.common.utils.Time
+import org.apache.kafka.server.quota.ClientQuotaType
 
 object QuotaType  {
   case object Fetch extends QuotaType
@@ -32,6 +33,16 @@ object QuotaType  {
   case object LeaderReplication extends QuotaType
   case object FollowerReplication extends QuotaType
   case object AlterLogDirsReplication extends QuotaType
+
+  def toClientQuotaType(quotaType: QuotaType): ClientQuotaType = {
+    quotaType match {
+      case QuotaType.Fetch => ClientQuotaType.FETCH
+      case QuotaType.Produce => ClientQuotaType.PRODUCE
+      case QuotaType.Request => ClientQuotaType.REQUEST
+      case QuotaType.ControllerMutation => ClientQuotaType.CONTROLLER_MUTATION
+      case _ => throw new IllegalArgumentException(s"Not a client quota type: $quotaType")
+    }
+  }
 }
 sealed trait QuotaType
 
@@ -46,7 +57,7 @@ object QuotaFactory extends Logging {
   case class QuotaManagers(fetch: ClientQuotaManager,
                            produce: ClientQuotaManager,
                            request: ClientRequestQuotaManager,
-                           controllerMutation: ClientQuotaManager,
+                           controllerMutation: ControllerMutationQuotaManager,
                            leader: ReplicationQuotaManager,
                            follower: ReplicationQuotaManager,
                            alterLogDirs: ReplicationQuotaManager,
@@ -70,8 +81,8 @@ object QuotaFactory extends Logging {
       new ClientQuotaManager(clientProduceConfig(cfg), metrics, Produce, QuotaEnforcementType.PERMISSIVE, time,
         threadNamePrefix, clientQuotaCallback),
       new ClientRequestQuotaManager(clientRequestConfig(cfg), metrics, time, threadNamePrefix, clientQuotaCallback),
-      new ClientQuotaManager(clientControllerMutationConfig(cfg), metrics, ControllerMutation,
-        QuotaEnforcementType.STRICT, time, threadNamePrefix, clientQuotaCallback),
+      new ControllerMutationQuotaManager(clientControllerMutationConfig(cfg), metrics, time,
+        threadNamePrefix, clientQuotaCallback),
       new ReplicationQuotaManager(replicationConfig(cfg), metrics, LeaderReplication, time),
       new ReplicationQuotaManager(replicationConfig(cfg), metrics, FollowerReplication, time),
       new ReplicationQuotaManager(alterLogDirsReplicationConfig(cfg), metrics, AlterLogDirsReplication, time),

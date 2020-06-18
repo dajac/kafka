@@ -64,11 +64,9 @@ object ClientQuotaManagerConfig {
   val DefaultNumQuotaSamples = 11
   val DefaultQuotaWindowSizeSeconds = 1
   // Purge sensors after 1 hour of inactivity
-  val InactiveSensorExpirationTimeSeconds  = 3600
+  val InactiveSensorExpirationTimeSeconds = 3600
   val QuotaRequestPercentDefault = Int.MaxValue.toDouble
   val NanosToPercentagePerSecond = 100.0 / TimeUnit.SECONDS.toNanos(1)
-
-  val UnlimitedQuota = Quota.upperBound(Long.MaxValue)
 }
 
 object QuotaTypes {
@@ -112,10 +110,12 @@ object ClientQuotaManager {
                               clientIdEntity: Option[ClientQuotaEntity.ConfigEntity]) extends ClientQuotaEntity {
     override def configEntities: util.List[ClientQuotaEntity.ConfigEntity] =
       (userEntity.toList ++ clientIdEntity.toList).asJava
+
     def sanitizedUser: String = userEntity.map {
       case entity: UserEntity => entity.sanitizedUser
       case DefaultUserEntity => ConfigEntityName.Default
     }.getOrElse("")
+
     def clientId: String = clientIdEntity.map(_.name).getOrElse("")
 
     override def toString: String = {
@@ -166,7 +166,7 @@ class ClientQuotaManager(private val config: ClientQuotaManagerConfig,
                          threadNamePrefix: String,
                          clientQuotaCallback: Option[ClientQuotaCallback] = None) extends Logging {
   private val staticConfigClientIdQuota = Quota.upperBound(config.quotaBytesPerSecondDefault.toDouble)
-  private val clientQuotaType = quotaTypeToClientQuotaType(quotaType)
+  private val clientQuotaType = QuotaType.toClientQuotaType(quotaType)
   @volatile private var quotaTypesEnabled = clientQuotaCallback match {
     case Some(_) => QuotaTypes.CustomQuotas
     case None =>
@@ -180,8 +180,7 @@ class ClientQuotaManager(private val config: ClientQuotaManagerConfig,
   private val quotaCallback = clientQuotaCallback.getOrElse(new DefaultQuotaCallback)
 
   private val delayQueueSensor = metrics.sensor(quotaType.toString + "-delayQueue")
-  delayQueueSensor.add(metrics.metricName("queue-size",
-    quotaType.toString,
+  delayQueueSensor.add(metrics.metricName("queue-size", quotaType.toString,
     "Tracks the size of the delay queue"), new CumulativeSum())
   start() // Use start method to keep spotbugs happy
   private def start(): Unit = {
@@ -265,6 +264,16 @@ class ClientQuotaManager(private val config: ClientQuotaManagerConfig,
     }
   }
 
+  /**
+   * Records that a user/clientId changed some metric being throttled without checking for
+   * quota violation. The aggregate value will subsequently be used for throttling when the
+   * next request is processed.
+   */
+  def recordNoThrottle(session: Session, clientId: String, value: Double): Unit = {
+    val clientSensors = getOrCreateQuotaSensors(session, clientId)
+    clientSensors.quotaSensor.record(value, time.milliseconds(), QuotaEnforcementType.NONE)
+  }
+
   /** "Unrecord" the given value that has already been recorded for the given user/client by recording a negative value
     * of the same quantity.
     *
@@ -295,15 +304,6 @@ class ClientQuotaManager(private val config: ClientQuotaManagerConfig,
       delayQueueSensor.record()
       debug("Channel throttled for sensor (%s). Delay time: (%d)".format(clientSensors.quotaSensor.name(), throttleTimeMs))
     }
-  }
-
-  /**
-   * Records that a user/clientId changed some metric being throttled without checking for
-   * quota violation. The aggregate value will subsequently be used for throttling when the
-   * next request is processed.
-   */
-  def recordNoThrottle(clientSensors: ClientSensors, value: Double): Unit = {
-    clientSensors.quotaSensor.record(value, time.milliseconds(), QuotaEnforcementType.NONE)
   }
 
   /**
@@ -533,16 +533,6 @@ class ClientQuotaManager(private val config: ClientQuotaManagerConfig,
       quotaType.toString,
       "Tracking average throttle-time per user/client-id",
       quotaMetricTags.asJava)
-  }
-
-  private def quotaTypeToClientQuotaType(quotaType: QuotaType): ClientQuotaType = {
-    quotaType match {
-      case QuotaType.Fetch => ClientQuotaType.FETCH
-      case QuotaType.Produce => ClientQuotaType.PRODUCE
-      case QuotaType.Request => ClientQuotaType.REQUEST
-      case QuotaType.ControllerMutation => ClientQuotaType.CONTROLLER_MUTATION
-      case _ => throw new IllegalArgumentException(s"Not a client quota type: $quotaType")
-    }
   }
 
   def shutdown(): Unit = {
