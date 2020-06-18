@@ -30,8 +30,8 @@ import scala.jdk.CollectionConverters._
 class ClientRequestQuotaManager(private val config: ClientQuotaManagerConfig,
                                 private val metrics: Metrics,
                                 private val time: Time,
-                                threadNamePrefix: String,
-                                quotaCallback: Option[ClientQuotaCallback])
+                                private val threadNamePrefix: String,
+                                private val quotaCallback: Option[ClientQuotaCallback])
     extends ClientQuotaManager(config, metrics, QuotaType.Request, QuotaEnforcementType.PERMISSIVE,
       time, threadNamePrefix, quotaCallback) {
 

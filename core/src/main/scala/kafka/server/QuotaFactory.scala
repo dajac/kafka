@@ -44,6 +44,7 @@ object QuotaType  {
     }
   }
 }
+
 sealed trait QuotaType
 
 object QuotaFactory extends Logging {

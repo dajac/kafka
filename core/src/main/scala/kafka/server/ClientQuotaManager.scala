@@ -163,25 +163,29 @@ class ClientQuotaManager(private val config: ClientQuotaManagerConfig,
                          private val quotaType: QuotaType,
                          private val quotaEnforcementType: QuotaEnforcementType,
                          private val time: Time,
-                         threadNamePrefix: String,
-                         clientQuotaCallback: Option[ClientQuotaCallback] = None) extends Logging {
+                         private val threadNamePrefix: String,
+                         private val clientQuotaCallback: Option[ClientQuotaCallback] = None) extends Logging {
+
+  private val lock = new ReentrantReadWriteLock()
+  private val sensorAccessor = new SensorAccess(lock, metrics)
+  private val quotaCallback = clientQuotaCallback.getOrElse(new DefaultQuotaCallback)
   private val staticConfigClientIdQuota = Quota.upperBound(config.quotaBytesPerSecondDefault.toDouble)
   private val clientQuotaType = QuotaType.toClientQuotaType(quotaType)
-  @volatile private var quotaTypesEnabled = clientQuotaCallback match {
+
+  @volatile
+  private var quotaTypesEnabled = clientQuotaCallback match {
     case Some(_) => QuotaTypes.CustomQuotas
     case None =>
       if (config.quotaBytesPerSecondDefault == Long.MaxValue) QuotaTypes.NoQuotas
       else QuotaTypes.ClientIdQuotaEnabled
   }
-  private val lock = new ReentrantReadWriteLock()
-  private val delayQueue = new DelayQueue[ThrottledChannel]()
-  private val sensorAccessor = new SensorAccess(lock, metrics)
-  private[server] val throttledChannelReaper = new ThrottledChannelReaper(delayQueue, threadNamePrefix)
-  private val quotaCallback = clientQuotaCallback.getOrElse(new DefaultQuotaCallback)
 
   private val delayQueueSensor = metrics.sensor(quotaType.toString + "-delayQueue")
   delayQueueSensor.add(metrics.metricName("queue-size", quotaType.toString,
     "Tracks the size of the delay queue"), new CumulativeSum())
+
+  private val delayQueue = new DelayQueue[ThrottledChannel]()
+  private[server] val throttledChannelReaper = new ThrottledChannelReaper(delayQueue, threadNamePrefix)
   start() // Use start method to keep spotbugs happy
   private def start(): Unit = {
     throttledChannelReaper.start()

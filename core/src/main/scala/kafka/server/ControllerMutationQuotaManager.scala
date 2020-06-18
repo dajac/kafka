@@ -27,8 +27,8 @@ import scala.jdk.CollectionConverters._
 class ControllerMutationQuotaManager(private val config: ClientQuotaManagerConfig,
                                      private val metrics: Metrics,
                                      private val time: Time,
-                                     threadNamePrefix: String,
-                                     quotaCallback: Option[ClientQuotaCallback])
+                                     private val threadNamePrefix: String,
+                                     private val quotaCallback: Option[ClientQuotaCallback])
     extends ClientQuotaManager(config, metrics, QuotaType.ControllerMutation, QuotaEnforcementType.STRICT,
       time, threadNamePrefix, quotaCallback) {
 
