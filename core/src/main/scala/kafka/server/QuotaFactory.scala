@@ -95,7 +95,7 @@ object QuotaFactory extends Logging {
     if (cfg.producerQuotaBytesPerSecondDefault != Long.MaxValue)
       warn(s"${KafkaConfig.ProducerQuotaBytesPerSecondDefaultProp} has been deprecated in 0.11.0.0 and will be removed in a future release. Use dynamic quota defaults instead.")
     ClientQuotaManagerConfig(
-      quotaBytesPerSecondDefault = cfg.producerQuotaBytesPerSecondDefault,
+      quotaDefault = cfg.producerQuotaBytesPerSecondDefault,
       numQuotaSamples = cfg.numQuotaSamples,
       quotaWindowSizeSeconds = cfg.quotaWindowSizeSeconds
     )
@@ -105,7 +105,7 @@ object QuotaFactory extends Logging {
     if (cfg.consumerQuotaBytesPerSecondDefault != Long.MaxValue)
       warn(s"${KafkaConfig.ConsumerQuotaBytesPerSecondDefaultProp} has been deprecated in 0.11.0.0 and will be removed in a future release. Use dynamic quota defaults instead.")
     ClientQuotaManagerConfig(
-      quotaBytesPerSecondDefault = cfg.consumerQuotaBytesPerSecondDefault,
+      quotaDefault = cfg.consumerQuotaBytesPerSecondDefault,
       numQuotaSamples = cfg.numQuotaSamples,
       quotaWindowSizeSeconds = cfg.quotaWindowSizeSeconds
     )

@@ -27,6 +27,11 @@ import org.apache.kafka.server.quota.ClientQuotaCallback
 
 import scala.jdk.CollectionConverters._
 
+object ClientRequestQuotaManager {
+  val QuotaRequestPercentDefault = Int.MaxValue.toDouble
+  val NanosToPercentagePerSecond = 100.0 / TimeUnit.SECONDS.toNanos(1)
+}
+
 class ClientRequestQuotaManager(private val config: ClientQuotaManagerConfig,
                                 private val metrics: Metrics,
                                 private val time: Time,
@@ -80,6 +85,6 @@ class ClientRequestQuotaManager(private val config: ClientQuotaManagerConfig,
       quotaMetricTags.asJava)
   }
 
-  private def nanosToPercentage(nanos: Long): Double = nanos * ClientQuotaManagerConfig.NanosToPercentagePerSecond
-
+  private def nanosToPercentage(nanos: Long): Double =
+    nanos * ClientRequestQuotaManager.NanosToPercentagePerSecond
 }

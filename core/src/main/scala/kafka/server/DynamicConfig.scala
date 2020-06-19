@@ -75,10 +75,10 @@ object DynamicConfig {
     val ControllerMutationOverrideProp = "controller_mutation_rate"
 
     // Defaults
-    val DefaultProducerOverride = ClientQuotaManagerConfig.QuotaBytesPerSecondDefault
-    val DefaultConsumerOverride = ClientQuotaManagerConfig.QuotaBytesPerSecondDefault
-    val DefaultRequestOverride = ClientQuotaManagerConfig.QuotaRequestPercentDefault
-    val DefaultControllerMutationOverride = Long.MaxValue // TODO Move this in the correct manager
+    val DefaultProducerOverride = ClientQuotaManagerConfig.QuotaDefault
+    val DefaultConsumerOverride = ClientQuotaManagerConfig.QuotaDefault
+    val DefaultRequestOverride = ClientRequestQuotaManager.QuotaRequestPercentDefault
+    val DefaultControllerMutationOverride = ClientQuotaManagerConfig.QuotaDefault
 
     // Documentation
     val ProducerOverrideDoc = "A rate representing the upper bound (bytes/sec) for producer traffic."

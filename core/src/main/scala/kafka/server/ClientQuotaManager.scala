@@ -45,28 +45,24 @@ case class ClientSensors(metricTags: Map[String, String], quotaSensor: Sensor, t
 
 /**
  * Configuration settings for quota management
- * @param quotaBytesPerSecondDefault The default bytes per second quota allocated to any client-id if
+ * @param quotaDefault The default allocated to any client-id if
  *        dynamic defaults or user quotas are not set
  * @param numQuotaSamples The number of samples to retain in memory
  * @param quotaWindowSizeSeconds The time span of each sample
  *
  */
-case class ClientQuotaManagerConfig(quotaBytesPerSecondDefault: Long =
-                                        ClientQuotaManagerConfig.QuotaBytesPerSecondDefault,
+case class ClientQuotaManagerConfig(quotaDefault: Long =
+                                        ClientQuotaManagerConfig.QuotaDefault,
                                     numQuotaSamples: Int =
                                         ClientQuotaManagerConfig.DefaultNumQuotaSamples,
                                     quotaWindowSizeSeconds: Int =
                                         ClientQuotaManagerConfig.DefaultQuotaWindowSizeSeconds)
 
 object ClientQuotaManagerConfig {
-  val QuotaBytesPerSecondDefault = Long.MaxValue
+  val QuotaDefault = Long.MaxValue
   // Always have 10 whole windows + 1 current window
   val DefaultNumQuotaSamples = 11
   val DefaultQuotaWindowSizeSeconds = 1
-  // Purge sensors after 1 hour of inactivity
-  val InactiveSensorExpirationTimeSeconds = 3600
-  val QuotaRequestPercentDefault = Int.MaxValue.toDouble
-  val NanosToPercentagePerSecond = 100.0 / TimeUnit.SECONDS.toNanos(1)
 }
 
 object QuotaTypes {
@@ -78,6 +74,9 @@ object QuotaTypes {
 }
 
 object ClientQuotaManager {
+  // Purge sensors after 1 hour of inactivity
+  val InactiveSensorExpirationTimeSeconds = 3600
+
   val DefaultClientIdQuotaEntity = KafkaQuotaEntity(None, Some(DefaultClientIdEntity))
   val DefaultUserQuotaEntity = KafkaQuotaEntity(Some(DefaultUserEntity), None)
   val DefaultUserClientIdQuotaEntity = KafkaQuotaEntity(Some(DefaultUserEntity), Some(DefaultClientIdEntity))
@@ -155,8 +154,11 @@ object ClientQuotaManager {
  * @param config @ClientQuotaManagerConfig quota configs
  * @param metrics @Metrics Metrics instance
  * @param quotaType Quota type of this quota manager
- * @param quotaEnforcementType Quota enforcement type of this quota manager
+ * @param quotaEnforcementType Quota enforcement type of this quota manager. Refers to the
+ *                             documentation of {recordAndGetThrottleTimeMs} for details
  * @param time @Time object to use
+ * @param threadNamePrefix The thread prefix to use
+ * @param clientQuotaCallback An optional @ClientQuotaCallback
  */
 class ClientQuotaManager(private val config: ClientQuotaManagerConfig,
                          private val metrics: Metrics,
@@ -169,14 +171,14 @@ class ClientQuotaManager(private val config: ClientQuotaManagerConfig,
   private val lock = new ReentrantReadWriteLock()
   private val sensorAccessor = new SensorAccess(lock, metrics)
   private val quotaCallback = clientQuotaCallback.getOrElse(new DefaultQuotaCallback)
-  private val staticConfigClientIdQuota = Quota.upperBound(config.quotaBytesPerSecondDefault.toDouble)
+  private val staticConfigClientIdQuota = Quota.upperBound(config.quotaDefault.toDouble)
   private val clientQuotaType = QuotaType.toClientQuotaType(quotaType)
 
   @volatile
   private var quotaTypesEnabled = clientQuotaCallback match {
     case Some(_) => QuotaTypes.CustomQuotas
     case None =>
-      if (config.quotaBytesPerSecondDefault == Long.MaxValue) QuotaTypes.NoQuotas
+      if (config.quotaDefault == Long.MaxValue) QuotaTypes.NoQuotas
       else QuotaTypes.ClientIdQuotaEnabled
   }
 
@@ -219,17 +221,15 @@ class ClientQuotaManager(private val config: ClientQuotaManagerConfig,
   def quotasEnabled: Boolean = quotaTypesEnabled != QuotaTypes.NoQuotas
 
   /**
-    * Records that a user/clientId changed produced/consumed bytes being throttled at the specified time. If quota has
-    * been violated, return throttle time in milliseconds. Throttle time calculation may be overridden by sub-classes.
-    * @param request client request
-    * @param value amount of data in bytes or request processing time as a percentage
-    * @param timeMs time to record the value at
-    * @return throttle time in milliseconds
-    */
+   * See {recordAndGetThrottleTimeMs}.
+   */
   def maybeRecordAndGetThrottleTimeMs(request: RequestChannel.Request, value: Double, timeMs: Long): Int = {
     maybeRecordAndGetThrottleTimeMs(request.session, request.header.clientId, value, timeMs)
   }
 
+  /**
+   * See {recordAndGetThrottleTimeMs}.
+   */
   def maybeRecordAndGetThrottleTimeMs(session: Session, clientId: String, value: Double, timeMs: Long): Int = {
     // Record metrics only if quotas are enabled.
     if (quotasEnabled) {
@@ -240,21 +240,23 @@ class ClientQuotaManager(private val config: ClientQuotaManagerConfig,
   }
 
   /**
-   * Returns maximum value (produced/consume bytes or request processing time) that could be recorded without guaranteed throttling.
-   * Recording any larger value will always be throttled, even if no other values were recorded in the quota window.
-   * This is used for deciding the maximum bytes that can be fetched at once
+   * Records that a user/clientId accumulated or would like to accumulate the provided amount at the
+   * the specified time, returns throttle time in milliseconds. Depending on the {QuotaEnforcementType}
+   * used, the behavior of this method changes:
+   * - QuotaEnforcementType.Strict verifies the quota is not violated before accumulating the
+   *   provided value. If it is, the value is not accumulated and the throttle time represents
+   *   the time to wait before the quota comes back to the defined limit.
+   * - QuotaEnforcementType.PERMISSIVE verifies the quota is not violated after accumulating the
+   *   provided value. If it is, the value is still accumulated and the throttle time represents
+   *   the time to wait before the quota comes back to the defined limit.
+   *
+   * @param session The session from which the user is extracted
+   * @param clientId The client id
+   * @param value The value to accumulate
+   * @param timeMs The time at which to accumulate the value
+   * @return The throttle time in milliseconds defines as the time to wait until the average
+   *         rate gets back to the defined quota
    */
-  def getMaxValueInQuotaWindow(session: Session, clientId: String): Double = {
-    if (quotasEnabled) {
-      val clientSensors = getOrCreateQuotaSensors(session, clientId)
-      Option(quotaCallback.quotaLimit(clientQuotaType, clientSensors.metricTags.asJava))
-        .map(_.toDouble * (config.numQuotaSamples - 1) * config.quotaWindowSizeSeconds)
-        .getOrElse(Double.MaxValue)
-    } else {
-      Double.MaxValue
-    }
-  }
-
   def recordAndGetThrottleTimeMs(session: Session, clientId: String, value: Double, timeMs: Long): Int = {
     val clientSensors = getOrCreateQuotaSensors(session, clientId)
     try {
@@ -278,27 +280,45 @@ class ClientQuotaManager(private val config: ClientQuotaManagerConfig,
     clientSensors.quotaSensor.record(value, time.milliseconds(), QuotaEnforcementType.NONE)
   }
 
-  /** "Unrecord" the given value that has already been recorded for the given user/client by recording a negative value
-    * of the same quantity.
-    *
-    * For a throttled fetch, the broker should return an empty response and thus should not record the value. Ideally,
-    * we would like to compute the throttle time before actually recording the value, but the current Sensor code
-    * couples value recording and quota checking very tightly. As a workaround, we will unrecord the value for the fetch
-    * in case of throttling. Rate keeps the sum of values that fall in each time window, so this should bring the
-    * overall sum back to the previous value.
-    */
+  /**
+   * "Unrecord" the given value that has already been recorded for the given user/client by recording a negative value
+   * of the same quantity.
+   *
+   * For a throttled fetch, the broker should return an empty response and thus should not record the value. Ideally,
+   * we would like to compute the throttle time before actually recording the value, but the current Sensor code
+   * couples value recording and quota checking very tightly. As a workaround, we will unrecord the value for the fetch
+   * in case of throttling. Rate keeps the sum of values that fall in each time window, so this should bring the
+   * overall sum back to the previous value.
+   */
   def unrecordQuotaSensor(request: RequestChannel.Request, value: Double, timeMs: Long): Unit = {
     val clientSensors = getOrCreateQuotaSensors(request.session, request.header.clientId)
     clientSensors.quotaSensor.record(value * (-1), timeMs, QuotaEnforcementType.NONE)
   }
 
   /**
-    * Throttle a client by muting the associated channel for the given throttle time.
-    * @param request client request
-    * @param throttleTimeMs Duration in milliseconds for which the channel is to be muted.
-    * @param channelThrottlingCallback Callback for channel throttling
-    * @return ThrottledChannel object
-    */
+   * Returns maximum value that could be recorded without guaranteed throttling.
+   * Recording any larger value will always be throttled, even if no other values were recorded in the quota window.
+   * This is used for deciding the maximum bytes that can be fetched at once
+   */
+  def getMaxValueInQuotaWindow(session: Session, clientId: String): Double = {
+    if (quotasEnabled) {
+      val clientSensors = getOrCreateQuotaSensors(session, clientId)
+      Option(quotaCallback.quotaLimit(clientQuotaType, clientSensors.metricTags.asJava))
+        .map(_.toDouble * (config.numQuotaSamples - 1) * config.quotaWindowSizeSeconds)
+        .getOrElse(Double.MaxValue)
+    } else {
+      Double.MaxValue
+    }
+  }
+
+  /**
+   * Throttle a client by muting the associated channel for the given throttle time.
+   *
+   * @param request client request
+   * @param throttleTimeMs Duration in milliseconds for which the channel is to be muted.
+   * @param channelThrottlingCallback Callback for channel throttling
+   * @return ThrottledChannel object
+   */
   def throttle(request: RequestChannel.Request, throttleTimeMs: Int, channelThrottlingCallback: Response => Unit): Unit = {
     if (throttleTimeMs > 0) {
       val clientSensors = getOrCreateQuotaSensors(request.session, request.header.clientId)
@@ -334,7 +354,7 @@ class ClientQuotaManager(private val config: ClientQuotaManagerConfig,
     Option(quotaCallback.quotaLimit(clientQuotaType, metricTags)).map(_.toDouble).getOrElse(Long.MaxValue)
   }
 
-  /*
+  /**
    * This calculates the amount of time needed to bring the metric within quota
    * assuming that no new metrics are recorded.
    *
@@ -360,7 +380,7 @@ class ClientQuotaManager(private val config: ClientQuotaManagerConfig,
     }
   }
 
-  /*
+  /**
    * This function either returns the sensors for a given client id or creates them if they don't exist
    * First sensor of the tuple is the quota enforcement sensor. Second one is the throttle time sensor
    */
@@ -375,14 +395,14 @@ class ClientQuotaManager(private val config: ClientQuotaManagerConfig,
       metricTags,
       sensorAccessor.getOrCreate(
         getQuotaSensorName(metricTags),
-        ClientQuotaManagerConfig.InactiveSensorExpirationTimeSeconds,
+        ClientQuotaManager.InactiveSensorExpirationTimeSeconds,
         clientRateMetricName(metricTags),
         Some(getQuotaMetricConfig(metricTags)),
         new Rate
       ),
       sensorAccessor.getOrCreate(
         getThrottleTimeSensorName(metricTags),
-        ClientQuotaManagerConfig.InactiveSensorExpirationTimeSeconds,
+        ClientQuotaManager.InactiveSensorExpirationTimeSeconds,
         throttleMetricName(metricTags),
         None,
         new Avg
@@ -416,7 +436,7 @@ class ClientQuotaManager(private val config: ClientQuotaManagerConfig,
   protected def getOrCreateSensor(sensorName: String, metricName: MetricName): Sensor = {
     sensorAccessor.getOrCreate(
       sensorName,
-      ClientQuotaManagerConfig.InactiveSensorExpirationTimeSeconds,
+      ClientQuotaManager.InactiveSensorExpirationTimeSeconds,
       metricName,
       None,
       new Rate
@@ -479,6 +499,7 @@ class ClientQuotaManager(private val config: ClientQuotaManagerConfig,
    * Updates metrics configs. This is invoked when quota configs are updated in ZooKeeper
    * or when partitions leaders change and custom callbacks that implement partition-based quotas
    * have updated quotas.
+   *
    * @param updatedQuotaEntity If set to one entity and quotas have only been enabled at one
    *    level, then an optimized update is performed with a single metric update. If None is provided,
    *    or if custom callbacks are used or if multi-level quotas have been enabled, all metric configs

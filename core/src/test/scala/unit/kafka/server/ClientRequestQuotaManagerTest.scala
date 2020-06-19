@@ -16,65 +16,24 @@
  */
 package kafka.server
 
-import java.net.InetAddress
-import java.util
-import java.util.Collections
-
-import kafka.network.RequestChannel
-import kafka.network.RequestChannel.EndThrottlingResponse
-import kafka.network.RequestChannel.Session
-import kafka.network.RequestChannel.StartThrottlingResponse
 import kafka.server.QuotaType.Request
-import org.apache.kafka.common.TopicPartition
-import org.apache.kafka.common.memory.MemoryPool
-import org.apache.kafka.common.metrics.MetricConfig
-import org.apache.kafka.common.metrics.Metrics
 import org.apache.kafka.common.metrics.Quota
-import org.apache.kafka.common.network.ClientInformation
-import org.apache.kafka.common.network.ListenerName
-import org.apache.kafka.common.requests.AbstractRequest
-import org.apache.kafka.common.requests.FetchRequest
-import org.apache.kafka.common.requests.FetchRequest.PartitionData
-import org.apache.kafka.common.requests.RequestContext
-import org.apache.kafka.common.requests.RequestHeader
-import org.apache.kafka.common.security.auth.KafkaPrincipal
-import org.apache.kafka.common.security.auth.SecurityProtocol
-import org.apache.kafka.common.utils.MockTime
-import org.easymock.EasyMock
-import org.junit.After
+
 import org.junit.Assert._
 import org.junit.Test
 
-class ClientRequestQuotaManagerTest {
-  private val time = new MockTime
-  private val metrics = new Metrics(new MetricConfig(), Collections.emptyList(), time)
+class ClientRequestQuotaManagerTest extends BaseClientQuotaManagerTest {
   private val config = ClientQuotaManagerConfig()
-
-  var numCallbacks: Int = 0
-
-  @After
-  def tearDown(): Unit = {
-    metrics.close()
-  }
-
-  def callback(response: RequestChannel.Response): Unit = {
-    // Count how many times this callback is called for notifyThrottlingDone().
-    response match {
-      case _: StartThrottlingResponse =>
-      case _: EndThrottlingResponse => numCallbacks += 1
-    }
-  }
 
   @Test
   def testRequestPercentageQuotaViolation(): Unit = {
     val clientRequestQuotaManager = new ClientRequestQuotaManager(config, metrics, time, "", None)
     clientRequestQuotaManager.updateQuota(Some("ANONYMOUS"), Some("test-client"), Some("test-client"), Some(Quota.upperBound(1)))
     val queueSizeMetric = metrics.metrics().get(metrics.metricName("queue-size", Request.toString, ""))
-    def millisToPercent(millis: Double) = millis * 1000 * 1000 * ClientQuotaManagerConfig.NanosToPercentagePerSecond
+    def millisToPercent(millis: Double) = millis * 1000 * 1000 * ClientRequestQuotaManager.NanosToPercentagePerSecond
     try {
-      /* We have 10 second windows. Make sure that there is no quota violation
-       * if we are under the quota
-       */
+      // We have 10 second windows. Make sure that there is no quota violation
+      // if we are under the quota
       for (_ <- 0 until 10) {
         assertEquals(0, maybeRecord(clientRequestQuotaManager, "ANONYMOUS", "test-client", millisToPercent(4)))
         time.sleep(1000)
@@ -125,32 +84,6 @@ class ClientRequestQuotaManagerTest {
     } finally {
       clientRequestQuotaManager.shutdown()
     }
-  }
-
-  private def maybeRecord(quotaManager: ClientQuotaManager, user: String, clientId: String, value: Double): Int = {
-    val principal = new KafkaPrincipal(KafkaPrincipal.USER_TYPE, user)
-    quotaManager.maybeRecordAndGetThrottleTimeMs(Session(principal, null), clientId, value, time.milliseconds())
-  }
-
-  private def throttle(quotaManager: ClientQuotaManager, user: String, clientId: String, throttleTimeMs: Int,
-                       channelThrottlingCallback: RequestChannel.Response => Unit): Unit = {
-    val (_, request) = buildRequest(FetchRequest.Builder.forConsumer(0, 1000, new util.HashMap[TopicPartition, PartitionData]))
-    quotaManager.throttle(request, throttleTimeMs, channelThrottlingCallback)
-  }
-
-  private def buildRequest[T <: AbstractRequest](builder: AbstractRequest.Builder[T],
-                                                 listenerName: ListenerName = ListenerName.forSecurityProtocol(SecurityProtocol.PLAINTEXT)): (T, RequestChannel.Request) = {
-
-    val request = builder.build()
-    val buffer = request.serialize(new RequestHeader(builder.apiKey, request.version, "", 0))
-    val requestChannelMetrics: RequestChannel.Metrics = EasyMock.createNiceMock(classOf[RequestChannel.Metrics])
-
-    // read the header from the buffer first so that the body can be read next from the Request constructor
-    val header = RequestHeader.parse(buffer)
-    val context = new RequestContext(header, "1", InetAddress.getLocalHost, KafkaPrincipal.ANONYMOUS,
-      listenerName, SecurityProtocol.PLAINTEXT, ClientInformation.EMPTY)
-    (request, new RequestChannel.Request(processor = 1, context = context, startTimeNanos =  0, MemoryPool.NONE, buffer,
-      requestChannelMetrics))
   }
 }
 

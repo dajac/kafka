@@ -194,8 +194,8 @@ object Defaults {
   val FetchMaxBytes = 55 * 1024 * 1024
 
   /** ********* Quota Configuration ***********/
-  val ProducerQuotaBytesPerSecondDefault = ClientQuotaManagerConfig.QuotaBytesPerSecondDefault
-  val ConsumerQuotaBytesPerSecondDefault = ClientQuotaManagerConfig.QuotaBytesPerSecondDefault
+  val ProducerQuotaBytesPerSecondDefault = ClientQuotaManagerConfig.QuotaDefault
+  val ConsumerQuotaBytesPerSecondDefault = ClientQuotaManagerConfig.QuotaDefault
   val NumQuotaSamples: Int = ClientQuotaManagerConfig.DefaultNumQuotaSamples
   val QuotaWindowSizeSeconds: Int = ClientQuotaManagerConfig.DefaultQuotaWindowSizeSeconds
   val NumReplicationQuotaSamples: Int = ReplicationQuotaManagerConfig.DefaultNumQuotaSamples

@@ -17,71 +17,19 @@
 package kafka.server
 
 import java.net.InetAddress
-import java.util
-import java.util.Collections
 
-import kafka.network.RequestChannel
-import kafka.network.RequestChannel.{EndThrottlingResponse, Session, StartThrottlingResponse}
+import kafka.network.RequestChannel.Session
 import kafka.server.QuotaType._
-import org.apache.kafka.common.TopicPartition
-import org.apache.kafka.common.memory.MemoryPool
 import org.apache.kafka.common.metrics.Sensor.QuotaEnforcementType
-import org.apache.kafka.common.metrics.{MetricConfig, Metrics, Quota}
-import org.apache.kafka.common.network.ClientInformation
-import org.apache.kafka.common.network.ListenerName
-import org.apache.kafka.common.requests.FetchRequest.PartitionData
-import org.apache.kafka.common.requests.{AbstractRequest, FetchRequest, RequestContext, RequestHeader}
-import org.apache.kafka.common.security.auth.{KafkaPrincipal, SecurityProtocol}
-import org.apache.kafka.common.utils.{MockTime, Sanitizer}
-import org.easymock.EasyMock
-import org.junit.Assert.{assertEquals, assertTrue}
-import org.junit.{After, Test}
+import org.apache.kafka.common.metrics.Quota
+import org.apache.kafka.common.security.auth.KafkaPrincipal
+import org.apache.kafka.common.utils.Sanitizer
 
-class ClientQuotaManagerTest {
-  private val time = new MockTime
-  private val metrics = new Metrics(new MetricConfig(), Collections.emptyList(), time)
-  private val config = ClientQuotaManagerConfig(quotaBytesPerSecondDefault = 500)
+import org.junit.Assert._
+import org.junit.Test
 
-  var numCallbacks: Int = 0
-
-  @After
-  def tearDown(): Unit = {
-    metrics.close()
-  }
-
-  def callback(response: RequestChannel.Response): Unit = {
-    // Count how many times this callback is called for notifyThrottlingDone().
-    response match {
-      case _: StartThrottlingResponse =>
-      case _: EndThrottlingResponse => numCallbacks += 1
-    }
-  }
-
-  private def buildRequest[T <: AbstractRequest](builder: AbstractRequest.Builder[T],
-                                                 listenerName: ListenerName = ListenerName.forSecurityProtocol(SecurityProtocol.PLAINTEXT)): (T, RequestChannel.Request) = {
-
-    val request = builder.build()
-    val buffer = request.serialize(new RequestHeader(builder.apiKey, request.version, "", 0))
-    val requestChannelMetrics: RequestChannel.Metrics = EasyMock.createNiceMock(classOf[RequestChannel.Metrics])
-
-    // read the header from the buffer first so that the body can be read next from the Request constructor
-    val header = RequestHeader.parse(buffer)
-    val context = new RequestContext(header, "1", InetAddress.getLocalHost, KafkaPrincipal.ANONYMOUS,
-      listenerName, SecurityProtocol.PLAINTEXT, ClientInformation.EMPTY)
-    (request, new RequestChannel.Request(processor = 1, context = context, startTimeNanos =  0, MemoryPool.NONE, buffer,
-      requestChannelMetrics))
-  }
-
-  private def maybeRecord(quotaManager: ClientQuotaManager, user: String, clientId: String, value: Double): Int = {
-    val principal = new KafkaPrincipal(KafkaPrincipal.USER_TYPE, user)
-    quotaManager.maybeRecordAndGetThrottleTimeMs(Session(principal, null), clientId, value, time.milliseconds())
-  }
-
-  private def throttle(quotaManager: ClientQuotaManager, user: String, clientId: String, throttleTimeMs: Int,
-                       channelThrottlingCallback: RequestChannel.Response => Unit): Unit = {
-    val (_, request) = buildRequest(FetchRequest.Builder.forConsumer(0, 1000, new util.HashMap[TopicPartition, PartitionData]))
-    quotaManager.throttle(request, throttleTimeMs, channelThrottlingCallback)
-  }
+class ClientQuotaManagerTest extends BaseClientQuotaManagerTest {
+  private val config = ClientQuotaManagerConfig(quotaDefault = 500)
 
   private def testQuotaParsing(config: ClientQuotaManagerConfig, client1: UserClient, client2: UserClient, randomClient: UserClient, defaultConfigClient: UserClient): Unit = {
     val clientQuotaManager = new ClientQuotaManager(config, metrics, Produce, QuotaEnforcementType.PERMISSIVE, time, "")
@@ -91,8 +39,8 @@ class ClientQuotaManagerTest {
       clientQuotaManager.updateQuota(client1.configUser, client1.configClientId, client1.sanitizedConfigClientId, Some(new Quota(2000, true)))
       clientQuotaManager.updateQuota(client2.configUser, client2.configClientId, client2.sanitizedConfigClientId, Some(new Quota(4000, true)))
 
-      assertEquals("Default producer quota should be " + config.quotaBytesPerSecondDefault,
-        config.quotaBytesPerSecondDefault.toDouble, clientQuotaManager.quota(randomClient.user, randomClient.clientId).bound, 0.0)
+      assertEquals("Default producer quota should be " + config.quotaDefault,
+        config.quotaDefault.toDouble, clientQuotaManager.quota(randomClient.user, randomClient.clientId).bound, 0.0)
       assertEquals("Should return the overridden value (2000)", 2000, clientQuotaManager.quota(client1.user, client1.clientId).bound, 0.0)
       assertEquals("Should return the overridden value (4000)", 4000, clientQuotaManager.quota(client2.user, client2.clientId).bound, 0.0)
 
@@ -151,7 +99,7 @@ class ClientQuotaManagerTest {
     val client2 = UserClient("User2", "p2", Some("User2"), None)
     val randomClient = UserClient("RandomUser", "random-client-id", None, None)
     val defaultConfigClient = UserClient("", "", Some(ConfigEntityName.Default), None)
-    val config = ClientQuotaManagerConfig(quotaBytesPerSecondDefault = Long.MaxValue)
+    val config = ClientQuotaManagerConfig(quotaDefault = Long.MaxValue)
     testQuotaParsing(config, client1, client2, randomClient, defaultConfigClient)
   }
 
@@ -165,7 +113,7 @@ class ClientQuotaManagerTest {
     val client2 = UserClient("User2", "p2", Some("User2"), Some("p2"))
     val randomClient = UserClient("RandomUser", "random-client-id", None, None)
     val defaultConfigClient = UserClient("", "", Some(ConfigEntityName.Default), Some(ConfigEntityName.Default))
-    val config = ClientQuotaManagerConfig(quotaBytesPerSecondDefault = Long.MaxValue)
+    val config = ClientQuotaManagerConfig(quotaDefault = Long.MaxValue)
     testQuotaParsing(config, client1, client2, randomClient, defaultConfigClient)
   }
 
@@ -211,7 +159,7 @@ class ClientQuotaManagerTest {
   @Test
   def testGetMaxValueInQuotaWindowWithNonDefaultQuotaWindow(): Unit = {
     val numFullQuotaWindows = 3   // 3 seconds window (vs. 10 seconds default)
-    val nonDefaultConfig = ClientQuotaManagerConfig(quotaBytesPerSecondDefault = Long.MaxValue, numQuotaSamples = numFullQuotaWindows + 1)
+    val nonDefaultConfig = ClientQuotaManagerConfig(quotaDefault = Long.MaxValue, numQuotaSamples = numFullQuotaWindows + 1)
     val clientQuotaManager = new ClientQuotaManager(nonDefaultConfig, metrics, Fetch, QuotaEnforcementType.PERMISSIVE, time, "")
     val userSession = Session(new KafkaPrincipal(KafkaPrincipal.USER_TYPE, "userA"), InetAddress.getLocalHost)
 
@@ -230,7 +178,7 @@ class ClientQuotaManagerTest {
   @Test
   def testSetAndRemoveDefaultUserQuota(): Unit = {
     // quotaTypesEnabled will be QuotaTypes.NoQuotas initially
-    val clientQuotaManager = new ClientQuotaManager(ClientQuotaManagerConfig(quotaBytesPerSecondDefault = Long.MaxValue),
+    val clientQuotaManager = new ClientQuotaManager(ClientQuotaManagerConfig(quotaDefault = Long.MaxValue),
       metrics, Produce, QuotaEnforcementType.PERMISSIVE, time, "")
 
     try {
@@ -252,7 +200,7 @@ class ClientQuotaManagerTest {
   @Test
   def testSetAndRemoveUserQuota(): Unit = {
     // quotaTypesEnabled will be QuotaTypes.NoQuotas initially
-    val clientQuotaManager = new ClientQuotaManager(ClientQuotaManagerConfig(quotaBytesPerSecondDefault = Long.MaxValue),
+    val clientQuotaManager = new ClientQuotaManager(ClientQuotaManagerConfig(quotaDefault = Long.MaxValue),
       metrics, Produce, QuotaEnforcementType.PERMISSIVE, time, "")
 
     try {
@@ -271,7 +219,7 @@ class ClientQuotaManagerTest {
   @Test
   def testSetAndRemoveUserClientQuota(): Unit = {
     // quotaTypesEnabled will be QuotaTypes.NoQuotas initially
-    val clientQuotaManager = new ClientQuotaManager(ClientQuotaManagerConfig(quotaBytesPerSecondDefault = Long.MaxValue),
+    val clientQuotaManager = new ClientQuotaManager(ClientQuotaManagerConfig(quotaDefault = Long.MaxValue),
       metrics, Produce, QuotaEnforcementType.PERMISSIVE, time, "")
 
     try {
@@ -289,7 +237,7 @@ class ClientQuotaManagerTest {
 
   @Test
   def testQuotaConfigPrecedence(): Unit = {
-    val clientQuotaManager = new ClientQuotaManager(ClientQuotaManagerConfig(quotaBytesPerSecondDefault=Long.MaxValue),
+    val clientQuotaManager = new ClientQuotaManager(ClientQuotaManagerConfig(quotaDefault=Long.MaxValue),
       metrics, Produce, QuotaEnforcementType.PERMISSIVE, time, "")
 
     try {
@@ -356,9 +304,8 @@ class ClientQuotaManagerTest {
     val clientQuotaManager = new ClientQuotaManager(config, metrics, Produce, QuotaEnforcementType.PERMISSIVE, time, "")
     val queueSizeMetric = metrics.metrics().get(metrics.metricName("queue-size", "Produce", ""))
     try {
-      /* We have 10 second windows. Make sure that there is no quota violation
-       * if we produce under the quota
-       */
+      // We have 10 second windows. Make sure that there is no quota violation
+      // if we produce under the quota
       for (_ <- 0 until 10) {
         assertEquals(0, maybeRecord(clientQuotaManager, "ANONYMOUS", "unknown", 400))
         time.sleep(1000)
