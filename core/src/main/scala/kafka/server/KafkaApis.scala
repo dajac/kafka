@@ -1768,7 +1768,7 @@ class KafkaApis(val requestChannel: RequestChannel,
 
   def handleCreatePartitionsRequest(request: RequestChannel.Request): Unit = {
     val createPartitionsRequest = request.body[CreatePartitionsRequest]
-    // Since version 3 of the API, the quota is strictly enforced. Any topic creation
+    // Since version 3 of the API, the quota is strictly enforced. Any partition creation
     // above the quota is not allowed and rejected with a THROTTLING_QUOTA_EXCEEDED error.
     val controllerMutationQuota = quotas.controllerMutation.newQuotaFor(request, 3)
 
@@ -1823,7 +1823,7 @@ class KafkaApis(val requestChannel: RequestChannel,
   }
 
   def handleDeleteTopicsRequest(request: RequestChannel.Request): Unit = {
-    // Since version 5 of the API, the quota is strictly enforced. Any topic creation
+    // Since version 5 of the API, the quota is strictly enforced. Any topic deletion
     // above the quota is not allowed and rejected with a THROTTLING_QUOTA_EXCEEDED error.
     val controllerMutationQuota = quotas.controllerMutation.newQuotaFor(request, 5)
 
