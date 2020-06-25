@@ -84,7 +84,6 @@ class DelayedCreatePartitions(delayMs: Long,
       else
         (metadata.topic, metadata.error)
     }.toMap
-    // TODO: Adjust throttle time
     responseCallback(results)
   }
 

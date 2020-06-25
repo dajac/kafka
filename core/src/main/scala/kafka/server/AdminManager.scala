@@ -250,10 +250,10 @@ class AdminManager(val config: KafkaConfig,
             DeleteTopicMetadata(topic, Errors.NONE)
           case e: ThrottlingQuotaExceededException =>
             debug(s"Topic deletion not allowed because quota is violated. Delay time: ${e.throttleTimeMs}")
-            DeleteTopicMetadata(topic, Errors.forException(e))
+            DeleteTopicMetadata(topic, e)
           case e: Throwable =>
             error(s"Error processing delete topic request for topic $topic", e)
-            DeleteTopicMetadata(topic, Errors.forException(e))
+            DeleteTopicMetadata(topic, e)
         }
     }
 
@@ -271,7 +271,7 @@ class AdminManager(val config: KafkaConfig,
     } else {
       // 3. else pass the topics and errors to the delayed operation and set the keys
       val delayedDelete = new DelayedDeleteTopics(timeout, metadata.toSeq, this, responseCallback)
-      val delayedDeleteKeys = topics.map(new TopicKey(_)).toSeq
+      val delayedDeleteKeys = topics.map(TopicKey).toSeq
       // try to complete the request immediately, otherwise put it into the purgatory
       topicPurgatory.tryCompleteElseWatch(delayedDelete, delayedDeleteKeys)
     }
