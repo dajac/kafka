@@ -246,7 +246,7 @@ public class SensorTest {
     }
 
     @Test
-    public void testLooseQuotaEnforcement() {
+    public void testPermissiveQuotaEnforcement() {
         final Time time = new MockTime(0, 0, 0);
         final Metrics metrics = new Metrics(time);
         final Sensor sensor = metrics.sensor("sensor", new MetricConfig()
