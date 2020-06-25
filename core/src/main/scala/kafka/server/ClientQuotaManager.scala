@@ -128,6 +128,32 @@ object ClientQuotaManager {
     val User = "user"
     val ClientId = "client-id"
   }
+
+  /**
+   * This calculates the amount of time needed to bring the metric within quota
+   * assuming that no new metrics are recorded.
+   *
+   * Basically, if O is the observed rate and T is the target rate over a window of W, to bring O down to T,
+   * we need to add a delay of X to W such that O * W / (W + X) = T.
+   * Solving for X, we get X = (O - T)/T * W.
+   */
+  def throttleTime(e: QuotaViolationException, timeMs: Long): Long = {
+    val difference = e.value - e.bound
+    // Use the precise window used by the rate calculation
+    val throttleTimeMs = difference / e.bound * windowSize(e.metric, timeMs)
+    Math.round(throttleTimeMs)
+  }
+
+  private def windowSize(metric: KafkaMetric, timeMs: Long): Long =
+    measurableAsRate(metric.metricName, metric.measurable).windowSize(metric.config, timeMs)
+
+  // Casting to Rate because we only use Rate in Quota computation
+  private def measurableAsRate(name: MetricName, measurable: Measurable): Rate = {
+    measurable match {
+      case r: Rate => r
+      case _ => throw new IllegalArgumentException(s"Metric $name is not a Rate metric, value $measurable")
+    }
+  }
 }
 
 /**
@@ -264,7 +290,7 @@ class ClientQuotaManager(private val config: ClientQuotaManagerConfig,
       0
     } catch {
       case e: QuotaViolationException =>
-        val throttleTimeMs = throttleTime(e.value, e.bound, windowSize(e.metric, timeMs)).toInt
+        val throttleTimeMs = throttleTime(e, timeMs).toInt
         debug(s"Quota violated for sensor (${clientSensors.quotaSensor.name}). Delay time: ($throttleTimeMs)")
         throttleTimeMs
     }
@@ -358,26 +384,10 @@ class ClientQuotaManager(private val config: ClientQuotaManagerConfig,
    * This calculates the amount of time needed to bring the metric within quota
    * assuming that no new metrics are recorded.
    *
-   * Basically, if O is the observed rate and T is the target rate over a window of W, to bring O down to T,
-   * we need to add a delay of X to W such that O * W / (W + X) = T.
-   * Solving for X, we get X = (O - T)/T * W.
+   * See {ClientQuotaManager.throttleTime} for the details.
    */
-  protected def throttleTime(quotaValue: Double, quotaBound: Double, windowSize: Long): Long = {
-    val difference = quotaValue - quotaBound
-    // Use the precise window used by the rate calculation
-    val throttleTimeMs = difference / quotaBound * windowSize
-    Math.round(throttleTimeMs)
-  }
-
-  private def windowSize(metric: KafkaMetric, timeMs: Long): Long =
-    measurableAsRate(metric.metricName, metric.measurable).windowSize(metric.config, timeMs)
-
-  // Casting to Rate because we only use Rate in Quota computation
-  private def measurableAsRate(name: MetricName, measurable: Measurable): Rate = {
-    measurable match {
-      case r: Rate => r
-      case _ => throw new IllegalArgumentException(s"Metric $name is not a Rate metric, value $measurable")
-    }
+  protected def throttleTime(e: QuotaViolationException, timeMs: Long): Long = {
+    ClientQuotaManager.throttleTime(e, timeMs)
   }
 
   /**

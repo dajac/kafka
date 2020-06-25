@@ -41,11 +41,11 @@ class ClientRequestQuotaManager(private val config: ClientQuotaManagerConfig,
       time, threadNamePrefix, quotaCallback) {
 
   private val maxThrottleTimeMs = TimeUnit.SECONDS.toMillis(this.config.quotaWindowSizeSeconds)
-  private val exemptMetricName: MetricName = metrics.metricName("exempt-request-time",
+  private val exemptMetricName = metrics.metricName("exempt-request-time",
     QuotaType.Request.toString, "Tracking exempt-request-time utilization percentage")
-  private val exemptSensorName: String = "exempt-" + QuotaType.Request
+  private val exemptSensorName = "exempt-" + QuotaType.Request
 
-  val exemptSensor: Sensor = getOrCreateSensor(exemptSensorName, exemptMetricName)
+  lazy val exemptSensor: Sensor = getOrCreateSensor(exemptSensorName, exemptMetricName)
 
   def recordExempt(value: Double): Unit = {
     exemptSensor.record(value)
@@ -75,8 +75,8 @@ class ClientRequestQuotaManager(private val config: ClientQuotaManagerConfig,
     }
   }
 
-  override protected def throttleTime(quotaValue: Double, quotaBound: Double, windowSize: Long): Long = {
-    math.min(super.throttleTime(quotaValue, quotaBound, windowSize), maxThrottleTimeMs)
+  override protected def throttleTime(e: QuotaViolationException, timeMs: Long): Long = {
+    math.min(super.throttleTime(e, timeMs), maxThrottleTimeMs)
   }
 
   override protected def clientRateMetricName(quotaMetricTags: Map[String, String]): MetricName = {

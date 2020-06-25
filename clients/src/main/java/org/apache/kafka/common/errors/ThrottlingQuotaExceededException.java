@@ -20,7 +20,7 @@ package org.apache.kafka.common.errors;
  * Exception thrown if an operation on a resource exceeds the throttling quota.
  */
 public class ThrottlingQuotaExceededException extends RetriableException {
-    private int throttleTimeMs;
+    private int throttleTimeMs = 0;
 
     public ThrottlingQuotaExceededException(String message) {
         super(message);

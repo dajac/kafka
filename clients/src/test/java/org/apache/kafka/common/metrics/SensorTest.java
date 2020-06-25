@@ -241,6 +241,8 @@ public class SensorTest {
         assertThrows(QuotaViolationException.class,
             () -> sensor.record(90, time.milliseconds(), QuotaEnforcementType.STRICT));
         assertEquals(18, rateMetric.measurableValue(time.milliseconds()), 0.1);
+
+        metrics.close();
     }
 
     @Test
@@ -273,5 +275,7 @@ public class SensorTest {
         assertThrows(QuotaViolationException.class,
             () -> sensor.record(90, time.milliseconds(), QuotaEnforcementType.PERMISSIVE));
         assertEquals(27, rateMetric.measurableValue(time.milliseconds()), 0.1);
+
+        metrics.close();
     }
 }
