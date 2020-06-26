@@ -312,8 +312,8 @@ class AdminManager(val config: KafkaConfig,
           throw new InvalidPartitionsException(s"Topic already has $oldNumPartitions partitions.")
         }
 
-        val newPartitionsAssignment = Option(newPartition.assignments).map { assignmentMap =>
-          val assignments = assignmentMap.asScala.map {
+        val newPartitionsAssignment = if (newPartition.assignments == null && newPartition.assignments.isEmpty) {
+          val assignments = newPartition.assignments.asScala.map {
             createPartitionAssignment => createPartitionAssignment.brokerIds.asScala.map(_.toInt)
           }
           val unknownBrokers = assignments.flatten.toSet -- allBrokerIds
@@ -326,9 +326,11 @@ class AdminManager(val config: KafkaConfig,
               s"Increasing the number of partitions by $numPartitionsIncrement " +
                 s"but ${assignments.size} assignments provided.")
 
-          assignments.zipWithIndex.map { case (replicas, index) =>
+          Some(assignments.zipWithIndex.map { case (replicas, index) =>
             existingAssignment.size + index -> replicas
-          }.toMap
+          }.toMap)
+        } else {
+          None
         }
 
         val assignmentForNewPartitions = adminZkClient.createNewPartitionsAssignment(
