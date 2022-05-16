@@ -166,15 +166,15 @@ sealed trait PendingPartitionChange extends PartitionState {
 
 case class PendingExpandIsr(
   isr: Set[Int],
-  newInSyncReplicaId: Int,
+  replicasToAddToIsr: Set[Int],
   sentLeaderAndIsr: LeaderAndIsr
 ) extends PendingPartitionChange {
-  val maximalIsr = isr + newInSyncReplicaId
+  val maximalIsr = isr ++ replicasToAddToIsr
   val isInflight = true
 
   override def toString: String = {
     s"PendingExpandIsr(isr=$isr" +
-    s", newInSyncReplicaId=$newInSyncReplicaId" +
+    s", replicasToAddToIsr=$replicasToAddToIsr" +
     s", sentLeaderAndIsr=$sentLeaderAndIsr" +
     s", leaderRecoveryState=$leaderRecoveryState" +
     ")"
@@ -183,7 +183,7 @@ case class PendingExpandIsr(
 
 case class PendingShrinkIsr(
   isr: Set[Int],
-  outOfSyncReplicaIds: Set[Int],
+  replicasToRemoveFromIsr: Set[Int],
   sentLeaderAndIsr: LeaderAndIsr
 ) extends PendingPartitionChange  {
   val maximalIsr = isr
@@ -191,7 +191,7 @@ case class PendingShrinkIsr(
 
   override def toString: String = {
     s"PendingShrinkIsr(isr=$isr" +
-    s", outOfSyncReplicaIds=$outOfSyncReplicaIds" +
+    s", replicasToRemoveFromIsr=$replicasToRemoveFromIsr" +
     s", sentLeaderAndIsr=$sentLeaderAndIsr" +
     s", leaderRecoveryState=$leaderRecoveryState" +
     ")"
@@ -802,6 +802,14 @@ class Partition(val topicPartition: TopicPartition,
     partitionState = CommittedPartitionState(isr, leaderRecoveryState)
   }
 
+  private def maybeExpandIsr(): Unit = {
+    maybeExpandIsr(remoteReplicas)
+  }
+
+  private def maybeExpandIsr(followerReplica: Replica): Unit = {
+    maybeExpandIsr(Seq(followerReplica))
+  }
+
   /**
    * Check and maybe expand the ISR of the partition.
    * A replica will be added to ISR if its LEO >= current hw of the partition and it is caught up to
@@ -816,15 +824,29 @@ class Partition(val topicPartition: TopicPartition,
    *
    * This function can be triggered when a replica's LEO has incremented.
    */
-  private def maybeExpandIsr(followerReplica: Replica): Unit = {
-    val needsIsrUpdate = !partitionState.isInflight && canAddReplicaToIsr(followerReplica.brokerId) && inReadLock(leaderIsrUpdateLock) {
-      needsExpandIsr(followerReplica)
+  private def maybeExpandIsr(followerReplicas: Iterable[Replica]): Unit = {
+    val needsIsrUpdate = !partitionState.isInflight && followerReplicas.exists(canAddReplicaToIsr) && inReadLock(leaderIsrUpdateLock) {
+      val currentTimeMs = time.milliseconds()
+      followerReplicas.exists { replica =>
+        needsExpandIsr(replica, currentTimeMs) && isBrokerIsrEligible(replica.brokerId)
+      }
     }
+
     if (needsIsrUpdate) {
       val alterIsrUpdateOpt = inWriteLock(leaderIsrUpdateLock) {
-        // check if this replica needs to be added to the ISR
-        if (!partitionState.isInflight && needsExpandIsr(followerReplica)) {
-          Some(prepareIsrExpand(followerReplica.brokerId))
+        // The replicas that must be added to the ISR.
+        var replicasToAddToIsr = Set.empty[Int]
+
+        val currentTimeMs = time.milliseconds()
+        followerReplicas.foreach { replica =>
+          val brokerId = replica.brokerId
+          if (needsExpandIsr(replica, currentTimeMs) && isBrokerIsrEligible(replica.brokerId)) {
+            replicasToAddToIsr += brokerId
+          }
+        }
+
+        if (!partitionState.isInflight && replicasToAddToIsr.nonEmpty) {
+          Some(prepareIsrExpand(replicasToAddToIsr))
         } else {
           None
         }
@@ -835,20 +857,49 @@ class Partition(val topicPartition: TopicPartition,
     }
   }
 
-  private def needsExpandIsr(followerReplica: Replica): Boolean = {
-    canAddReplicaToIsr(followerReplica.brokerId) && isFollowerAtHighwatermark(followerReplica)
+  private def needsExpandIsr(
+    followerReplica: Replica,
+    currentTimeMs: Long
+  ): Boolean = {
+    canAddReplicaToIsr(followerReplica) && isFollowerInSync(followerReplica, currentTimeMs)
   }
 
-  private def canAddReplicaToIsr(followerReplicaId: Int): Boolean = {
+  private def canAddReplicaToIsr(followerReplica: Replica): Boolean = {
     val current = partitionState
-    !current.isInflight && !current.isr.contains(followerReplicaId)
+    !current.isInflight &&
+      !current.isr.contains(followerReplica.brokerId) &&
+      metadataCache.hasAliveBroker(followerReplica.brokerId)
   }
 
-  private def isFollowerAtHighwatermark(followerReplica: Replica): Boolean = {
+  private def isFollowerInSync(
+    followerReplica: Replica,
+    currentTimeMs: Long
+  ): Boolean = {
+    // A follower is considered in sync iif:
+    // - It has fetched at least once. This is to avoid bringing back a follower into
+    //   the ISR which was just kicked out by the controller.
+    // - It is caught-up. This is to avoid bringing back a follower into the ISR which
+    //   was just removed by the leader.
+    // - It has caught up to the HWM.
+    // - It has caught up to the start offset of the current leader epoch.
+    val followerState = followerReplica.stateSnapshot
     leaderLogIfLocal.exists { leaderLog =>
-      val followerEndOffset = followerReplica.stateSnapshot.logEndOffset
-      followerEndOffset >= leaderLog.highWatermark && leaderEpochStartOffsetOpt.exists(followerEndOffset >= _)
+      followerState.lastFetchTimeMs > 0L &&
+        followerState.isCaughtUp(leaderLog.logEndOffset, currentTimeMs, replicaLagTimeMaxMs) &&
+        followerState.logEndOffset >= leaderLog.highWatermark &&
+        leaderEpochStartOffsetOpt.exists(followerState.logEndOffset >= _)
     }
+  }
+
+  private def isBrokerIsrEligible(
+    brokerId: Int
+  ): Boolean = {
+    // Is it safe to do this in ZK world? Metadata cache is updated after the
+    // partition states are. We could miss an expansion if the fetcher catches
+    // up before the metadata cache is updated. It may be better to add an
+    // isFenced(brokerId) method to the metadata cache and let it always return
+    // false in ZK world.
+    metadataCache.hasAliveBroker(brokerId)
   }
 
   /*
@@ -1387,15 +1438,27 @@ class Partition(val topicPartition: TopicPartition,
     }
   }
 
-  private def prepareIsrExpand(newInSyncReplicaId: Int): PendingExpandIsr = {
+  private def prepareIsrExpand(newInSyncReplicaIds: Set[Int]): PendingExpandIsr = {
     // When expanding the ISR, we assume that the new replica will make it into the ISR
     // before we receive confirmation that it has. This ensures that the HW will already
     // reflect the updated ISR even if there is a delay before we receive the confirmation.
     // Alternatively, if the update fails, no harm is done since the expanded ISR puts
     // a stricter requirement for advancement of the HW.
-    val isrToSend = partitionState.isr + newInSyncReplicaId
-    val newLeaderAndIsr = LeaderAndIsr(localBrokerId, leaderEpoch, isrToSend.toList, partitionState.leaderRecoveryState, partitionEpoch)
-    val updatedState = PendingExpandIsr(partitionState.isr, newInSyncReplicaId, newLeaderAndIsr)
+    val isrToSend = partitionState.isr ++ newInSyncReplicaIds
+    val newLeaderAndIsr = LeaderAndIsr(
+      localBrokerId,
+      leaderEpoch,
+      isrToSend.toList,
+      partitionState.leaderRecoveryState,
+      partitionEpoch
+    )
+
+    val updatedState = PendingExpandIsr(
+      partitionState.isr,
+      newInSyncReplicaIds,
+      newLeaderAndIsr
+    )
+
     partitionState = updatedState
     updatedState
   }
@@ -1418,6 +1481,12 @@ class Partition(val topicPartition: TopicPartition,
       var hwIncremented = false
       var shouldRetry = false
 
+      val error = if (e == null) {
+        Errors.NONE
+      } else {
+        Errors.forException(e)
+      }
+
       inWriteLock(leaderIsrUpdateLock) {
         if (partitionState != proposedIsrState) {
           // This means partitionState was updated through leader election or some other mechanism
@@ -1430,6 +1499,18 @@ class Partition(val topicPartition: TopicPartition,
         } else {
           shouldRetry = handleAlterPartitionError(proposedIsrState, Errors.forException(e))
         }
+      }
+
+      // Expanding is not possible while an AlterPartition request is in-flight. Therefore, we
+      // verify if any replica must be added to the ISR when an AlterPartition response is received.
+      // Notes:
+      // - We skip the call if the operation was not attempted. This error implies there
+      //   was still an inflight `AlterPartition` request, so we rely on its callback to retry.
+      // - We don't verify if a replica must be removed here because `maybeExpandIsr` and
+      //   `maybeShrinkIsr` can contradict each others and lead to an infinite loop.
+      // - We call `maybeExpandIsr` without holding the `leaderIsrUpdateLock` lock.
+      if (error != Errors.OPERATION_NOT_ATTEMPTED) {
+        maybeExpandIsr()
       }
 
       if (hwIncremented) {
@@ -1464,7 +1545,14 @@ class Partition(val topicPartition: TopicPartition,
         // Since the operation was not attempted, it is safe to reset back to the committed state.
         partitionState = CommittedPartitionState(proposedIsrState.isr, LeaderRecoveryState.RECOVERED)
         debug(s"Failed to alter partition to $proposedIsrState since there is a pending AlterPartition still inflight. " +
-          s"partition state has been reset to the latest committed state $partitionState")
+          s"partition state has been reset to the latest committed state $partitionState.")
+        false
+      case Errors.INELIGIBLE_REPLICA =>
+        // Since the operation was rejected, it is safe to reset back to the committed state. This
+        // assumes that the current state was still the correct expected state.
+        partitionState = CommittedPartitionState(proposedIsrState.isr, LeaderRecoveryState.RECOVERED)
+        debug(s"Failed to alter partition to $proposedIsrState since the controller rejected at least one replica " +
+          s"because it is ineligible to join the ISR. partition state has been reset to the latest committed state $partitionState.")
         false
       case Errors.UNKNOWN_TOPIC_OR_PARTITION =>
         debug(s"Failed to alter partition to $proposedIsrState since the controller doesn't know about " +

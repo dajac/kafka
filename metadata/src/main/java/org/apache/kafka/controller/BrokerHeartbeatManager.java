@@ -498,6 +498,15 @@ public class BrokerHeartbeatManager {
         }
     }
 
+    boolean isActive(int brokerId) {
+        BrokerHeartbeatState broker = brokers.get(brokerId);
+        if (broker == null) {
+            return false;
+        } else {
+            return !(broker.fenced() || broker.shuttingDown());
+        }
+    }
+
     BrokerControlState currentBrokerState(BrokerHeartbeatState broker) {
         if (broker.shuttingDown()) {
             return CONTROLLED_SHUTDOWN;

@@ -484,11 +484,6 @@ class BrokerServer(
       info("shutting down")
 
       if (config.controlledShutdownEnable) {
-        // Shut down the broker metadata listener, so that we don't get added to any
-        // more ISRs.
-        if (metadataListener !=  null) {
-          metadataListener.beginShutdown()
-        }
         lifecycleManager.beginControlledShutdown()
         try {
           lifecycleManager.controlledShutdownFuture.get(5L, TimeUnit.MINUTES)
@@ -498,6 +493,10 @@ class BrokerServer(
           case e: Throwable =>
             error("Got unexpected exception waiting for controlled shutdown future", e)
         }
+      }
+
+      if (metadataListener !=  null) {
+        metadataListener.beginShutdown()
       }
       lifecycleManager.beginShutdown()
 
