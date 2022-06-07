@@ -58,6 +58,7 @@ import org.apache.kafka.common.requests.FetchRequest.PartitionData
 import org.apache.kafka.common.requests.ProduceResponse.PartitionResponse
 import org.apache.kafka.common.requests._
 import org.apache.kafka.common.utils.Time
+import org.apache.kafka.image.ClusterDelta
 import org.apache.kafka.image.{LocalReplicaChanges, MetadataImage, TopicsDelta}
 import org.apache.kafka.metadata.LeaderConstants.NO_LEADER
 import org.apache.kafka.server.common.MetadataVersion._
@@ -2041,6 +2042,30 @@ class ReplicaManager(val config: KafkaConfig,
         val partition = Partition(tp, time, this)
         allPartitions.put(tp, HostedPartition.Online(partition))
         Some(partition, true)
+    }
+  }
+
+  /**
+   * Apply a KRaft cluster change delta.
+   *
+   * @param delta           The delta to apply.
+   * @param newImage        The new metadata image.
+   */
+  def applyDelta(delta: ClusterDelta, newImage: MetadataImage): Unit = {
+    val newActiveBrokers = delta.newActiveBrokers.asScala.map(_.toInt).toSet
+
+    // TODO: We need to be smarter here.
+    replicaStateChangeLock.synchronized {
+      allPartitions.values.foreach {
+        case HostedPartition.Online(partition) =>
+          partition.leaderIdIfLocal.foreach { _ =>
+            if (partition.assignmentState.replicas.toSet.intersect(newActiveBrokers).nonEmpty) {
+              partition.maybeExpandIsr()
+            }
+          }
+
+        case _ => // Nothing.
+      }
     }
   }
 

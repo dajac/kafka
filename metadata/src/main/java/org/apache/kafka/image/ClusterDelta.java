@@ -27,7 +27,9 @@ import org.apache.kafka.metadata.BrokerRegistrationFencingChange;
 import org.apache.kafka.metadata.BrokerRegistrationInControlledShutdownChange;
 import org.apache.kafka.server.common.MetadataVersion;
 
+import java.util.ArrayList;
 import java.util.HashMap;
+import java.util.List;
 import java.util.Map;
 import java.util.Map.Entry;
 import java.util.Optional;
@@ -62,6 +64,29 @@ public final class ClusterDelta {
                 changedBrokers.put(brokerId, Optional.empty());
             }
         }
+    }
+
+    private static boolean becameActive(
+        BrokerRegistration currentBrokerRegistration,
+        BrokerRegistration nextBrokerRegistration
+    ) {
+        return currentBrokerRegistration.fenced() != nextBrokerRegistration.fenced()
+            || currentBrokerRegistration.inControlledShutdown() != currentBrokerRegistration.inControlledShutdown();
+    }
+
+    public List<Integer> newActiveBrokers() {
+        List<Integer> newActiveBrokers = new ArrayList<>();
+
+        changedBrokers.forEach((brokerId, brokerRegistrationOpt) -> {
+            brokerRegistrationOpt.ifPresent(nextBrokerRegistration -> {
+                BrokerRegistration currentBrokerRegistration = image.broker(brokerId);
+                if (currentBrokerRegistration != null && becameActive(currentBrokerRegistration, nextBrokerRegistration)) {
+                    newActiveBrokers.add(brokerId);
+                }
+            });
+        });
+
+        return newActiveBrokers;
     }
 
     public void handleMetadataVersionChange(MetadataVersion newVersion) {

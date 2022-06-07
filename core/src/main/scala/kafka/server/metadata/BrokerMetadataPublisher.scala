@@ -189,6 +189,11 @@ class BrokerMetadataPublisher(conf: KafkaConfig,
         }
       }
 
+      // Apply cluster deltas.
+      Option(delta.clusterDelta()).foreach { clusterDelta =>
+        replicaManager.applyDelta(clusterDelta, newImage)
+      }
+
       // Apply configuration deltas.
       Option(delta.configsDelta()).foreach { configsDelta =>
         configsDelta.changes().keySet().forEach { resource =>
