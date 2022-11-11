@@ -18,13 +18,14 @@ package kafka.coordinator.group
 
 import kafka.server.RequestLocal
 import org.apache.kafka.common.TopicPartition
-import org.apache.kafka.common.message.{DeleteGroupsResponseData, DescribeGroupsResponseData, HeartbeatRequestData, HeartbeatResponseData, JoinGroupRequestData, JoinGroupResponseData, ListGroupsRequestData, ListGroupsResponseData, OffsetCommitRequestData, OffsetCommitResponseData, OffsetDeleteRequestData, OffsetDeleteResponseData, OffsetFetchRequestData, OffsetFetchResponseData, SyncGroupRequestData, SyncGroupResponseData, TxnOffsetCommitRequestData, TxnOffsetCommitResponseData}
+import org.apache.kafka.common.message.{DeleteGroupsResponseData, DescribeGroupsResponseData, HeartbeatRequestData, HeartbeatResponseData, JoinGroupRequestData, JoinGroupResponseData, LeaveGroupRequestData, LeaveGroupResponseData, ListGroupsRequestData, ListGroupsResponseData, OffsetCommitRequestData, OffsetCommitResponseData, OffsetDeleteRequestData, OffsetDeleteResponseData, OffsetFetchRequestData, OffsetFetchResponseData, SyncGroupRequestData, SyncGroupResponseData, TxnOffsetCommitRequestData, TxnOffsetCommitResponseData}
 import org.apache.kafka.common.protocol.Errors
 import org.apache.kafka.coordinator.group.GroupCoordinatorRequestContext
 
 import java.util
 import java.util.concurrent.CompletableFuture
 import java.util.function.Supplier
+
 import scala.collection.immutable
 import scala.jdk.CollectionConverters._
 
@@ -143,6 +144,33 @@ class GroupCoordinatorAdapter(
       request.memberId,
       Option(request.groupInstanceId),
       request.generationId,
+      callback
+    )
+
+    future
+  }
+
+  def leaveGroup(
+    context: GroupCoordinatorRequestContext,
+    request: LeaveGroupRequestData
+  ): CompletableFuture[LeaveGroupResponseData] = {
+    val future = new CompletableFuture[LeaveGroupResponseData]()
+
+    def callback(leaveGroupResult: LeaveGroupResult): Unit = {
+      future.complete(new LeaveGroupResponseData()
+        .setErrorCode(leaveGroupResult.topLevelError.code)
+        .setMembers(leaveGroupResult.memberResponses.map { member =>
+          new LeaveGroupResponseData.MemberResponse()
+            .setErrorCode(member.error.code)
+            .setMemberId(member.memberId)
+            .setGroupInstanceId(member.groupInstanceId.orNull)
+        }.asJava)
+      )
+    }
+
+    coordinator.handleLeaveGroup(
+      request.groupId,
+      request.members.asScala.toList,
       callback
     )
 

@@ -24,6 +24,8 @@ import org.apache.kafka.common.message.HeartbeatRequestData;
 import org.apache.kafka.common.message.HeartbeatResponseData;
 import org.apache.kafka.common.message.JoinGroupRequestData;
 import org.apache.kafka.common.message.JoinGroupResponseData;
+import org.apache.kafka.common.message.LeaveGroupRequestData;
+import org.apache.kafka.common.message.LeaveGroupResponseData;
 import org.apache.kafka.common.message.ListGroupsRequestData;
 import org.apache.kafka.common.message.ListGroupsResponseData;
 import org.apache.kafka.common.message.OffsetCommitRequestData;
@@ -65,6 +67,14 @@ public interface GroupCoordinator {
     CompletableFuture<HeartbeatResponseData> heartbeat(
         GroupCoordinatorRequestContext context,
         HeartbeatRequestData request
+    );
+
+    /**
+     *
+     */
+    CompletableFuture<LeaveGroupResponseData> leaveGroup(
+        GroupCoordinatorRequestContext context,
+        LeaveGroupRequestData request
     );
 
     /**

@@ -57,17 +57,17 @@ public class LeaveGroupRequest extends AbstractRequest {
             // Starting from version 3, all the leave group request will be in batch.
             if (version >= 3) {
                 data = new LeaveGroupRequestData()
-                           .setGroupId(groupId)
-                           .setMembers(members);
+                   .setGroupId(groupId)
+                   .setMembers(members);
             } else {
                 if (members.size() != 1) {
                     throw new UnsupportedVersionException("Version " + version + " leave group request only " +
-                                                              "supports single member instance than " + members.size() + " members");
+                        "supports single member instance than " + members.size() + " members");
                 }
 
                 data = new LeaveGroupRequestData()
-                           .setGroupId(groupId)
-                           .setMemberId(members.get(0).memberId());
+                   .setGroupId(groupId)
+                   .setMemberId(members.get(0).memberId());
             }
             return new LeaveGroupRequest(data, version);
         }
@@ -90,6 +90,17 @@ public class LeaveGroupRequest extends AbstractRequest {
     @Override
     public LeaveGroupRequestData data() {
         return data;
+    }
+
+    public LeaveGroupRequestData normalizedData() {
+        // Data is normalized in order to always present a list of members.
+        if (version() <= 2) {
+            return new LeaveGroupRequestData()
+                .setMembers(Collections.singletonList(new MemberIdentity()
+                    .setMemberId(data.memberId())));
+        } else {
+            return data;
+        }
     }
 
     public List<MemberIdentity> members() {

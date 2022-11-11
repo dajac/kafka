@@ -55,6 +55,17 @@ public class LeaveGroupResponse extends AbstractResponse {
         this.data = data;
     }
 
+    public LeaveGroupResponse(LeaveGroupResponseData data, short version) {
+        super(ApiKeys.LEAVE_GROUP);
+
+        if (version <= 2) {
+            final short errorCode = getError(Errors.forCode(data.errorCode()), data.members()).code();
+            this.data = new LeaveGroupResponseData().setErrorCode(errorCode);
+        } else {
+            this.data = data;
+        }
+    }
+
     public LeaveGroupResponse(List<MemberResponse> memberResponses,
                               Errors topLevelError,
                               final int throttleTimeMs,

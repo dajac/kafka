@@ -18,8 +18,10 @@ package kafka.coordinator.group
 
 import kafka.coordinator.group.GroupCoordinatorConcurrencyTest.{JoinGroupCallback, SyncGroupCallback}
 import kafka.server.RequestLocal
-import org.apache.kafka.common.message.{HeartbeatRequestData, HeartbeatResponseData, JoinGroupRequestData, JoinGroupResponseData, RequestHeaderData, SyncGroupRequestData, SyncGroupResponseData}
+import org.apache.kafka.common.message.{HeartbeatRequestData, HeartbeatResponseData, JoinGroupRequestData, JoinGroupResponseData, LeaveGroupRequestData, LeaveGroupResponseData, RequestHeaderData, SyncGroupRequestData, SyncGroupResponseData}
 import org.apache.kafka.common.message.JoinGroupRequestData.JoinGroupRequestProtocol
+import org.apache.kafka.common.message.LeaveGroupRequestData.MemberIdentity
+import org.apache.kafka.common.message.LeaveGroupResponseData.MemberResponse
 import org.apache.kafka.common.protocol.{ApiKeys, ByteBufferAccessor, Errors, Message, MessageUtil}
 import org.apache.kafka.common.requests.{SyncGroupRequest, SyncGroupResponse}
 import org.apache.kafka.common.utils.BufferSupplier
@@ -263,7 +265,7 @@ class GroupCoordinatorAdapterTest {
     val groupCoordinator = mock(classOf[GroupCoordinator])
     val adapter = new GroupCoordinatorAdapter(groupCoordinator)
 
-    val ctx = makeContext(apiKeys = ApiKeys.SYNC_GROUP)
+    val ctx = makeContext(apiKeys = ApiKeys.HEARTBEAT)
     val data = new HeartbeatRequestData()
       .setGroupId("group")
       .setMemberId("member1")
@@ -288,6 +290,66 @@ class GroupCoordinatorAdapterTest {
 
     val expectedData = new HeartbeatResponseData()
       .setErrorCode(Errors.NONE.code)
+
+    assertTrue(future.isDone)
+    assertEquals(expectedData, future.get())
+  }
+
+  @Test
+  def testLeaveGroup(): Unit = {
+    val groupCoordinator = mock(classOf[GroupCoordinator])
+    val adapter = new GroupCoordinatorAdapter(groupCoordinator)
+
+    val ctx = makeContext(apiKeys = ApiKeys.LEAVE_GROUP)
+    val data = new LeaveGroupRequestData()
+      .setGroupId("group")
+      .setMembers(List(
+        new MemberIdentity()
+          .setMemberId("member-1")
+          .setGroupInstanceId("instance-1"),
+        new MemberIdentity()
+          .setMemberId("member-2")
+          .setGroupInstanceId("instance-2")
+      ).asJava)
+
+    val future = adapter.leaveGroup(ctx, data)
+
+    val capturedCallback: ArgumentCaptor[LeaveGroupResult => Unit] =
+      ArgumentCaptor.forClass(classOf[LeaveGroupResult => Unit])
+
+    verify(groupCoordinator).handleLeaveGroup(
+      ArgumentMatchers.eq(data.groupId),
+      ArgumentMatchers.eq(data.members.asScala.toList),
+      capturedCallback.capture(),
+    )
+
+    assertFalse(future.isDone)
+
+    capturedCallback.getValue.apply(LeaveGroupResult(
+      topLevelError = Errors.NONE,
+      memberResponses = List(
+        LeaveMemberResponse(
+          memberId = "member-1",
+          groupInstanceId = Some("instance-1"),
+          error = Errors.NONE
+        ),
+        LeaveMemberResponse(
+          memberId = "member-2",
+          groupInstanceId = Some("instance-2"),
+          error = Errors.NONE
+        )
+      )
+    ))
+
+    val expectedData = new LeaveGroupResponseData()
+      .setMembers(List(
+        new MemberResponse()
+          .setMemberId("member-1")
+          .setGroupInstanceId("instance-1"),
+        new MemberResponse()
+          .setMemberId("member-2")
+          .setGroupInstanceId("instance-2")
+      ).asJava)
 
     assertTrue(future.isDone)
     assertEquals(expectedData, future.get())
