@@ -16,22 +16,24 @@
  */
 package kafka.coordinator.group
 
-import kafka.coordinator.group.GroupCoordinatorConcurrencyTest.JoinGroupCallback
+import kafka.coordinator.group.GroupCoordinatorConcurrencyTest.{JoinGroupCallback, SyncGroupCallback}
 import kafka.server.RequestLocal
-import org.apache.kafka.common.message.{JoinGroupRequestData, JoinGroupResponseData, RequestHeaderData}
+import org.apache.kafka.common.message.{JoinGroupRequestData, JoinGroupResponseData, RequestHeaderData, SyncGroupRequestData, SyncGroupResponseData}
 import org.apache.kafka.common.message.JoinGroupRequestData.JoinGroupRequestProtocol
-import org.apache.kafka.common.protocol.{ApiKeys, Errors}
+import org.apache.kafka.common.protocol.{ApiKeys, ByteBufferAccessor, Errors, Message, MessageUtil}
+import org.apache.kafka.common.requests.{SyncGroupRequest, SyncGroupResponse}
 import org.apache.kafka.common.utils.BufferSupplier
 import org.apache.kafka.common.utils.annotation.ApiKeyVersionsSource
 import org.apache.kafka.coordinator.group.GroupCoordinatorRequestContext
-import org.junit.jupiter.api.Assertions.{assertEquals, assertFalse, assertTrue}
+import org.junit.jupiter.api.Assertions.{assertArrayEquals, assertEquals, assertFalse, assertTrue}
 import org.junit.jupiter.api.Test
 import org.junit.jupiter.params.ParameterizedTest
 import org.mockito.{ArgumentCaptor, ArgumentMatchers}
 import org.mockito.ArgumentMatchers.any
-import org.mockito.Mockito.{mock, verify}
+import org.mockito.Mockito.{mock, reset, verify}
 
 import java.net.InetAddress
+import scala.collection.Map
 import scala.jdk.CollectionConverters._
 
 class GroupCoordinatorAdapterTest {
@@ -160,6 +162,7 @@ class GroupCoordinatorAdapterTest {
       .setProtocolType("consumer")
       .setRebalanceTimeoutMs(1000)
       .setSessionTimeoutMs(2000)
+
     val future = adapter.joinGroup(ctx, data)
 
     val capturedCallback: ArgumentCaptor[JoinGroupCallback] =
@@ -202,6 +205,54 @@ class GroupCoordinatorAdapterTest {
       .setProtocolName("range")
       .setLeader(data.memberId)
       .setSkipAssignment(true)
+
+    assertTrue(future.isDone)
+    assertEquals(expectedData, future.get())
+  }
+
+  @ParameterizedTest
+  @ApiKeyVersionsSource(apiKey = ApiKeys.SYNC_GROUP)
+  def testSyncGroupProtocolTypeAndName(version: Short): Unit = {
+    val groupCoordinator = mock(classOf[GroupCoordinator])
+    val adapter = new GroupCoordinatorAdapter(groupCoordinator)
+
+    val ctx = makeContext(apiKeys = ApiKeys.SYNC_GROUP, apiVersion = version)
+    val data = new SyncGroupRequestData()
+      .setGroupId("group")
+      .setGenerationId(0)
+      .setMemberId("member1")
+      .setProtocolType("consumer")
+      .setProtocolName("range")
+
+    val future = adapter.syncGroup(ctx, data)
+
+    val capturedCallback: ArgumentCaptor[SyncGroupCallback] =
+      ArgumentCaptor.forClass(classOf[SyncGroupCallback])
+
+    verify(groupCoordinator).handleSyncGroup(
+      ArgumentMatchers.eq(data.groupId),
+      ArgumentMatchers.eq(data.generationId),
+      ArgumentMatchers.eq(data.memberId),
+      ArgumentMatchers.eq(if (version >= 5) Some(data.protocolType) else None),
+      ArgumentMatchers.eq(if (version >= 5) Some(data.protocolName) else None),
+      ArgumentMatchers.eq(None),
+      ArgumentMatchers.eq(Map.empty),
+      capturedCallback.capture(),
+      ArgumentMatchers.eq(RequestLocal(ctx.bufferSupplier))
+    )
+
+    assertFalse(future.isDone)
+
+    capturedCallback.getValue.apply(SyncGroupResult(
+      protocolType = Some(data.protocolType),
+      protocolName = Some(data.protocolName),
+      memberAssignment = Array.empty,
+      error = Errors.NONE
+    ))
+
+    val expectedData = new SyncGroupResponseData()
+      .setProtocolName(data.protocolName)
+      .setProtocolType(data.protocolType)
 
     assertTrue(future.isDone)
     assertEquals(expectedData, future.get())

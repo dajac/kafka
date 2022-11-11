@@ -24,6 +24,7 @@ import org.apache.kafka.coordinator.group.GroupCoordinatorRequestContext
 import java.util
 import java.util.concurrent.CompletableFuture
 import java.util.function.Supplier
+import scala.collection.immutable
 import scala.jdk.CollectionConverters._
 
 /**
@@ -94,7 +95,35 @@ class GroupCoordinatorAdapter(
     context: GroupCoordinatorRequestContext,
     request: SyncGroupRequestData
   ): CompletableFuture[SyncGroupResponseData] = {
-    new CompletableFuture[SyncGroupResponseData]()
+    val future = new CompletableFuture[SyncGroupResponseData]()
+
+    def callback(syncGroupResult: SyncGroupResult): Unit = {
+      future.complete(new SyncGroupResponseData()
+        .setErrorCode(syncGroupResult.error.code)
+        .setProtocolType(syncGroupResult.protocolType.orNull)
+        .setProtocolName(syncGroupResult.protocolName.orNull)
+        .setAssignment(syncGroupResult.memberAssignment)
+      )
+    }
+
+    val assignmentMap = immutable.Map.newBuilder[String, Array[Byte]]
+    request.assignments.forEach { assignment =>
+      assignmentMap += assignment.memberId -> assignment.assignment
+    }
+
+    coordinator.handleSyncGroup(
+      request.groupId,
+      request.generationId,
+      request.memberId,
+      Option(request.protocolType),
+      Option(request.protocolName),
+      Option(request.groupInstanceId),
+      assignmentMap.result(),
+      callback,
+      RequestLocal(context.bufferSupplier)
+    )
+
+    future
   }
 
   override def heartbeat(

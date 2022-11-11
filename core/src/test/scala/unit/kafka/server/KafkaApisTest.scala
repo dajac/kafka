@@ -27,6 +27,7 @@ import kafka.api.LeaderAndIsr
 import kafka.cluster.Broker
 import kafka.controller.{ControllerContext, KafkaController}
 import kafka.coordinator.group.GroupCoordinatorConcurrencyTest.SyncGroupCallback
+import org.apache.kafka.common.utils.annotation.ApiKeyVersionsSource
 import org.apache.kafka.coordinator.group.{GroupCoordinator, GroupCoordinatorRequestContext}
 //import kafka.coordinator.group._
 import kafka.coordinator.transaction.{InitProducerIdResult, TransactionCoordinator}
@@ -2617,109 +2618,120 @@ class KafkaApisTest {
   }
 
   @Test
-  def testSyncGroupProtocolTypeAndName(): Unit = {
-    for (version <- ApiKeys.SYNC_GROUP.oldestVersion to ApiKeys.SYNC_GROUP.latestVersion) {
-      testSyncGroupProtocolTypeAndName(version.asInstanceOf[Short])
-    }
-  }
-
-  def testSyncGroupProtocolTypeAndName(version: Short): Unit = {
-    reset(groupCoordinator, clientRequestQuotaManager, requestChannel, replicaManager)
-
-    val groupId = "group"
-    val memberId = "member1"
-    val protocolType = "consumer"
-    val protocolName = "range"
-
-    val capturedCallback: ArgumentCaptor[SyncGroupCallback] = ArgumentCaptor.forClass(classOf[SyncGroupCallback])
-
+  def testHandleSyncGroupRequest(): Unit = {
     val requestLocal = RequestLocal.withThreadConfinedCaching
-    val syncGroupRequest = new SyncGroupRequest.Builder(
-      new SyncGroupRequestData()
-        .setGroupId(groupId)
-        .setGenerationId(0)
-        .setMemberId(memberId)
-        .setProtocolType(protocolType)
-        .setProtocolName(protocolName)
-    ).build(version)
+    val ctx = new GroupCoordinatorRequestContext(
+      new RequestHeaderData()
+        .setRequestApiKey(ApiKeys.SYNC_GROUP.id)
+        .setRequestApiVersion(ApiKeys.SYNC_GROUP.latestVersion)
+        .setClientId("client"),
+      InetAddress.getLocalHost,
+      requestLocal.bufferSupplier
+    )
+    val syncGroupRequest = new SyncGroupRequestData()
+      .setGroupId("group")
+      .setMemberId("member")
+      .setGenerationId(0)
+      .setProtocolType("consumer")
+      .setProtocolName("range")
 
-    val requestChannelRequest = buildRequest(syncGroupRequest)
+    val requestChannelRequest = buildRequest(new SyncGroupRequest.Builder(syncGroupRequest).build())
+
+    val future = new CompletableFuture[SyncGroupResponseData]()
+    when(groupCoordinator.syncGroup(ctx, syncGroupRequest)).thenReturn(future)
 
     createKafkaApis().handleSyncGroupRequest(requestChannelRequest, requestLocal)
 
-    verify(groupCoordinator).handleSyncGroup(
-      ArgumentMatchers.eq(groupId),
-      ArgumentMatchers.eq(0),
-      ArgumentMatchers.eq(memberId),
-      ArgumentMatchers.eq(if (version >= 5) Some(protocolType) else None),
-      ArgumentMatchers.eq(if (version >= 5) Some(protocolName) else None),
-      ArgumentMatchers.eq(None),
-      ArgumentMatchers.eq(Map.empty),
-      capturedCallback.capture(),
-      ArgumentMatchers.eq(requestLocal)
-    )
-    capturedCallback.getValue.apply(SyncGroupResult(
-      protocolType = Some(protocolType),
-      protocolName = Some(protocolName),
-      memberAssignment = Array.empty,
-      error = Errors.NONE
-    ))
+    val expectedSyncGroupResponse = new SyncGroupResponseData()
+      .setProtocolType("consumer")
+      .setProtocolName("range")
 
+    future.complete(expectedSyncGroupResponse)
     val capturedResponse = verifyNoThrottling(requestChannelRequest)
-    val response = capturedResponse.getValue.asInstanceOf[SyncGroupResponse]
-
-    assertEquals(Errors.NONE, response.error)
-    assertArrayEquals(Array.empty[Byte], response.data.assignment)
-    assertEquals(protocolType, response.data.protocolType)
+    val response = capturedResponse.getValue.asInstanceOf[JoinGroupResponse]
+    assertEquals(expectedSyncGroupResponse, response.data)
   }
 
   @Test
-  def testSyncGroupProtocolTypeAndNameAreMandatorySinceV5(): Unit = {
-    for (version <- ApiKeys.SYNC_GROUP.oldestVersion to ApiKeys.SYNC_GROUP.latestVersion) {
-      testSyncGroupProtocolTypeAndNameAreMandatorySinceV5(version.asInstanceOf[Short])
-    }
+  def testHandleSyncGroupRequestFutureFailed(): Unit = {
+    val requestLocal = RequestLocal.withThreadConfinedCaching
+    val ctx = new GroupCoordinatorRequestContext(
+      new RequestHeaderData()
+        .setRequestApiKey(ApiKeys.SYNC_GROUP.id)
+        .setRequestApiVersion(ApiKeys.SYNC_GROUP.latestVersion)
+        .setClientId("client"),
+      InetAddress.getLocalHost,
+      requestLocal.bufferSupplier
+    )
+    val syncGroupRequest = new SyncGroupRequestData()
+      .setGroupId("group")
+      .setMemberId("member")
+      .setGenerationId(0)
+      .setProtocolType("consumer")
+      .setProtocolName("range")
+
+    val requestChannelRequest = buildRequest(new SyncGroupRequest.Builder(syncGroupRequest).build())
+
+    val future = new CompletableFuture[SyncGroupResponseData]()
+    when(groupCoordinator.syncGroup(ctx, syncGroupRequest)).thenReturn(future)
+
+    createKafkaApis().handleJoinGroupRequest(requestChannelRequest, requestLocal)
+
+    future.completeExceptionally(Errors.UNKNOWN_SERVER_ERROR.exception)
+    val capturedResponse = verifyNoThrottling(requestChannelRequest)
+    val response = capturedResponse.getValue.asInstanceOf[SyncGroupResponse]
+    assertEquals(Errors.UNKNOWN_SERVER_ERROR, response.error)
   }
 
-  def testSyncGroupProtocolTypeAndNameAreMandatorySinceV5(version: Short): Unit = {
-    reset(groupCoordinator, clientRequestQuotaManager, requestChannel, replicaManager)
-
-    val groupId = "group"
-    val memberId = "member1"
-    val protocolType = "consumer"
-    val protocolName = "range"
-
-    val capturedCallback: ArgumentCaptor[SyncGroupCallback] = ArgumentCaptor.forClass(classOf[SyncGroupCallback])
-
+  @Test
+  def testHandleSyncGroupRequestAuthenticationFailed(): Unit = {
     val requestLocal = RequestLocal.withThreadConfinedCaching
+    val syncGroupRequest = new SyncGroupRequestData()
+      .setGroupId("group")
+      .setMemberId("member")
+      .setGenerationId(0)
+      .setProtocolType("consumer")
+      .setProtocolName("range")
 
-    val syncGroupRequest = new SyncGroupRequest.Builder(
-      new SyncGroupRequestData()
-        .setGroupId(groupId)
-        .setGenerationId(0)
-        .setMemberId(memberId)
-    ).build(version)
+    val requestChannelRequest = buildRequest(new SyncGroupRequest.Builder(syncGroupRequest).build())
 
-    val requestChannelRequest = buildRequest(syncGroupRequest)
+    val authorizer: Authorizer = mock(classOf[Authorizer])
+    when(authorizer.authorize(any[RequestContext], any[util.List[Action]]))
+      .thenReturn(Seq(AuthorizationResult.DENIED).asJava)
+
+    createKafkaApis(authorizer = Some(authorizer)).handleJoinGroupRequest(requestChannelRequest, requestLocal)
+
+    val capturedResponse = verifyNoThrottling(requestChannelRequest)
+    val response = capturedResponse.getValue.asInstanceOf[SyncGroupResponse]
+    assertEquals(Errors.GROUP_AUTHORIZATION_FAILED, response.error)
+  }
+
+  @ParameterizedTest
+  @ApiKeyVersionsSource(apiKey = ApiKeys.SYNC_GROUP)
+  def testSyncGroupProtocolTypeAndNameAreMandatorySinceV5(version: Short): Unit = {
+    val requestLocal = RequestLocal.withThreadConfinedCaching
+    val ctx = new GroupCoordinatorRequestContext(
+      new RequestHeaderData()
+        .setRequestApiKey(ApiKeys.SYNC_GROUP.id)
+        .setRequestApiVersion(ApiKeys.SYNC_GROUP.latestVersion)
+        .setClientId("client"),
+      InetAddress.getLocalHost,
+      requestLocal.bufferSupplier
+    )
+    val syncGroupRequest = new SyncGroupRequestData()
+      .setGroupId("group")
+      .setMemberId("member")
+      .setGenerationId(0)
+
+    val requestChannelRequest = buildRequest(new SyncGroupRequest.Builder(syncGroupRequest).build())
+
+    val future = new CompletableFuture[SyncGroupResponseData]()
+    when(groupCoordinator.syncGroup(ctx, syncGroupRequest)).thenReturn(future)
 
     createKafkaApis().handleSyncGroupRequest(requestChannelRequest, requestLocal)
 
     if (version < 5) {
-      verify(groupCoordinator).handleSyncGroup(
-        ArgumentMatchers.eq(groupId),
-        ArgumentMatchers.eq(0),
-        ArgumentMatchers.eq(memberId),
-        ArgumentMatchers.eq(None),
-        ArgumentMatchers.eq(None),
-        ArgumentMatchers.eq(None),
-        ArgumentMatchers.eq(Map.empty),
-        capturedCallback.capture(),
-        ArgumentMatchers.eq(requestLocal))
-      capturedCallback.getValue.apply(SyncGroupResult(
-        protocolType = Some(protocolType),
-        protocolName = Some(protocolName),
-        memberAssignment = Array.empty,
-        error = Errors.NONE
-      ))
+      future.complete(new SyncGroupResponseData())
     }
 
     val capturedResponse = verifyNoThrottling(requestChannelRequest)
