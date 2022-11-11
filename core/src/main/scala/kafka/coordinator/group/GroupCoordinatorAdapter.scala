@@ -19,6 +19,7 @@ package kafka.coordinator.group
 import kafka.server.RequestLocal
 import org.apache.kafka.common.TopicPartition
 import org.apache.kafka.common.message.{DeleteGroupsResponseData, DescribeGroupsResponseData, HeartbeatRequestData, HeartbeatResponseData, JoinGroupRequestData, JoinGroupResponseData, ListGroupsRequestData, ListGroupsResponseData, OffsetCommitRequestData, OffsetCommitResponseData, OffsetDeleteRequestData, OffsetDeleteResponseData, OffsetFetchRequestData, OffsetFetchResponseData, SyncGroupRequestData, SyncGroupResponseData, TxnOffsetCommitRequestData, TxnOffsetCommitResponseData}
+import org.apache.kafka.common.protocol.Errors
 import org.apache.kafka.coordinator.group.GroupCoordinatorRequestContext
 
 import java.util
@@ -130,7 +131,22 @@ class GroupCoordinatorAdapter(
     context: GroupCoordinatorRequestContext,
     request: HeartbeatRequestData
   ): CompletableFuture[HeartbeatResponseData] = {
-    new CompletableFuture[HeartbeatResponseData]()
+    val future = new CompletableFuture[HeartbeatResponseData]()
+
+    def callback(error: Errors): Unit = {
+      future.complete(new HeartbeatResponseData()
+        .setErrorCode(error.code))
+    }
+
+    coordinator.handleHeartbeat(
+      request.groupId,
+      request.memberId,
+      Option(request.groupInstanceId),
+      request.generationId,
+      callback
+    )
+
+    future
   }
 
   override def fetchOffsets(

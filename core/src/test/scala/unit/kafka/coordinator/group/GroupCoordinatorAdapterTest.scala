@@ -18,7 +18,7 @@ package kafka.coordinator.group
 
 import kafka.coordinator.group.GroupCoordinatorConcurrencyTest.{JoinGroupCallback, SyncGroupCallback}
 import kafka.server.RequestLocal
-import org.apache.kafka.common.message.{JoinGroupRequestData, JoinGroupResponseData, RequestHeaderData, SyncGroupRequestData, SyncGroupResponseData}
+import org.apache.kafka.common.message.{HeartbeatRequestData, HeartbeatResponseData, JoinGroupRequestData, JoinGroupResponseData, RequestHeaderData, SyncGroupRequestData, SyncGroupResponseData}
 import org.apache.kafka.common.message.JoinGroupRequestData.JoinGroupRequestProtocol
 import org.apache.kafka.common.protocol.{ApiKeys, ByteBufferAccessor, Errors, Message, MessageUtil}
 import org.apache.kafka.common.requests.{SyncGroupRequest, SyncGroupResponse}
@@ -253,6 +253,41 @@ class GroupCoordinatorAdapterTest {
     val expectedData = new SyncGroupResponseData()
       .setProtocolName(data.protocolName)
       .setProtocolType(data.protocolType)
+
+    assertTrue(future.isDone)
+    assertEquals(expectedData, future.get())
+  }
+
+  @Test
+  def testHeartbeat(): Unit = {
+    val groupCoordinator = mock(classOf[GroupCoordinator])
+    val adapter = new GroupCoordinatorAdapter(groupCoordinator)
+
+    val ctx = makeContext(apiKeys = ApiKeys.SYNC_GROUP)
+    val data = new HeartbeatRequestData()
+      .setGroupId("group")
+      .setMemberId("member1")
+      .setGenerationId(0)
+
+    val future = adapter.heartbeat(ctx, data)
+
+    val capturedCallback: ArgumentCaptor[Errors => Unit] =
+      ArgumentCaptor.forClass(classOf[Errors => Unit])
+
+    verify(groupCoordinator).handleHeartbeat(
+      ArgumentMatchers.eq(data.groupId),
+      ArgumentMatchers.eq(data.memberId),
+      ArgumentMatchers.eq(None),
+      ArgumentMatchers.eq(data.generationId),
+      capturedCallback.capture(),
+    )
+
+    assertFalse(future.isDone)
+
+    capturedCallback.getValue.apply(Errors.NONE)
+
+    val expectedData = new HeartbeatResponseData()
+      .setErrorCode(Errors.NONE.code)
 
     assertTrue(future.isDone)
     assertEquals(expectedData, future.get())

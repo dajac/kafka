@@ -2744,6 +2744,88 @@ class KafkaApisTest {
     }
   }
 
+    @Test
+  def testHandleHeartbeatRequest(): Unit = {
+    val requestLocal = RequestLocal.NoCaching
+    val ctx = new GroupCoordinatorRequestContext(
+      new RequestHeaderData()
+        .setRequestApiKey(ApiKeys.HEARTBEAT.id)
+        .setRequestApiVersion(ApiKeys.HEARTBEAT.latestVersion)
+        .setClientId("client"),
+      InetAddress.getLocalHost,
+      requestLocal.bufferSupplier
+    )
+    val heartbeatRequest = new HeartbeatRequestData()
+      .setGroupId("group")
+      .setMemberId("member")
+      .setGenerationId(0)
+
+    val requestChannelRequest = buildRequest(new HeartbeatRequest.Builder(heartbeatRequest).build())
+
+    val future = new CompletableFuture[HeartbeatResponseData]()
+    when(groupCoordinator.heartbeat(ctx, heartbeatRequest)).thenReturn(future)
+
+    createKafkaApis().handleHeartbeatRequest(requestChannelRequest)
+
+    val expectedHeartbeatResponse = new HeartbeatResponseData()
+      .setErrorCode(Errors.NONE.code)
+
+    future.complete(expectedHeartbeatResponse)
+    val capturedResponse = verifyNoThrottling(requestChannelRequest)
+    val response = capturedResponse.getValue.asInstanceOf[JoinGroupResponse]
+    assertEquals(expectedHeartbeatResponse, response.data)
+  }
+
+  @Test
+  def testHandleHeartbeatRequestFutureFailed(): Unit = {
+    val requestLocal = RequestLocal.NoCaching
+    val ctx = new GroupCoordinatorRequestContext(
+      new RequestHeaderData()
+        .setRequestApiKey(ApiKeys.HEARTBEAT.id)
+        .setRequestApiVersion(ApiKeys.HEARTBEAT.latestVersion)
+        .setClientId("client"),
+      InetAddress.getLocalHost,
+      requestLocal.bufferSupplier
+    )
+    val heartbeatRequest = new HeartbeatRequestData()
+      .setGroupId("group")
+      .setMemberId("member")
+      .setGenerationId(0)
+
+    val requestChannelRequest = buildRequest(new HeartbeatRequest.Builder(heartbeatRequest).build())
+
+    val future = new CompletableFuture[HeartbeatResponseData]()
+    when(groupCoordinator.heartbeat(ctx, heartbeatRequest)).thenReturn(future)
+
+    createKafkaApis().handleHeartbeatRequest(requestChannelRequest)
+
+    future.completeExceptionally(Errors.UNKNOWN_SERVER_ERROR.exception)
+    val capturedResponse = verifyNoThrottling(requestChannelRequest)
+    val response = capturedResponse.getValue.asInstanceOf[HeartbeatResponse]
+    assertEquals(Errors.UNKNOWN_SERVER_ERROR, response.error)
+  }
+
+  @Test
+  def testHandleHeartbeatRequestAuthenticationFailed(): Unit = {
+    val requestLocal = RequestLocal.NoCaching
+    val heartbeatRequest = new HeartbeatRequestData()
+      .setGroupId("group")
+      .setMemberId("member")
+      .setGenerationId(0)
+
+    val requestChannelRequest = buildRequest(new HeartbeatRequest.Builder(heartbeatRequest).build())
+
+    val authorizer: Authorizer = mock(classOf[Authorizer])
+    when(authorizer.authorize(any[RequestContext], any[util.List[Action]]))
+      .thenReturn(Seq(AuthorizationResult.DENIED).asJava)
+
+    createKafkaApis(authorizer = Some(authorizer)).handleHeartbeatRequest(requestChannelRequest)
+
+    val capturedResponse = verifyNoThrottling(requestChannelRequest)
+    val response = capturedResponse.getValue.asInstanceOf[SyncGroupResponse]
+    assertEquals(Errors.GROUP_AUTHORIZATION_FAILED, response.error)
+  }
+
   @Test
   def rejectJoinGroupRequestWhenStaticMembershipNotSupported(): Unit = {
     val joinGroupRequest = new JoinGroupRequest.Builder(
