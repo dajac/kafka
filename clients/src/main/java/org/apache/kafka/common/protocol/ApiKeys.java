@@ -108,7 +108,8 @@ public enum ApiKeys {
     UNREGISTER_BROKER(ApiMessageType.UNREGISTER_BROKER, false, RecordBatch.MAGIC_VALUE_V0, true),
     DESCRIBE_TRANSACTIONS(ApiMessageType.DESCRIBE_TRANSACTIONS),
     LIST_TRANSACTIONS(ApiMessageType.LIST_TRANSACTIONS),
-    ALLOCATE_PRODUCER_IDS(ApiMessageType.ALLOCATE_PRODUCER_IDS, true, true);
+    ALLOCATE_PRODUCER_IDS(ApiMessageType.ALLOCATE_PRODUCER_IDS, true, true),
+    CONSUMER_GROUP_HEARTBEAT(ApiMessageType.CONSUMER_GROUP_HEARTBEAT, false, RecordBatch.MAGIC_VALUE_V0, false, false);
 
     private static final Map<ApiMessageType.ListenerType, EnumSet<ApiKeys>> APIS_BY_LISTENER =
         new EnumMap<>(ApiMessageType.ListenerType.class);
@@ -138,6 +139,12 @@ public enum ApiKeys {
     /** indicates whether the API is enabled for forwarding **/
     public final boolean forwardable;
 
+    /**
+     * indicates whether the API is released. unreleased apis are not advertised by default. to enable them,
+     * use `unreleased.apis.enable`.
+     */
+    public final boolean released;
+
     public final boolean requiresDelayedAllocation;
 
     public final ApiMessageType messageType;
@@ -160,6 +167,22 @@ public enum ApiKeys {
         byte minRequiredInterBrokerMagic,
         boolean forwardable
     ) {
+        this(
+            messageType,
+            clusterAction,
+            minRequiredInterBrokerMagic,
+            forwardable,
+            true
+        );
+    }
+
+    ApiKeys(
+        ApiMessageType messageType,
+        boolean clusterAction,
+        byte minRequiredInterBrokerMagic,
+        boolean forwardable,
+        boolean released
+    ) {
         this.messageType = messageType;
         this.id = messageType.apiKey();
         this.name = messageType.name;
@@ -167,6 +190,7 @@ public enum ApiKeys {
         this.minRequiredInterBrokerMagic = minRequiredInterBrokerMagic;
         this.requiresDelayedAllocation = forwardable || shouldRetainsBufferReference(messageType.requestSchemas());
         this.forwardable = forwardable;
+        this.released = released;
     }
 
     private static boolean shouldRetainsBufferReference(Schema[] requestSchemas) {
@@ -278,13 +302,29 @@ public enum ApiKeys {
         return EnumSet.copyOf(apis);
     }
 
-    public static EnumSet<ApiKeys> apisForListener(ApiMessageType.ListenerType listener) {
+    public static EnumSet<ApiKeys> apisForListener(
+        ApiMessageType.ListenerType listener
+    ) {
+        return apisForListener(listener, false);
+    }
+
+    public static EnumSet<ApiKeys> apisForListener(
+        ApiMessageType.ListenerType listener,
+        boolean includeUnreleasedApis
+    ) {
+        if (includeUnreleasedApis) {
+            // This is only used during development, so we consider it as an exceptional path.
+            return EnumSet.copyOf(Arrays.stream(ApiKeys.values())
+                .filter(apiKey -> apiKey.inScope(listener))
+                .collect(Collectors.toList()));
+        }
+
         return APIS_BY_LISTENER.get(listener);
     }
 
     private static EnumSet<ApiKeys> filterApisForListener(ApiMessageType.ListenerType listener) {
         List<ApiKeys> apis = Arrays.stream(ApiKeys.values())
-            .filter(apiKey -> apiKey.inScope(listener))
+            .filter(apiKey -> apiKey.inScope(listener) && apiKey.released)
             .collect(Collectors.toList());
         return EnumSet.copyOf(apis);
     }
