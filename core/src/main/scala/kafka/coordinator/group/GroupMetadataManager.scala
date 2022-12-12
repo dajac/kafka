@@ -27,7 +27,6 @@ import java.util.concurrent.{ConcurrentHashMap, TimeUnit}
 
 import com.yammer.metrics.core.Gauge
 import kafka.common.OffsetAndMetadata
-import kafka.internals.generated.{GroupMetadataValue, OffsetCommitKey, OffsetCommitValue, GroupMetadataKey => GroupMetadataKeyData}
 import kafka.log.AppendOrigin
 import kafka.metrics.KafkaMetricsGroup
 import kafka.server.{FetchLogEnd, ReplicaManager, RequestLocal}
@@ -46,6 +45,7 @@ import org.apache.kafka.common.requests.ProduceResponse.PartitionResponse
 import org.apache.kafka.common.requests.{OffsetCommitRequest, OffsetFetchResponse}
 import org.apache.kafka.common.utils.{Time, Utils}
 import org.apache.kafka.common.{KafkaException, MessageFormatter, TopicPartition}
+import org.apache.kafka.coordinator.group.generated.{GroupMetadataValue, OffsetCommitKey, OffsetCommitValue, GroupMetadataKey => GroupMetadataKeyData}
 import org.apache.kafka.server.common.MetadataVersion
 import org.apache.kafka.server.common.MetadataVersion.{IBP_0_10_1_IV0, IBP_2_1_IV0, IBP_2_1_IV1, IBP_2_3_IV0}
 
