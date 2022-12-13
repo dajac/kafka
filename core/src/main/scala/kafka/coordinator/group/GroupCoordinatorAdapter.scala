@@ -17,7 +17,8 @@
 package kafka.coordinator.group
 
 import kafka.server.RequestLocal
-import org.apache.kafka.common.message.{HeartbeatRequestData, HeartbeatResponseData, JoinGroupRequestData, JoinGroupResponseData, LeaveGroupRequestData, LeaveGroupResponseData, ListGroupsRequestData, ListGroupsResponseData, SyncGroupRequestData, SyncGroupResponseData}
+import org.apache.kafka.common.message.{ConsumerGroupHeartbeatRequestData, ConsumerGroupHeartbeatResponseData, HeartbeatRequestData, HeartbeatResponseData, JoinGroupRequestData, JoinGroupResponseData, LeaveGroupRequestData, LeaveGroupResponseData, ListGroupsRequestData, ListGroupsResponseData, SyncGroupRequestData, SyncGroupResponseData}
+import org.apache.kafka.common.protocol.{ApiKeys, Errors}
 import org.apache.kafka.common.requests.RequestContext
 import org.apache.kafka.common.utils.BufferSupplier
 
@@ -32,6 +33,17 @@ import scala.jdk.CollectionConverters._
 class GroupCoordinatorAdapter(
   val coordinator: GroupCoordinator
 ) extends org.apache.kafka.coordinator.group.GroupCoordinator {
+
+  override def joinConsumerGroup(
+    context: RequestContext,
+    request: ConsumerGroupHeartbeatRequestData
+  ): CompletableFuture[ConsumerGroupHeartbeatResponseData] = {
+    val future = new CompletableFuture[ConsumerGroupHeartbeatResponseData]()
+    future.completeExceptionally(Errors.UNKNOWN_SERVER_ERROR.exception(
+      s"The old group coordinator does not support ${ApiKeys.CONSUMER_GROUP_HEARTBEAT.name} API."
+    ))
+    future
+  }
 
   override def joinGroup(
     context: RequestContext,

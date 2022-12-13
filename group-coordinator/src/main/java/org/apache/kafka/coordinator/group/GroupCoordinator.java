@@ -16,6 +16,8 @@
  */
 package org.apache.kafka.coordinator.group;
 
+import org.apache.kafka.common.message.ConsumerGroupHeartbeatRequestData;
+import org.apache.kafka.common.message.ConsumerGroupHeartbeatResponseData;
 import org.apache.kafka.common.message.HeartbeatRequestData;
 import org.apache.kafka.common.message.HeartbeatResponseData;
 import org.apache.kafka.common.message.JoinGroupRequestData;
@@ -32,6 +34,19 @@ import org.apache.kafka.common.utils.BufferSupplier;
 import java.util.concurrent.CompletableFuture;
 
 public interface GroupCoordinator {
+
+    /**
+     * Join a Consumer Group.
+     *
+     * @param context           The request context.
+     * @param request           The ConsumerGroupHeartbeatResponse data.
+     *
+     * @return A future yielding the response or an exception.
+     */
+    CompletableFuture<ConsumerGroupHeartbeatResponseData> joinConsumerGroup(
+        RequestContext context,
+        ConsumerGroupHeartbeatRequestData request
+    );
 
     /**
      * Join a Generic Group.
