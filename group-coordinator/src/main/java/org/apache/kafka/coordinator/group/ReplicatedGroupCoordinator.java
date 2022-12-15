@@ -42,7 +42,7 @@ import java.util.concurrent.ConcurrentHashMap;
  */
 public class ReplicatedGroupCoordinator implements GroupCoordinator {
 
-    private final Map<Integer, ReplicatedStateMachine> stateMachines = new ConcurrentHashMap<>();
+    private final Map<Integer, ReplicatedGroupCoordinatorPartition> stateMachines = new ConcurrentHashMap<>();
 
     // Threads to execute the replicated state machines.
     // Thread(s) to load the state machines.

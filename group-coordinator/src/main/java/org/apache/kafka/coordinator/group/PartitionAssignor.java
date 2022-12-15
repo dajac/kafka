@@ -35,6 +35,19 @@ public interface PartitionAssignor {
          * The topics' metadata keyed by topic id
          */
         Map<Uuid, AssignmentTopicMetadata> topics;
+
+        public AssignmentSpec(
+            Map<String, AssignmentMemberSpec> members,
+            Map<Uuid, AssignmentTopicMetadata> topics
+        ) {
+            this.members = members;
+            this.topics = topics;
+        }
+
+        @Override
+        public String toString() {
+            return "AssignmentSpec(members=" + members + ", topics=" + topics + ")";
+        }
     }
 
     class AssignmentMemberSpec {
@@ -57,6 +70,27 @@ public interface PartitionAssignor {
          * The current target partitions of the member.
          */
         Collection<TopicPartition> targetPartitions;
+
+        public AssignmentMemberSpec(
+            Optional<String> instanceId,
+            Optional<String> rackId,
+            Collection<String> subscribedTopics,
+            Collection<TopicPartition> targetPartitions
+        ) {
+            this.instanceId = instanceId;
+            this.rackId = rackId;
+            this.subscribedTopics = subscribedTopics;
+            this.targetPartitions = targetPartitions;
+        }
+
+        @Override
+        public String toString() {
+            return "AssignmentMemberSpec(instanceId=" + instanceId +
+                ", rackId=" + rackId +
+                ", subscribedTopics=" + subscribedTopics +
+                ", targetPartitions=" + targetPartitions +
+                ")";
+        }
     }
 
     class AssignmentTopicMetadata {
@@ -69,6 +103,19 @@ public interface PartitionAssignor {
          * The number of partitions.
          */
         int numPartitions;
+
+        public AssignmentTopicMetadata(
+            String topicName,
+            int numPartitions
+        ) {
+            this.topicName = topicName;
+            this.numPartitions = numPartitions;
+        }
+
+        @Override
+        public String toString() {
+            return "AssignmentTopicMetadata(topicName=" + topicName + ", numPartitions=" + numPartitions + ")";
+        }
     }
 
     class GroupAssignment {
@@ -76,6 +123,15 @@ public interface PartitionAssignor {
          * The member assignments keyed by member id.
          */
         Map<String, MemberAssignment> members;
+
+        public GroupAssignment(Map<String, MemberAssignment> members) {
+            this.members = members;
+        }
+
+        @Override
+        public String toString() {
+            return "GroupAssignment(members=" + members + ")";
+        }
     }
 
     class MemberAssignment {
@@ -83,6 +139,15 @@ public interface PartitionAssignor {
          * The target partitions assigned to this member.
          */
         Collection<TopicPartition> targetPartitions;
+
+        public MemberAssignment(Collection<TopicPartition> targetPartitions) {
+            this.targetPartitions = targetPartitions;
+        }
+
+        @Override
+        public String toString() {
+            return "MemberAssignment(targetPartitions=" + targetPartitions + ")";
+        }
     }
 
     /**
