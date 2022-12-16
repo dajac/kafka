@@ -179,6 +179,8 @@ public class ReplicatedGroupCoordinatorPartition {
             } else {
                 result.records.forEach(ReplicatedGroupCoordinatorPartition.this::replay);
                 // Write -> Need offset
+                // writeOffset = write(records)
+                // in case of any errors, rollback the change and fail the event.
             }
 
             if (!future.isDone()) {
