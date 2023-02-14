@@ -29,7 +29,7 @@ import java.util.TreeMap;
  * We wait for the high water mark of the metadata log to advance before completing
  * them.
  */
-class ControllerPurgatory {
+public class ControllerPurgatory {
     /**
      * A map from log offsets to events.  Each event will be completed once the log
      * advances past its offset.
