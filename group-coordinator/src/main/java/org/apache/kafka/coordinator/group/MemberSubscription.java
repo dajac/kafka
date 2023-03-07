@@ -22,14 +22,9 @@ import java.util.Objects;
 import java.util.Optional;
 
 /**
- * An immutable representation of a member within a consumer group.
+ * An immutable representation of a member subscription.
  */
-public class MemberState {
-    /**
-     * The member id.
-     */
-    private final String memberId;
-
+public class MemberSubscription {
     /**
      * The optional instance id provided by the member.
      */
@@ -70,8 +65,7 @@ public class MemberState {
      */
     private final List<AssignorState> assignorStates;
 
-    public MemberState(
-        String memberId,
+    public MemberSubscription(
         Optional<String> instanceId,
         Optional<String> rackId,
         String clientId,
@@ -81,7 +75,6 @@ public class MemberState {
         Optional<String> serverAssignorName,
         List<AssignorState> assignorStates
     ) {
-        Objects.requireNonNull(memberId);
         Objects.requireNonNull(instanceId);
         Objects.requireNonNull(rackId);
         Objects.requireNonNull(clientId);
@@ -91,7 +84,6 @@ public class MemberState {
         Objects.requireNonNull(serverAssignorName);
         Objects.requireNonNull(assignorStates);
 
-        this.memberId = memberId;
         this.instanceId = instanceId;
         this.rackId = rackId;
         this.clientId = clientId;
@@ -100,10 +92,6 @@ public class MemberState {
         this.subscribedTopicRegex = subscribedTopicRegex;
         this.serverAssignorName = serverAssignorName;
         this.assignorStates = Collections.unmodifiableList(assignorStates);
-    }
-
-    public String memberId() {
-        return this.memberId;
     }
 
     public Optional<String> instanceId() {
@@ -143,9 +131,8 @@ public class MemberState {
         if (this == o) return true;
         if (o == null || getClass() != o.getClass()) return false;
 
-        MemberState that = (MemberState) o;
+        MemberSubscription that = (MemberSubscription) o;
 
-        if (!memberId.equals(that.memberId)) return false;
         if (!instanceId.equals(that.instanceId)) return false;
         if (!rackId.equals(that.rackId)) return false;
         if (!clientId.equals(that.clientId)) return false;
@@ -158,8 +145,7 @@ public class MemberState {
 
     @Override
     public int hashCode() {
-        int result = memberId.hashCode();
-        result = 31 * result + instanceId.hashCode();
+        int result = instanceId.hashCode();;
         result = 31 * result + rackId.hashCode();
         result = 31 * result + clientId.hashCode();
         result = 31 * result + clientHost.hashCode();
@@ -172,8 +158,7 @@ public class MemberState {
 
     @Override
     public String toString() {
-        return "MemberState(memberId=" + memberId +
-            ", instanceId=" + instanceId +
+        return "MemberState(instanceId=" + instanceId +
             ", rackId=" + rackId +
             ", clientId=" + clientId +
             ", clientHost=" + clientHost +

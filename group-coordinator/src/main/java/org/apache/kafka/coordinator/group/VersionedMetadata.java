@@ -16,30 +16,38 @@
  */
 package org.apache.kafka.coordinator.group;
 
-import java.util.List;
+import java.nio.ByteBuffer;
 import java.util.Objects;
 
-class Result<T> {
-    private final List<Record> records;
-    private final T response;
+/**
+ * Immutable versioned metadata.
+ */
+public class VersionedMetadata {
+    public static VersionedMetadata EMPTY = new VersionedMetadata((short) -1, ByteBuffer.allocate(0));
 
-    public Result(
-        List<Record> records,
-        T response
+    private final short version;
+    private final ByteBuffer metadata;
+
+    public VersionedMetadata(
+        short version,
+        ByteBuffer metadata
     ) {
-        Objects.requireNonNull(records);
-        Objects.requireNonNull(response);
+        Objects.requireNonNull(metadata);
 
-        this.records = records;
-        this.response = response;
+        if (version < 0) {
+            throw new IllegalStateException("Version must be a positive value.");
+        }
+
+        this.version = version;
+        this.metadata = metadata;
     }
 
-    public List<Record> records() {
-        return records;
+    public short version() {
+        return this.version;
     }
 
-    public T response() {
-        return response;
+    public ByteBuffer metadata() {
+        return this.metadata;
     }
 
     @Override
@@ -47,23 +55,24 @@ class Result<T> {
         if (this == o) return true;
         if (o == null || getClass() != o.getClass()) return false;
 
-        Result<?> result = (Result<?>) o;
+        VersionedMetadata that = (VersionedMetadata) o;
 
-        if (!records.equals(result.records)) return false;
-        return response.equals(result.response);
+        if (version != that.version) return false;
+        return metadata.equals(that.metadata);
     }
 
     @Override
     public int hashCode() {
-        int result = records.hashCode();
-        result = 31 * result + response.hashCode();
+        int result = version;
+        result = 31 * result + metadata.hashCode();
         return result;
     }
 
     @Override
     public String toString() {
-        return "Result(records=" + records +
-            ", response=" + response +
-            ")";
+        return "VersionedMetadata(" +
+            "version=" + version +
+            ", metadata=" + metadata +
+            ')';
     }
 }

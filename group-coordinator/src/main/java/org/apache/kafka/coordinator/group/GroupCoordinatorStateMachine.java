@@ -22,10 +22,14 @@ import org.apache.kafka.common.requests.RequestContext;
 import org.apache.kafka.common.utils.LogContext;
 import org.apache.kafka.coordinator.group.assignor.PartitionAssignor;
 import org.apache.kafka.timeline.SnapshotRegistry;
+import org.apache.kafka.timeline.TimelineHashMap;
 import org.slf4j.Logger;
 
+import java.util.Arrays;
 import java.util.Collections;
 import java.util.LinkedHashMap;
+import java.util.List;
+import java.util.Objects;
 
 public class GroupCoordinatorStateMachine {
 
@@ -39,11 +43,7 @@ public class GroupCoordinatorStateMachine {
 
     private final LinkedHashMap<String, PartitionAssignor> assignors;
 
-    // ConsumerGroup State
-    // Target Assignment
-    // Current Assignment
-    // Rebalance Timeouts
-    // Session Timeouts
+    private final TimelineHashMap<String, ConsumerGroup> groups;
 
     public GroupCoordinatorStateMachine(
         int partitionId,
@@ -56,41 +56,69 @@ public class GroupCoordinatorStateMachine {
         this.log = logContext.logger(GroupCoordinatorStateMachine.class);
         this.snapshotRegistry = snapshotRegistry;
         this.assignors = assignors;
+        this.groups = new TimelineHashMap<>(snapshotRegistry, 0);
     }
 
-    public Result<ConsumerGroupHeartbeatResponseData> joinConsumerGroup(
+    public IncrementalResult<ConsumerGroupHeartbeatResponseData> consumerGroupHeartbeat(
         RequestContext context,
         ConsumerGroupHeartbeatRequestData request
     ) {
-        // TODO
+        return new IncrementalResult<>(
+            new ConsumerGroupHeartbeatResponseData(),
+            Arrays.asList(
+                (response) -> consumerGroupHeartbeat(
+                    context,
+                    request,
+                    response
+                ),
+                (response) -> maybeComputeAssignment(
+                    context,
+                    request,
+                    response
+                ),
+                (response) -> maybeReconcileAssignment(
+                    context,
+                    request,
+                    response
+                )
+            )
+        );
+    }
+
+    private Result<ConsumerGroupHeartbeatResponseData> consumerGroupHeartbeat(
+        RequestContext context,
+        ConsumerGroupHeartbeatRequestData request,
+        ConsumerGroupHeartbeatResponseData response
+    ) {
         // 1. Validate request
         // 2. Update group state
-        // 3. Maybe compute new target assignment
-        //    This needs the updated group state from 2. How to do this?
-        //    a) when creating the assignor's input we could just inject the
-        //       the new member state based on the records.
-        //    b) we could have a staged approach where each steps would update
-        //       the state before the next step in called.
-        // 4. Reconcile member assignment
-        //    This needs the updated target assignment from 3.
-
-
-        /*
-
-        appendWriteEvent("heartbeat", partitionId,
-            (statemachine, response) -> statemachine.heartbeat(req, response),
-            (statemachine, response) -> statemachine.maybeComputeAssignment(),
-            (statemachine, response) -> statemachine.reconcile(response)
-        ).handle(
-            // Convert errors.
-        )
-
-         */
-
         return new Result<>(
             Collections.emptyList(),
-            new ConsumerGroupHeartbeatResponseData(),
-            true
+            response
+        );
+    }
+
+    private Result<ConsumerGroupHeartbeatResponseData> maybeComputeAssignment(
+        RequestContext context,
+        ConsumerGroupHeartbeatRequestData request,
+        ConsumerGroupHeartbeatResponseData response
+    ) {
+        // 3. Maybe compute new target assignment
+        return new Result<>(
+            Collections.emptyList(),
+            response
+        );
+    }
+
+    private Result<ConsumerGroupHeartbeatResponseData> maybeReconcileAssignment(
+        RequestContext context,
+        ConsumerGroupHeartbeatRequestData request,
+        ConsumerGroupHeartbeatResponseData response
+    ) {
+        // 4. Reconcile member assignment
+        return new Result<>(
+            Collections.emptyList(),
+            response
         );
     }
 
