@@ -19,9 +19,9 @@ package org.apache.kafka.coordinator.group;
 import org.apache.kafka.common.Uuid;
 
 import java.util.Collections;
-import java.util.List;
 import java.util.Map;
 import java.util.Objects;
+import java.util.Set;
 
 /**
  * The target assignment for a member in a consumer group. This is the assignment
@@ -29,12 +29,12 @@ import java.util.Objects;
  */
 public class MemberTargetAssignment {
 
-    private final Map<Uuid, List<Integer>> assignedPartitions;
+    private final Map<Uuid, Set<Integer>> assignedPartitions;
 
     private final VersionedMetadata metadata;
 
     public MemberTargetAssignment(
-        Map<Uuid, List<Integer>> assignedPartitions,
+        Map<Uuid, Set<Integer>> assignedPartitions,
         VersionedMetadata metadata
     ) {
         Objects.requireNonNull(assignedPartitions);
@@ -44,7 +44,7 @@ public class MemberTargetAssignment {
         this.metadata = metadata;
     }
 
-    public Map<Uuid, List<Integer>> assignedPartitions() {
+    public Map<Uuid, Set<Integer>> assignedPartitions() {
         return this.assignedPartitions;
     }
 

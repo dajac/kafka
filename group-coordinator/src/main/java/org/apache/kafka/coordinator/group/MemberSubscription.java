@@ -26,14 +26,19 @@ import java.util.Optional;
  */
 public class MemberSubscription {
     /**
-     * The optional instance id provided by the member.
+     * The instance id provided by the member.
      */
-    private final Optional<String> instanceId;
+    private final String instanceId;
 
     /**
-     * The optional rack id provided by the member.
+     * The rack id provided by the member.
      */
-    private final Optional<String> rackId;
+    private final String rackId;
+
+    /**
+     * The rebalance timeout provided by the member.
+     */
+    private final int rebalanceTimeoutMs;
 
     /**
      * The client id reported by the member.
@@ -56,9 +61,9 @@ public class MemberSubscription {
     private final String subscribedTopicRegex;
 
     /**
-     * The optional server side assignor selected by the member.
+     * The server side assignor selected by the member.
      */
-    private final Optional<String> serverAssignorName;
+    private final String serverAssignorName;
 
     /**
      * The states of the client side assignors of the member.
@@ -66,13 +71,14 @@ public class MemberSubscription {
     private final List<AssignorState> assignorStates;
 
     public MemberSubscription(
-        Optional<String> instanceId,
-        Optional<String> rackId,
+        String instanceId,
+        String rackId,
+        int rebalanceTimeoutMs,
         String clientId,
         String clientHost,
         List<String> subscribedTopicNames,
         String subscribedTopicRegex,
-        Optional<String> serverAssignorName,
+        String serverAssignorName,
         List<AssignorState> assignorStates
     ) {
         Objects.requireNonNull(instanceId);
@@ -86,20 +92,27 @@ public class MemberSubscription {
 
         this.instanceId = instanceId;
         this.rackId = rackId;
+        this.rebalanceTimeoutMs = rebalanceTimeoutMs;
         this.clientId = clientId;
         this.clientHost = clientHost;
         this.subscribedTopicNames = Collections.unmodifiableList(subscribedTopicNames);
+        // Sort subscriptions to avoid rebalancing when the order changes.
+        this.subscribedTopicNames.sort(String::compareTo);
         this.subscribedTopicRegex = subscribedTopicRegex;
         this.serverAssignorName = serverAssignorName;
         this.assignorStates = Collections.unmodifiableList(assignorStates);
     }
 
-    public Optional<String> instanceId() {
+    public String instanceId() {
         return this.instanceId;
     }
 
-    public Optional<String> rackId() {
+    public String rackId() {
         return this.rackId;
+    }
+
+    public int rebalanceTimeoutMs() {
+        return this.rebalanceTimeoutMs;
     }
 
     public String clientId() {
@@ -118,12 +131,43 @@ public class MemberSubscription {
         return this.subscribedTopicRegex;
     }
 
-    public Optional<String> serverAssignorName() {
+    public String serverAssignorName() {
         return this.serverAssignorName;
     }
 
     public List<AssignorState> assignorStates() {
         return this.assignorStates;
+    }
+
+    /**
+     * Updates the subscription with the provided information and returns
+     * an empty Optional if nothing changed or an Optional containing the
+     * updated subscriptions.
+     */
+    public Optional<MemberSubscription> maybeUpdateWith(
+        String instanceId,
+        String rackId,
+        int rebalanceTimeoutMs,
+        String clientId,
+        String clientHost,
+        List<String> subscribedTopicNames,
+        String subscribedTopicRegex,
+        String serverAssignorName,
+        List<AssignorState> assignorStates
+    ) {
+        MemberSubscription newMemberSubscription = new MemberSubscription(
+            instanceId != null ? instanceId : this.instanceId,
+            rackId != null ? rackId : this.rackId,
+            rebalanceTimeoutMs,
+            clientId,
+            clientHost,
+            subscribedTopicNames != null ? subscribedTopicNames : this.subscribedTopicNames,
+            subscribedTopicRegex != null ? subscribedTopicRegex : this.subscribedTopicRegex,
+            serverAssignorName != null ? serverAssignorName : this.serverAssignorName,
+            assignorStates != null ? assignorStates : this.assignorStates
+        );
+
+        return equals(newMemberSubscription) ? Optional.empty() : Optional.of(newMemberSubscription);
     }
 
     @Override
@@ -135,6 +179,7 @@ public class MemberSubscription {
 
         if (!instanceId.equals(that.instanceId)) return false;
         if (!rackId.equals(that.rackId)) return false;
+        if (rebalanceTimeoutMs != that.rebalanceTimeoutMs) return false;
         if (!clientId.equals(that.clientId)) return false;
         if (!clientHost.equals(that.clientHost)) return false;
         if (!subscribedTopicNames.equals(that.subscribedTopicNames)) return false;
@@ -145,8 +190,9 @@ public class MemberSubscription {
 
     @Override
     public int hashCode() {
-        int result = instanceId.hashCode();;
+        int result = instanceId.hashCode();
         result = 31 * result + rackId.hashCode();
+        result = 31 * result + rebalanceTimeoutMs;
         result = 31 * result + clientId.hashCode();
         result = 31 * result + clientHost.hashCode();
         result = 31 * result + subscribedTopicNames.hashCode();
@@ -160,6 +206,7 @@ public class MemberSubscription {
     public String toString() {
         return "MemberState(instanceId=" + instanceId +
             ", rackId=" + rackId +
+            ", rebalanceTimeoutMs=" + rebalanceTimeoutMs +
             ", clientId=" + clientId +
             ", clientHost=" + clientHost +
             ", subscribedTopicNames=" + subscribedTopicNames +

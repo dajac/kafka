@@ -18,8 +18,8 @@ package org.apache.kafka.coordinator.group;
 
 import org.apache.kafka.common.Uuid;
 
-import java.util.Arrays;
 import java.util.Objects;
+import java.util.Set;
 
 public class TopicMetadata {
 
@@ -27,20 +27,19 @@ public class TopicMetadata {
 
     private final String name;
 
-    private final int[] partitions;
+    private final int numPartitions;
 
     public TopicMetadata(
         Uuid id,
         String name,
-        int[] partitions
+        int numPartitions
     ) {
         Objects.requireNonNull(id);
         Objects.requireNonNull(name);
-        Objects.requireNonNull(partitions);
 
         this.id = id;
         this.name = name;
-        this.partitions = partitions;
+        this.numPartitions = numPartitions;
     }
 
     public Uuid id() {
@@ -51,8 +50,8 @@ public class TopicMetadata {
         return this.name;
     }
 
-    public int[] partitions() {
-        return this.partitions;
+    public int numPartitions() {
+        return this.numPartitions;
     }
 
     @Override
@@ -64,17 +63,15 @@ public class TopicMetadata {
 
         if (!id.equals(that.id)) return false;
         if (!name.equals(that.name)) return false;
-        return Arrays.equals(
-            partitions,
-            that.partitions
-        );
+        return numPartitions == that.numPartitions;
+
     }
 
     @Override
     public int hashCode() {
         int result = id.hashCode();
         result = 31 * result + name.hashCode();
-        result = 31 * result + Arrays.hashCode(partitions);
+        result = 31 * result + numPartitions;
         return result;
     }
 
@@ -83,7 +80,7 @@ public class TopicMetadata {
         return "TopicMetadata(" +
             "id=" + id +
             ", name=" + name +
-            ", partitions=" + Arrays.toString(partitions) +
+            ", numPartitions=" + numPartitions +
             ')';
     }
 }

@@ -16,11 +16,13 @@
  */
 package org.apache.kafka.coordinator.group.assignor;
 
-import org.apache.kafka.common.TopicPartition;
+import org.apache.kafka.common.Uuid;
 
 import java.util.Collection;
+import java.util.Map;
 import java.util.Objects;
 import java.util.Optional;
+import java.util.Set;
 
 /**
  * The assignment specification for a consumer group member.
@@ -39,18 +41,18 @@ public class AssignmentMemberSpec {
     /**
      * The topics that the member is subscribed to.
      */
-    final Collection<String> subscribedTopics;
+    final Collection<Uuid> subscribedTopics;
 
     /**
      * The current target partitions of the member.
      */
-    final Collection<TopicPartition> targetPartitions;
+    final Map<Uuid, Set<Integer>> targetPartitions;
 
     public AssignmentMemberSpec(
         Optional<String> instanceId,
         Optional<String> rackId,
-        Collection<String> subscribedTopics,
-        Collection<TopicPartition> targetPartitions
+        Collection<Uuid> subscribedTopics,
+        Map<Uuid, Set<Integer>> targetPartitions
     ) {
         Objects.requireNonNull(instanceId);
         Objects.requireNonNull(rackId);

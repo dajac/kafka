@@ -26,7 +26,7 @@ public class GroupAssignment {
     /**
      * The member assignments keyed by member id.
      */
-    final Map<String, MemberAssignment> members;
+    public final Map<String, MemberAssignment> members;
 
     public GroupAssignment(
         Map<String, MemberAssignment> members

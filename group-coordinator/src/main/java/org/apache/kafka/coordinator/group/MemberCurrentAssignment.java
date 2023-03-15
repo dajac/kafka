@@ -19,9 +19,9 @@ package org.apache.kafka.coordinator.group;
 import org.apache.kafka.common.Uuid;
 
 import java.util.Collections;
-import java.util.List;
 import java.util.Map;
 import java.util.Objects;
+import java.util.Set;
 
 public class MemberCurrentAssignment {
 
@@ -33,7 +33,7 @@ public class MemberCurrentAssignment {
     /**
      * The current partitions owned by the member.
      */
-    private final Map<Uuid, List<Integer>> partitions;
+    private final Map<Uuid, Set<Integer>> partitions;
 
     /**
      * The current assignor error reported to the member.
@@ -45,9 +45,30 @@ public class MemberCurrentAssignment {
      */
     private final VersionedMetadata metadata;
 
+    /**
+     * The partitions that need to be revoked.
+     */
+    private final Map<Uuid, Set<Integer>> revoking;
+
+    /**
+     * The partitions that need to be assigned.
+     */
+    private final Map<Uuid, Set<Integer>> assigning;
+
     public MemberCurrentAssignment(
         int epoch,
-        Map<Uuid, List<Integer>> partitions,
+        Map<Uuid, Set<Integer>> partitions,
+        byte error,
+        VersionedMetadata metadata
+    ) {
+        this(epoch, partitions, null, null, error, metadata);
+    }
+
+    public MemberCurrentAssignment(
+        int epoch,
+        Map<Uuid, Set<Integer>> partitions,
+        Map<Uuid, Set<Integer>> revoking,
+        Map<Uuid, Set<Integer>> assigning,
         byte error,
         VersionedMetadata metadata
     ) {
@@ -66,13 +87,15 @@ public class MemberCurrentAssignment {
         this.partitions = Collections.unmodifiableMap(partitions);
         this.error = error;
         this.metadata = metadata;
+        this.revoking = revoking;
+        this.assigning = assigning;
     }
 
     public int epoch() {
         return this.epoch;
     }
 
-    public Map<Uuid, List<Integer>> partitions() {
+    public Map<Uuid, Set<Integer>> partitions() {
         return this.partitions;
     }
 
@@ -103,6 +126,8 @@ public class MemberCurrentAssignment {
         result = 31 * result + partitions.hashCode();
         result = 31 * result + (int) error;
         result = 31 * result + metadata.hashCode();
+        result = 31 * result + (revoking != null ? revoking.hashCode() : 0);
+        result = 31 * result + (assigning != null ? assigning.hashCode() : 0);
         return result;
     }
 
@@ -113,6 +138,8 @@ public class MemberCurrentAssignment {
             ", partitions=" + partitions +
             ", error=" + error +
             ", metadata=" + metadata +
+            ", revoking=" + revoking +
+            ", assigning=" + assigning +
             ')';
     }
 }
