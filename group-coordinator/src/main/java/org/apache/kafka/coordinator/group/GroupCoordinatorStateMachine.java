@@ -211,6 +211,9 @@ public class GroupCoordinatorStateMachine {
         ConsumerGroup group = consumerGroup(request.groupId(), createIfNotExists);
         ConsumerGroupMember member = group.member(request.memberId(), createIfNotExists);
 
+        // TODO Handle the case where the member did not get the response with the
+        // updated member epoch. In this case, the member will retry with the
+        // previous one.
         if (request.memberEpoch() != member.memberEpoch()) {
             return fenceMember(groupId, member.memberId());
         }
@@ -238,6 +241,7 @@ public class GroupCoordinatorStateMachine {
 
         if (!subscription.equals(member.subscription())) {
             // Bump the group epoch.
+            // TODO: Check wrapping?
             groupEpoch += 1;
 
             // Add a record for the new or updated subscription.
@@ -272,7 +276,7 @@ public class GroupCoordinatorStateMachine {
         // the case where a new assignment would be required from a different path.
         int targetAssignmentEpoch = group.assignmentEpoch();
         ConsumerGroupMemberAssignment targetAssignment = member.targetAssignment();
-        if (groupEpoch < targetAssignmentEpoch) {
+        if (groupEpoch > targetAssignmentEpoch) {
             String assignorName = group.preferredServerAssignor(
                 member.memberId(),
                 subscription
@@ -293,17 +297,19 @@ public class GroupCoordinatorStateMachine {
         }
 
         // Reconcile...
-        ConsumerGroupMemberAssignment currentAssignment = member.currentAssignment();
         ConsumerGroupMemberReconciledAssignment currentReconciledAssignment = member.reconciledAssignment(targetAssignmentEpoch);
         ConsumerGroupMemberReconciledAssignment nextReconciledAssignment = currentReconciledAssignment.computeNextState(
             member.memberEpoch(),
-            currentAssignment,
+            member.currentAssignment(),
             targetAssignmentEpoch,
             targetAssignment,
             request,
             (topicId, partitionId) -> true // TODO Solve this.
         );
 
+        // This change will be reverted if this request fails. However, if this request
+        // does not yield any records and another request fails, it will be to. This is
+        // not ideal but it would recover.
         member.maybeUpdateReconciliationAssignment(nextReconciledAssignment);
 
         if (currentReconciledAssignment.memberEpoch() != nextReconciledAssignment.memberEpoch()) {
@@ -323,18 +329,7 @@ public class GroupCoordinatorStateMachine {
         if (request.topicPartitions() != null
             || request.memberEpoch() == 0
             || currentReconciledAssignment != nextReconciledAssignment) {
-            ConsumerGroupHeartbeatResponseData.Assignment assignment = new ConsumerGroupHeartbeatResponseData.Assignment()
-                .setAssignedTopicPartitions(nextReconciledAssignment.assigned().entrySet().stream()
-                    .map(keyValue -> new ConsumerGroupHeartbeatResponseData.TopicPartitions()
-                        .setTopicId(keyValue.getKey())
-                        .setPartitions(new ArrayList<>(keyValue.getValue())))
-                    .collect(Collectors.toList()))
-                .setPendingTopicPartitions(nextReconciledAssignment.pending().entrySet().stream()
-                    .map(keyValue -> new ConsumerGroupHeartbeatResponseData.TopicPartitions()
-                        .setTopicId(keyValue.getKey())
-                        .setPartitions(new ArrayList<>(keyValue.getValue())))
-                    .collect(Collectors.toList()));
-            responseData.setAssignment(assignment);
+            responseData.setAssignment(createResponseAssignment(nextReconciledAssignment));
         } else {
             responseData.setAssignment(null);
         }
@@ -343,6 +338,22 @@ public class GroupCoordinatorStateMachine {
             records,
             responseData
         );
+    }
+
+    private ConsumerGroupHeartbeatResponseData.Assignment createResponseAssignment(
+        ConsumerGroupMemberReconciledAssignment reconciledAssignment
+    ) {
+        return new ConsumerGroupHeartbeatResponseData.Assignment()
+            .setAssignedTopicPartitions(reconciledAssignment.assigned().entrySet().stream()
+                .map(keyValue -> new ConsumerGroupHeartbeatResponseData.TopicPartitions()
+                    .setTopicId(keyValue.getKey())
+                    .setPartitions(new ArrayList<>(keyValue.getValue())))
+                .collect(Collectors.toList()))
+            .setPendingTopicPartitions(reconciledAssignment.pending().entrySet().stream()
+               .map(keyValue -> new ConsumerGroupHeartbeatResponseData.TopicPartitions()
+                   .setTopicId(keyValue.getKey())
+                   .setPartitions(new ArrayList<>(keyValue.getValue())))
+               .collect(Collectors.toList()));
     }
 
     private Result<ConsumerGroupHeartbeatResponseData> fenceMember(
