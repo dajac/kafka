@@ -16,7 +16,6 @@
  */
 package org.apache.kafka.coordinator.group;
 
-import org.apache.kafka.common.Uuid;
 import org.apache.kafka.common.errors.UnknownMemberIdException;
 import org.apache.kafka.image.TopicImage;
 import org.apache.kafka.image.TopicsImage;
@@ -27,11 +26,10 @@ import org.apache.kafka.timeline.TimelineObject;
 
 import java.util.Collections;
 import java.util.HashMap;
-import java.util.List;
 import java.util.Map;
 import java.util.Objects;
 import java.util.Optional;
-import java.util.Set;
+import java.util.UUID;
 import java.util.function.Consumer;
 
 /**
@@ -46,6 +44,11 @@ public class ConsumerGroup {
         STABLE,
         DEAD
     }
+
+    /**
+     * The snapshot registry.
+     */
+    private final SnapshotRegistry snapshotRegistry;
 
     /**
      * The group id.
@@ -65,16 +68,6 @@ public class ConsumerGroup {
     private final TimelineInteger groupEpoch;
 
     /**
-     * The member subscriptions.
-     */
-    private final TimelineHashMap<String, MemberSubscription> memberSubscriptions;
-
-    /**
-     * The metadata of the subscribed topics.
-     */
-    private final TimelineHashMap<String, TopicMetadata> subscribedTopicMetadata;
-
-    /**
      * The assignment epoch. An assignment epoch smaller than the group epoch means
      * that a new assignment is required. The assignment epoch is updated when a new
      * assignment is installed.
@@ -82,22 +75,14 @@ public class ConsumerGroup {
     private final TimelineInteger assignmentEpoch;
 
     /**
-     * The target assignment for each member in the group. The target assignment represents
-     * the desired state for the group and each member will eventually converge to it.
+     * The group members.
      */
-    private final TimelineHashMap<String, MemberTargetAssignment> memberTargetAssignments;
+    private final TimelineHashMap<String, ConsumerGroupMember> members;
 
     /**
-     * The current assignment for each member in the group. The current assignment represents,
-     * as the name suggests, the current assignment of a member. This includes the current
-     * epoch and the current owned partitions.
+     * The metadata of the subscribed topics.
      */
-    private final TimelineHashMap<String, MemberCurrentAssignment> memberCurrentAssignments;
-
-    /**
-     * The current owner for any given partitions in the current assignment.
-     */
-    private final TimelineHashMap<Uuid, TimelineHashMap<Integer, String>> currentPartitionOwners;
+    private final TimelineHashMap<String, TopicMetadata> subscribedTopicMetadata;
 
     public ConsumerGroup(
         SnapshotRegistry snapshotRegistry,
@@ -106,15 +91,13 @@ public class ConsumerGroup {
         Objects.requireNonNull(snapshotRegistry);
         Objects.requireNonNull(groupId);
 
+        this.snapshotRegistry = snapshotRegistry;
         this.groupId = groupId;
         this.state = new TimelineObject<>(snapshotRegistry, ConsumerGroupState.EMPTY);
         this.groupEpoch = new TimelineInteger(snapshotRegistry);
-        this.memberSubscriptions = new TimelineHashMap<>(snapshotRegistry, 0);
-        this.subscribedTopicMetadata = new TimelineHashMap<>(snapshotRegistry, 0);
         this.assignmentEpoch = new TimelineInteger(snapshotRegistry);
-        this.memberTargetAssignments = new TimelineHashMap<>(snapshotRegistry, 0);
-        this.memberCurrentAssignments = new TimelineHashMap<>(snapshotRegistry, 0);
-        this.currentPartitionOwners = new TimelineHashMap<>(snapshotRegistry, 0);
+        this.members = new TimelineHashMap<>(snapshotRegistry, 0);
+        this.subscribedTopicMetadata = new TimelineHashMap<>(snapshotRegistry, 0);
     }
 
     /**
@@ -131,22 +114,45 @@ public class ConsumerGroup {
         return assignmentEpoch.get();
     }
 
+    public ConsumerGroupMember member(
+        String memberId,
+        boolean createIfNotExists
+    ) {
+        if (memberId.isEmpty() && createIfNotExists) {
+            memberId = UUID.randomUUID().toString();
+        }
+
+        ConsumerGroupMember member = members.get(memberId);
+        if (member == null) {
+            if (!createIfNotExists) {
+                throw new UnknownMemberIdException(String.format("Member %s is not a member of group %s.",
+                    memberId, groupId));
+            }
+            member = new ConsumerGroupMember(snapshotRegistry, memberId);
+            members.put(memberId, member);
+        }
+
+        return member;
+    }
+
+    public Map<String, ConsumerGroupMember> members() {
+        return Collections.unmodifiableMap(members);
+    }
+
     public Optional<String> preferredServerAssignor(
         String updatedMemberId,
-        MemberSubscription updatedMemberSubscription
+        ConsumerGroupMemberSubscription updatedConsumerGroupMemberSubscription
     ) {
         Map<String, Integer> counts = new HashMap<>();
 
-        if (updatedMemberSubscription != null && !updatedMemberSubscription.serverAssignorName().isEmpty()) {
-            counts.put(updatedMemberSubscription.serverAssignorName(), 1);
+        if (updatedConsumerGroupMemberSubscription != null && !updatedConsumerGroupMemberSubscription.serverAssignorName().isEmpty()) {
+            counts.put(updatedConsumerGroupMemberSubscription.serverAssignorName(), 1);
         }
 
-        memberSubscriptions.forEach((memberId, memberSubscription) -> {
-            if (!memberId.equals(updatedMemberId) && !memberSubscription.serverAssignorName().isEmpty()) {
-                counts.compute(
-                    memberSubscription.serverAssignorName(),
-                    (k, v) -> v == null ? 1 : v + 1
-                );
+        members.forEach((memberId, member) -> {
+            ConsumerGroupMemberSubscription subscription = member.subscription();
+            if (!memberId.equals(updatedMemberId) && subscription != null && !subscription.serverAssignorName().isEmpty()) {
+                counts.compute(subscription.serverAssignorName(), (k, v) -> v == null ? 1 : v + 1);
             }
         });
 
@@ -159,89 +165,14 @@ public class ConsumerGroup {
         return Collections.unmodifiableMap(subscribedTopicMetadata);
     }
 
-    public MemberSubscription subscription(String memberId) throws UnknownMemberIdException {
-        return memberSubscriptions.get(memberId);
-    }
-
-    public Map<String, MemberSubscription> subscriptions() {
-        return Collections.unmodifiableMap(memberSubscriptions);
-    }
-
-    public MemberCurrentAssignment memberCurrentAssignment(String memberId){
-        return memberCurrentAssignments.get(memberId);
-    }
-
-    public MemberTargetAssignment memberTargetAssignment(String memberId) {
-        return memberTargetAssignments.get(memberId);
-    }
-
-    public Map<Uuid, Set<Integer>> targetAssignment(String memberId) {
-        MemberTargetAssignment targetAssignment = memberTargetAssignments.get(memberId);
-        if (targetAssignment != null) {
-            return targetAssignment.assignedPartitions();
-        } else {
-            return Collections.emptyMap();
-        }
-    }
-
-    public Map<Integer, String> currentPartitionOwners(Uuid topicId) {
-        TimelineHashMap<Integer, String> owners = currentPartitionOwners.get(topicId);
-        if (owners != null) {
-            return Collections.unmodifiableMap(owners);
-        } else {
-            return Collections.emptyMap();
-        }
-    }
-
-    public Optional<MemberSubscription> maybeCreateOrUpdateSubscription(
-        String memberId,
-        String instanceId,
-        String rackId,
-        int rebalanceTimeoutMs,
-        String clientId,
-        String clientHost,
-        List<String> subscribedTopicNames,
-        String subscribedTopicRegex,
-        String serverAssignorName,
-        List<AssignorState> assignorStates
-    ) {
-        MemberSubscription currentMemberSubscription = memberSubscriptions.get(memberId);
-        if (currentMemberSubscription == null) {
-            return Optional.of(new MemberSubscription(
-                instanceId,
-                rackId,
-                rebalanceTimeoutMs,
-                clientId,
-                clientHost,
-                subscribedTopicNames,
-                subscribedTopicRegex,
-                serverAssignorName,
-                assignorStates
-            ));
-        } else {
-            return currentMemberSubscription.maybeUpdateWith(
-                instanceId,
-                rackId,
-                rebalanceTimeoutMs,
-                clientId,
-                clientHost,
-                subscribedTopicNames,
-                subscribedTopicRegex,
-                serverAssignorName,
-                assignorStates
-            );
-        }
-    }
-
-    public Optional<Map<String, TopicMetadata>> maybeUpdateSubscriptionMetadata(
+    public Map<String, TopicMetadata> updateSubscriptionMetadata(
         String updatedMemberId,
-        MemberSubscription updatedMemberSubscription,
+        ConsumerGroupMemberSubscription updatedConsumerGroupMemberSubscription,
         TopicsImage topicsImage
     ) {
-        Map<String, TopicMetadata> oldSubscriptionMetadata = subscribedTopicMetadata;
-        Map<String, TopicMetadata> newSubscriptionMetadata = new HashMap<>(oldSubscriptionMetadata.size());
+        Map<String, TopicMetadata> newSubscriptionMetadata = new HashMap<>(subscriptionMetadata().size());
 
-        Consumer<MemberSubscription> updateSubscription = (subscription) -> {
+        Consumer<ConsumerGroupMemberSubscription> updateSubscription = (subscription) -> {
             subscription.subscribedTopicNames().forEach(topicName -> {
                 newSubscriptionMetadata.computeIfAbsent(topicName, __ -> {
                     TopicImage topicImage = topicsImage.getTopic(topicName);
@@ -258,20 +189,16 @@ public class ConsumerGroup {
             });
         };
 
-        if (updatedMemberSubscription != null) {
-            updateSubscription.accept(updatedMemberSubscription);
+        if (updatedConsumerGroupMemberSubscription != null) {
+            updateSubscription.accept(updatedConsumerGroupMemberSubscription);
         }
 
-        memberSubscriptions.forEach((memberId, memberSubscription) -> {
+        members.forEach((memberId, member) -> {
             if (!updatedMemberId.equals(memberId)) {
-                updateSubscription.accept(memberSubscription);
+                updateSubscription.accept(member.subscription());
             }
         });
 
-        if (newSubscriptionMetadata.equals(oldSubscriptionMetadata)) {
-            return Optional.empty();
-        } else {
-            return Optional.of(newSubscriptionMetadata);
-        }
+        return newSubscriptionMetadata;
     }
 }

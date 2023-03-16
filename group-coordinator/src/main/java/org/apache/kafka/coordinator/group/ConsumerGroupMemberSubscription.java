@@ -19,12 +19,23 @@ package org.apache.kafka.coordinator.group;
 import java.util.Collections;
 import java.util.List;
 import java.util.Objects;
-import java.util.Optional;
 
 /**
  * An immutable representation of a member subscription.
  */
-public class MemberSubscription {
+public class ConsumerGroupMemberSubscription {
+    public static ConsumerGroupMemberSubscription EMPTY = new ConsumerGroupMemberSubscription(
+        "",
+        "",
+        -1,
+        "",
+        "",
+        Collections.emptyList(),
+        "",
+        "",
+        Collections.emptyList()
+    );
+
     /**
      * The instance id provided by the member.
      */
@@ -70,7 +81,7 @@ public class MemberSubscription {
      */
     private final List<AssignorState> assignorStates;
 
-    public MemberSubscription(
+    public ConsumerGroupMemberSubscription(
         String instanceId,
         String rackId,
         int rebalanceTimeoutMs,
@@ -144,7 +155,7 @@ public class MemberSubscription {
      * an empty Optional if nothing changed or an Optional containing the
      * updated subscriptions.
      */
-    public Optional<MemberSubscription> maybeUpdateWith(
+    public ConsumerGroupMemberSubscription maybeUpdateWith(
         String instanceId,
         String rackId,
         int rebalanceTimeoutMs,
@@ -155,7 +166,7 @@ public class MemberSubscription {
         String serverAssignorName,
         List<AssignorState> assignorStates
     ) {
-        MemberSubscription newMemberSubscription = new MemberSubscription(
+        ConsumerGroupMemberSubscription newConsumerGroupMemberSubscription = new ConsumerGroupMemberSubscription(
             instanceId != null ? instanceId : this.instanceId,
             rackId != null ? rackId : this.rackId,
             rebalanceTimeoutMs,
@@ -167,7 +178,7 @@ public class MemberSubscription {
             assignorStates != null ? assignorStates : this.assignorStates
         );
 
-        return equals(newMemberSubscription) ? Optional.empty() : Optional.of(newMemberSubscription);
+        return equals(newConsumerGroupMemberSubscription) ? this : newConsumerGroupMemberSubscription;
     }
 
     @Override
@@ -175,7 +186,7 @@ public class MemberSubscription {
         if (this == o) return true;
         if (o == null || getClass() != o.getClass()) return false;
 
-        MemberSubscription that = (MemberSubscription) o;
+        ConsumerGroupMemberSubscription that = (ConsumerGroupMemberSubscription) o;
 
         if (!instanceId.equals(that.instanceId)) return false;
         if (!rackId.equals(that.rackId)) return false;

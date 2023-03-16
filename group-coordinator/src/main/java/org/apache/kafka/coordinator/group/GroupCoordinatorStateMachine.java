@@ -16,51 +16,33 @@
  */
 package org.apache.kafka.coordinator.group;
 
-import org.apache.kafka.common.Uuid;
 import org.apache.kafka.common.errors.GroupIdNotFoundException;
 import org.apache.kafka.common.errors.InvalidRequestException;
-import org.apache.kafka.common.errors.UnknownMemberIdException;
 import org.apache.kafka.common.message.ConsumerGroupHeartbeatRequestData;
 import org.apache.kafka.common.message.ConsumerGroupHeartbeatResponseData;
 import org.apache.kafka.common.protocol.Errors;
 import org.apache.kafka.common.requests.RequestContext;
 import org.apache.kafka.common.utils.LogContext;
-import org.apache.kafka.coordinator.group.assignor.AssignmentMemberSpec;
-import org.apache.kafka.coordinator.group.assignor.AssignmentSpec;
-import org.apache.kafka.coordinator.group.assignor.AssignmentTopicMetadata;
-import org.apache.kafka.coordinator.group.assignor.GroupAssignment;
-import org.apache.kafka.coordinator.group.assignor.MemberAssignment;
 import org.apache.kafka.coordinator.group.assignor.PartitionAssignor;
-import org.apache.kafka.coordinator.group.generated.ConsumerGroupCurrentMemberAssignmentKey;
-import org.apache.kafka.coordinator.group.generated.ConsumerGroupCurrentMemberAssignmentValue;
-import org.apache.kafka.coordinator.group.generated.ConsumerGroupMemberMetadataKey;
-import org.apache.kafka.coordinator.group.generated.ConsumerGroupMemberMetadataValue;
-import org.apache.kafka.coordinator.group.generated.ConsumerGroupMetadataKey;
-import org.apache.kafka.coordinator.group.generated.ConsumerGroupMetadataValue;
-import org.apache.kafka.coordinator.group.generated.ConsumerGroupPartitionMetadataKey;
-import org.apache.kafka.coordinator.group.generated.ConsumerGroupPartitionMetadataValue;
-import org.apache.kafka.coordinator.group.generated.ConsumerGroupTargetAssignmentMemberKey;
-import org.apache.kafka.coordinator.group.generated.ConsumerGroupTargetAssignmentMemberValue;
-import org.apache.kafka.coordinator.group.generated.ConsumerGroupTargetAssignmentMetadataKey;
-import org.apache.kafka.coordinator.group.generated.ConsumerGroupTargetAssignmentMetadataValue;
 import org.apache.kafka.image.MetadataImage;
-import org.apache.kafka.server.common.ApiMessageAndVersion;
 import org.apache.kafka.timeline.SnapshotRegistry;
 import org.apache.kafka.timeline.TimelineHashMap;
 import org.slf4j.Logger;
 
 import java.nio.ByteBuffer;
 import java.util.ArrayList;
-import java.util.Collections;
-import java.util.HashMap;
-import java.util.HashSet;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
-import java.util.Optional;
-import java.util.Set;
-import java.util.function.BiConsumer;
 import java.util.stream.Collectors;
+
+import static org.apache.kafka.coordinator.group.RecordBuilders.newCurrentAssignmentRecord;
+import static org.apache.kafka.coordinator.group.RecordBuilders.newCurrentAssignmentTombstoneRecord;
+import static org.apache.kafka.coordinator.group.RecordBuilders.newGroupEpochRecord;
+import static org.apache.kafka.coordinator.group.RecordBuilders.newGroupSubscriptionMetadataRecord;
+import static org.apache.kafka.coordinator.group.RecordBuilders.newMemberSubscriptionRecord;
+import static org.apache.kafka.coordinator.group.RecordBuilders.newMemberSubscriptionTombstoneRecord;
+import static org.apache.kafka.coordinator.group.RecordBuilders.newTargetAssignmentTombstoneRecord;
 
 public class GroupCoordinatorStateMachine {
 
@@ -113,6 +95,21 @@ public class GroupCoordinatorStateMachine {
     }
 
     // TODO Add image changes handler.
+
+    private ConsumerGroup consumerGroup(
+        String groupId,
+        boolean createIfNotExists
+    ) {
+        ConsumerGroup group = groups.get(groupId);
+        if (group == null && !createIfNotExists) {
+            throw new GroupIdNotFoundException(String.format("Group %s not found.", groupId));
+        } else {
+            group = new ConsumerGroup(snapshotRegistry, groupId);
+            groups.put(groupId, group);
+        }
+
+        return group;
+    }
 
     private void validateConsumerGroupHeartbeatRequest(
         ConsumerGroupHeartbeatRequestData request
@@ -196,285 +193,6 @@ public class GroupCoordinatorStateMachine {
         }
     }
 
-    private ConsumerGroup getAndMaybeCreateConsumerGroup(String groupId) {
-        return groups.computeIfAbsent(groupId, __ -> new ConsumerGroup(snapshotRegistry, groupId));
-    }
-
-    private ConsumerGroup getConsumerGroupOrThrow(String groupId) {
-        ConsumerGroup group = groups.get(groupId);
-        if (group == null) {
-            throw new GroupIdNotFoundException(String.format("Group %s not found.", groupId));
-        }
-        return group;
-    }
-
-    private Record newMemberSubscriptionRecord(
-        String groupId,
-        String memberId,
-        MemberSubscription newMemberSubscription
-    ) {
-        return new Record(
-            new ApiMessageAndVersion(
-                new ConsumerGroupMemberMetadataKey()
-                    .setGroupId(groupId)
-                    .setMemberId(memberId),
-                (short) 5
-            ),
-            new ApiMessageAndVersion(
-                new ConsumerGroupMemberMetadataValue()
-                    .setRackId(newMemberSubscription.rackId())
-                    .setInstanceId(newMemberSubscription.instanceId())
-                    .setClientId(newMemberSubscription.clientId())
-                    .setClientHost(newMemberSubscription.clientHost())
-                    .setSubscribedTopicNames(newMemberSubscription.subscribedTopicNames())
-                    .setSubscribedTopicRegex(newMemberSubscription.subscribedTopicRegex())
-                    .setServerAssignor(newMemberSubscription.serverAssignorName())
-                    .setRebalanceTimeoutMs(newMemberSubscription.rebalanceTimeoutMs())
-                    .setAssignors(newMemberSubscription.assignorStates().stream().map(assignorState ->
-                        new ConsumerGroupMemberMetadataValue.Assignor()
-                            .setName(assignorState.name())
-                            .setReason(assignorState.reason())
-                            .setMinimumVersion(assignorState.minimumVersion())
-                            .setMaximumVersion(assignorState.maximumVersion())
-                            .setVersion(assignorState.metadataVersion())
-                            .setMetadata(assignorState.metadataBytes().array())
-                    ).collect(Collectors.toList())),
-                (short) 0
-            )
-        );
-    }
-
-    private Record newMemberSubscriptionTombstoneRecord(
-        String groupId,
-        String memberId
-    ) {
-        return new Record(
-            new ApiMessageAndVersion(
-                new ConsumerGroupMemberMetadataKey()
-                    .setGroupId(groupId)
-                    .setMemberId(memberId),
-                (short) 5
-            ),
-            null
-        );
-    }
-
-    private Record newGroupSubscriptionMetadataRecord(
-        String groupId,
-        Map<String, TopicMetadata> newSubscriptionMetadata
-    ) {
-        ConsumerGroupPartitionMetadataValue value = new ConsumerGroupPartitionMetadataValue();
-        newSubscriptionMetadata.forEach((topicName, topicMetadata) ->
-            value.topics().add(new ConsumerGroupPartitionMetadataValue.TopicMetadata()
-               .setTopicId(topicMetadata.id())
-               .setTopicName(topicMetadata.name())
-               .setNumPartitions(topicMetadata.numPartitions())
-            )
-        );
-
-        return new Record(
-            new ApiMessageAndVersion(
-                new ConsumerGroupPartitionMetadataKey()
-                    .setGroupId(groupId),
-                (short) 4
-            ),
-            new ApiMessageAndVersion(
-                value,
-                (short) 0
-            )
-        );
-    }
-
-    private Record newGroupEpochRecord(
-        String groupId,
-        int newGroupEpoch
-    ) {
-        return new Record(
-            new ApiMessageAndVersion(
-                new ConsumerGroupMetadataKey()
-                    .setGroupId(groupId),
-                (short) 3
-            ),
-            new ApiMessageAndVersion(
-                new ConsumerGroupMetadataValue()
-                    .setEpoch(newGroupEpoch),
-                (short) 0
-            )
-        );
-    }
-
-    private Record newTargetAssignmentRecord(
-        String groupId,
-        String memberId,
-        Map<Uuid, Set<Integer>> partitions
-    ) {
-        return new Record(
-            new ApiMessageAndVersion(
-                new ConsumerGroupTargetAssignmentMemberKey()
-                    .setGroupId(groupId)
-                    .setMemberId(memberId),
-                (short) 7
-            ),
-            new ApiMessageAndVersion(
-                new ConsumerGroupTargetAssignmentMemberValue()
-                    .setTopicPartitions(partitions.entrySet().stream()
-                        .map(keyValue -> new ConsumerGroupTargetAssignmentMemberValue.TopicPartition()
-                            .setTopicId(keyValue.getKey())
-                            .setPartitions(new ArrayList<>(keyValue.getValue())))
-                        .collect(Collectors.toList())),
-                (short) 0
-            )
-        );
-    }
-
-    private Record newTargetAssignmentTombstoneRecord(
-        String groupId,
-        String memberId
-    ) {
-        return new Record(
-            new ApiMessageAndVersion(
-                new ConsumerGroupTargetAssignmentMemberKey()
-                    .setGroupId(groupId)
-                    .setMemberId(memberId),
-                (short) 7
-            ),
-            null
-        );
-    }
-
-    private Record newTargetAssignmentEpochRecord(
-        String groupId,
-        int groupEpcoh
-    ) {
-        return new Record(
-            new ApiMessageAndVersion(
-                new ConsumerGroupTargetAssignmentMetadataKey()
-                    .setGroupId(groupId),
-                (short) 6
-            ),
-            new ApiMessageAndVersion(
-                new ConsumerGroupTargetAssignmentMetadataValue()
-                    .setAssignmentEpoch(groupEpcoh),
-                (short) 0
-            )
-        );
-    }
-
-    private Record newCurrentAssignmentTombstoneRecord(
-        String groupId,
-        String memberId
-    ) {
-        return new Record(
-            new ApiMessageAndVersion(
-                new ConsumerGroupCurrentMemberAssignmentKey()
-                    .setGroupId(groupId)
-                    .setMemberId(memberId),
-                (short) 8
-            ),
-            null // Tombstone
-        );
-    }
-
-    private MemberTargetAssignment updateTargetAssignment(
-        List<Record> records,
-        ConsumerGroup group,
-        String groupId,
-        int groupEpoch,
-        String memberId,
-        MemberSubscription memberSubscription,
-        Map<String, TopicMetadata> subscriptionMetadata
-    ) {
-        // Get the assignor to use.
-        String assignorName = group.preferredServerAssignor(
-            memberId,
-            memberSubscription
-        ).orElse(assignors.keySet().iterator().next());
-
-        // Prepare data.
-        Map<String, AssignmentMemberSpec> members = new HashMap<>();
-
-        BiConsumer<String, MemberSubscription> addMember = (mid, subscription) -> {
-            Set<Uuid> subscribedTopics = new HashSet<>();
-
-            subscription.subscribedTopicNames().forEach(topicName -> {
-                TopicMetadata topicMetadata = subscriptionMetadata.get(topicName);
-                if (topicMetadata != null) {
-                    subscribedTopics.add(topicMetadata.id());
-                }
-            });
-
-            members.put(mid, new AssignmentMemberSpec(
-                subscription.instanceId().isEmpty() ? Optional.empty() : Optional.of(subscription.instanceId()),
-                subscription.rackId().isEmpty() ? Optional.empty() : Optional.of(subscription.rackId()),
-                subscribedTopics,
-                group.targetAssignment(mid)
-            ));
-        };
-
-        group.subscriptions().forEach(addMember);
-
-        if (memberSubscription != null) {
-            addMember.accept(memberId, memberSubscription);
-        } else {
-            members.remove(memberId);
-        }
-
-        Map<Uuid, AssignmentTopicMetadata> topics = new HashMap<>();
-        subscriptionMetadata.forEach((topicName, topicMetadata) -> {
-            topics.put(topicMetadata.id(), new AssignmentTopicMetadata(topicMetadata.numPartitions()));
-        });
-
-        // Compute the assignment.
-        PartitionAssignor assignor = assignors.get(assignorName);
-        // TODO: Handle failures.
-        GroupAssignment assignment = assignor.assign(new AssignmentSpec(
-            Collections.unmodifiableMap(members),
-            Collections.unmodifiableMap(topics)
-        ));
-
-        // Compute delta.
-        members.keySet().forEach(mid -> {
-            MemberTargetAssignment currentAssignment = group.memberTargetAssignment(memberId);
-            MemberAssignment newAssignment = assignment.members.get(memberId);
-
-            if (newAssignment != null) {
-                // If we have an assignment for the member, we compare it with the previous one. If
-                // it is different, we write a record to the log. Otherwise, we don't.
-                if (currentAssignment == null || !currentAssignment.assignedPartitions().equals(newAssignment.targetPartitions)) {
-                    records.add(newTargetAssignmentRecord(
-                        groupId,
-                        memberId,
-                        newAssignment.targetPartitions
-                    ));
-                }
-            } else {
-                // If we don't have an assignment for the member, we write an empty one to the log.
-                records.add(newTargetAssignmentRecord(
-                    groupId,
-                    memberId,
-                    Collections.emptyMap()
-                ));
-            }
-        });
-
-        // Bump the assignment epoch.
-        records.add(newTargetAssignmentEpochRecord(groupId, groupEpoch));
-
-        // Keep a reference of the new target assignment of the current member.
-        MemberAssignment newTargetAssignment = assignment.members.get(memberId);
-        if (newTargetAssignment != null) {
-            return new MemberTargetAssignment(
-                newTargetAssignment.targetPartitions,
-                VersionedMetadata.EMPTY
-            );
-        } else {
-            return new MemberTargetAssignment(
-                Collections.emptyMap(),
-                VersionedMetadata.EMPTY
-            );
-        }
-    }
-
     /**
      * Add or update member.
      */
@@ -486,51 +204,20 @@ public class GroupCoordinatorStateMachine {
         // 1. The member joins: epoch == 0, memberId is empty.
         // 2. The member heartbeats: epoch > 0, memberId exists.
 
+        List<Record> records = new ArrayList<>();
         String groupId = request.groupId();
-        int memberEpoch = request.memberEpoch();
 
-        String memberId;
-        ConsumerGroup group;
-        if (memberEpoch > 0) {
-            // The group must exist if a member has an epoch greater than zero.
-            group = getConsumerGroupOrThrow(groupId);
+        boolean createIfNotExists = request.memberEpoch() == 0;
+        ConsumerGroup group = consumerGroup(request.groupId(), createIfNotExists);
+        ConsumerGroupMember member = group.member(request.memberId(), createIfNotExists);
 
-            // The member must exist as well.
-            memberId = request.memberId();
-            if (!group.subscriptions().containsKey(memberId)) {
-                throw new UnknownMemberIdException(String.format("Member %s is not a member of group %s.",
-                    memberId, groupId));
-            }
-
-            // The member epoch should match the expected epoch.
-            MemberCurrentAssignment currentAssignment = group.memberCurrentAssignment(memberId);
-            // TODO: Member could rejoin with the last epoch if the response with the epoch
-            // bump got lost.
-            if (currentAssignment.epoch() != memberEpoch) {
-                return fenceMember(
-                    groupId,
-                    memberId,
-                    memberEpoch
-                );
-            }
-        } else {
-            // The group may not exist yet if the member an epoch equals to zero.
-            // In this case, we create an empty group.
-            group = getAndMaybeCreateConsumerGroup(groupId);
-
-            // A unique identifier is generated for the member. Otherwise, the provided
-            // member id is used.
-            memberId = request.memberId().isEmpty() ? Uuid.randomUuid().toString() : request.memberId();
+        if (request.memberEpoch() != member.memberEpoch()) {
+            return fenceMember(groupId, member.memberId());
         }
 
         int groupEpoch = group.groupEpoch();
-        List<Record> records = new ArrayList<>();
-        ConsumerGroupHeartbeatResponseData responseData = new ConsumerGroupHeartbeatResponseData();
-
-        // Create or update the member subscription. This does not update the group state but only
-        // returns an updated MemberSubscription.
-        Optional<MemberSubscription> createdOrUpdatedSubscription = group.maybeCreateOrUpdateSubscription(
-            memberId,
+        Map<String, TopicMetadata> subscriptionMetadata = group.subscriptionMetadata();
+        ConsumerGroupMemberSubscription subscription = member.subscription().maybeUpdateWith(
             request.instanceId(),
             request.rackId(),
             request.rebalanceTimeoutMs(),
@@ -549,35 +236,29 @@ public class GroupCoordinatorStateMachine {
             )).collect(Collectors.toList())
         );
 
-        final MemberSubscription memberSubscription;
-        final Map<String, TopicMetadata> subscriptionMetadata;
-        final MemberTargetAssignment memberTargetAssignment;
-
-        if (createdOrUpdatedSubscription.isPresent()) {
-            memberSubscription = createdOrUpdatedSubscription.get();
-
+        if (!subscription.equals(member.subscription())) {
             // Bump the group epoch.
             groupEpoch += 1;
 
             // Add a record for the new or updated subscription.
             records.add(newMemberSubscriptionRecord(
                 groupId,
-                memberId,
-                memberSubscription
+                member.memberId(),
+                subscription
             ));
 
             // Metadata.
-            Optional<Map<String, TopicMetadata>> maybeUpdatedSubscriptionMetadata = group.maybeUpdateSubscriptionMetadata(
-                memberId,
-                memberSubscription,
+            subscriptionMetadata = group.updateSubscriptionMetadata(
+                member.memberId(),
+                subscription,
                 image.topics()
             );
 
-            if (maybeUpdatedSubscriptionMetadata.isPresent()) {
-                subscriptionMetadata = maybeUpdatedSubscriptionMetadata.get();
-                records.add(newGroupSubscriptionMetadataRecord(groupId, subscriptionMetadata));
-            } else {
-                subscriptionMetadata = group.subscriptionMetadata();
+            if (!subscriptionMetadata.equals(group.subscriptionMetadata())) {
+                records.add(newGroupSubscriptionMetadataRecord(
+                    groupId,
+                    subscriptionMetadata
+                ));
             }
 
             // Add a record for the new group epoch.
@@ -585,55 +266,78 @@ public class GroupCoordinatorStateMachine {
                 groupId,
                 groupEpoch
             ));
-        } else {
-            memberSubscription = group.subscription(memberId);
-            subscriptionMetadata = group.subscriptionMetadata();
         }
 
         // Update target assignment if needed. We don't rely on the previous step here to catch
         // the case where a new assignment would be required from a different path.
-        if (groupEpoch < group.assignmentEpoch()) {
-            memberTargetAssignment = updateTargetAssignment(
-                records,
-                group,
-                groupId,
-                groupEpoch,
-                memberId,
-                memberSubscription,
-                subscriptionMetadata
-            );
-        } else {
-            memberTargetAssignment = group.memberTargetAssignment(memberId);
+        int targetAssignmentEpoch = group.assignmentEpoch();
+        ConsumerGroupMemberAssignment targetAssignment = member.targetAssignment();
+        if (groupEpoch < targetAssignmentEpoch) {
+            String assignorName = group.preferredServerAssignor(
+                member.memberId(),
+                subscription
+            ).orElse(assignors.keySet().iterator().next());
+
+            Map<String, ConsumerGroupMemberAssignment> newAssignments = new TargetAssignmentUpdater()
+                .withMembers(group.members())
+                .withGroupId(groupId)
+                .withGroupEpoch(groupEpoch)
+                .withRecordCollector(records::add)
+                .withSubscriptionMetadata(subscriptionMetadata)
+                .withPartitionAssignor(assignors.get(assignorName))
+                .updateMemberSubscription(member.memberId(), subscription)
+                .compute();
+
+            targetAssignment = newAssignments.get(member.memberId());
+            targetAssignmentEpoch = groupEpoch;
         }
 
         // Reconcile...
-        final MemberCurrentAssignment memberCurrentAssignment = group.memberCurrentAssignment(memberId);
+        ConsumerGroupMemberAssignment currentAssignment = member.currentAssignment();
+        ConsumerGroupMemberReconciledAssignment currentReconciledAssignment = member.reconciledAssignment(targetAssignmentEpoch);
+        ConsumerGroupMemberReconciledAssignment nextReconciledAssignment = currentReconciledAssignment.computeNextState(
+            member.memberEpoch(),
+            currentAssignment,
+            targetAssignmentEpoch,
+            targetAssignment,
+            request,
+            (topicId, partitionId) -> true // TODO Solve this.
+        );
 
+        member.maybeUpdateReconciliationAssignment(nextReconciledAssignment);
 
+        if (currentReconciledAssignment.memberEpoch() != nextReconciledAssignment.memberEpoch()) {
+            records.add(newCurrentAssignmentRecord(
+                groupId,
+                member.memberId(),
+                nextReconciledAssignment.memberEpoch(),
+                targetAssignment
+            ));
+        }
 
+        ConsumerGroupHeartbeatResponseData responseData = new ConsumerGroupHeartbeatResponseData()
+            .setMemberId(member.memberId())
+            .setMemberEpoch(nextReconciledAssignment.memberEpoch())
+            .setHeartbeatIntervalMs(5000); // TODO Get from config.
 
-        // Update target assignment
-
-        // Current Epoch < Target Epoch
-        // - Compute Current ^ Target.
-        // - If member has Current ^ Target, moves it to next epoch with Target - Pending and
-        //   returns Target - Pending in the response.
-        // - Otherwise, return Current ^ Target in the response. How do we know if it was already
-        //   return in the previous response? I could ack that the new target epoch was processed?
-        // Current Epoch == Target Epoch
-        // - Compute new target assignment: Target - Pending.
-        // - If new target is different from previous target, add record to update the state.
-        // - Return Target - Pending if record added.
-
-        // How to compute Pending?
-        // 1) Always store the actual assigned partition in the current assignment (instead of the full target).
-        //    Whenever we update it, update the partition assignment (current owner) as well.
-        // 2) Always tore the target in the current assignment (less writes). Whenever a partition is released,
-        //    update its current epoch to the current target.
-
-        // How do I know if the assignment must be sent back?
-        // 1) Keep the last one sent and compare. This works for both the revocation and the assignment phase.
-        // 2) Use another signal? Member state? Revoke, Revoking, Assigning, Assigned? In-memory or backed by the records?
+        if (request.topicPartitions() != null
+            || request.memberEpoch() == 0
+            || currentReconciledAssignment != nextReconciledAssignment) {
+            ConsumerGroupHeartbeatResponseData.Assignment assignment = new ConsumerGroupHeartbeatResponseData.Assignment()
+                .setAssignedTopicPartitions(nextReconciledAssignment.assigned().entrySet().stream()
+                    .map(keyValue -> new ConsumerGroupHeartbeatResponseData.TopicPartitions()
+                        .setTopicId(keyValue.getKey())
+                        .setPartitions(new ArrayList<>(keyValue.getValue())))
+                    .collect(Collectors.toList()))
+                .setPendingTopicPartitions(nextReconciledAssignment.pending().entrySet().stream()
+                    .map(keyValue -> new ConsumerGroupHeartbeatResponseData.TopicPartitions()
+                        .setTopicId(keyValue.getKey())
+                        .setPartitions(new ArrayList<>(keyValue.getValue())))
+                    .collect(Collectors.toList()));
+            responseData.setAssignment(assignment);
+        } else {
+            responseData.setAssignment(null);
+        }
 
         return new Result<>(
             records,
@@ -643,13 +347,12 @@ public class GroupCoordinatorStateMachine {
 
     private Result<ConsumerGroupHeartbeatResponseData> fenceMember(
         String groupId,
-        String memberId,
-        int memberEpoch
+        String memberId
     ) {
         return removeMember(
             groupId,
             memberId,
-            memberEpoch,
+            -1,
             Errors.FENCED_MEMBER_EPOCH
         );
     }
@@ -676,12 +379,8 @@ public class GroupCoordinatorStateMachine {
         int memberEpoch,
         Errors error
     ) {
-        ConsumerGroup group = getConsumerGroupOrThrow(groupId);
-
-        if (!group.subscriptions().containsKey(memberId)) {
-            throw new UnknownMemberIdException(String.format("Member %s is not a member of group %s.",
-                memberId, groupId));
-        }
+        ConsumerGroup group = consumerGroup(groupId, false);
+        ConsumerGroupMember member = group.member(memberId, false);
 
         List<Record> records = new ArrayList<>();
 
@@ -704,37 +403,38 @@ public class GroupCoordinatorStateMachine {
         ));
 
         // Update subscription metadata.
-        Optional<Map<String, TopicMetadata>> maybeUpdatedSubscriptionMetadata = group.maybeUpdateSubscriptionMetadata(
+        Map<String, TopicMetadata> subscriptionMetadata = group.updateSubscriptionMetadata(
             memberId,
             null,
             image.topics()
         );
 
-        final Map<String, TopicMetadata> updatedSubscriptionMetadata;
-        if (maybeUpdatedSubscriptionMetadata.isPresent()) {
-            updatedSubscriptionMetadata = maybeUpdatedSubscriptionMetadata.get();
-            records.add(newGroupSubscriptionMetadataRecord(groupId, updatedSubscriptionMetadata));
-        } else {
-            updatedSubscriptionMetadata = group.subscriptionMetadata();
+        if (!subscriptionMetadata.equals(group.subscriptionMetadata())) {
+            records.add(newGroupSubscriptionMetadataRecord(groupId, subscriptionMetadata));
         }
 
         // Bump group epoch.
-        final int groupEpoch = group.groupEpoch() + 1;
+        int groupEpoch = group.groupEpoch() + 1;
         records.add(newGroupEpochRecord(
             groupId,
             groupEpoch
         ));
 
         // Update target assignment.
-        updateTargetAssignment(
-            records,
-            group,
-            groupId,
-            groupEpoch,
-            memberId,
-            null,
-            updatedSubscriptionMetadata
-        );
+        String assignorName = group.preferredServerAssignor(
+            member.memberId(),
+            null
+        ).orElse(assignors.keySet().iterator().next());
+
+        new TargetAssignmentUpdater()
+            .withMembers(group.members())
+            .withGroupId(groupId)
+            .withGroupEpoch(groupEpoch)
+            .withRecordCollector(records::add)
+            .withSubscriptionMetadata(subscriptionMetadata)
+            .withPartitionAssignor(assignors.get(assignorName))
+            .removeMemberSubscription(member.memberId())
+            .compute();
 
         return new Result<>(records, new ConsumerGroupHeartbeatResponseData()
             .setMemberId(memberId)

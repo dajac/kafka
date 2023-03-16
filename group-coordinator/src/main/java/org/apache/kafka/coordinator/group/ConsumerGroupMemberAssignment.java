@@ -23,33 +23,42 @@ import java.util.Map;
 import java.util.Objects;
 import java.util.Set;
 
-/**
- * The target assignment for a member in a consumer group. This is the assignment
- * that the member will eventually converge to.
- */
-public class MemberTargetAssignment {
+public class ConsumerGroupMemberAssignment {
+    public static ConsumerGroupMemberAssignment EMPTY = new ConsumerGroupMemberAssignment(
+        (byte) 0,
+        Collections.emptyMap(),
+        VersionedMetadata.EMPTY
+    );
 
-    private final Map<Uuid, Set<Integer>> assignedPartitions;
+    private final byte error;
+
+    private final Map<Uuid, Set<Integer>> partitions;
 
     private final VersionedMetadata metadata;
 
-    public MemberTargetAssignment(
-        Map<Uuid, Set<Integer>> assignedPartitions,
+    public ConsumerGroupMemberAssignment(
+        byte error,
+        Map<Uuid, Set<Integer>> partitions,
         VersionedMetadata metadata
     ) {
-        Objects.requireNonNull(assignedPartitions);
-        Objects.requireNonNull(metadata);
+        Objects.nonNull(partitions);
+        Objects.nonNull(metadata);
 
-        this.assignedPartitions = Collections.unmodifiableMap(assignedPartitions);
+        this.error = error;
+        this.partitions = Collections.unmodifiableMap(partitions);
         this.metadata = metadata;
     }
 
-    public Map<Uuid, Set<Integer>> assignedPartitions() {
-        return this.assignedPartitions;
+    public byte error() {
+        return error;
+    }
+
+    public Map<Uuid, Set<Integer>> partitions() {
+        return partitions;
     }
 
     public VersionedMetadata metadata() {
-        return this.metadata;
+        return metadata;
     }
 
     @Override
@@ -57,23 +66,26 @@ public class MemberTargetAssignment {
         if (this == o) return true;
         if (o == null || getClass() != o.getClass()) return false;
 
-        MemberTargetAssignment that = (MemberTargetAssignment) o;
+        ConsumerGroupMemberAssignment that = (ConsumerGroupMemberAssignment) o;
 
-        if (!assignedPartitions.equals(that.assignedPartitions)) return false;
+        if (error != that.error) return false;
+        if (!partitions.equals(that.partitions)) return false;
         return metadata.equals(that.metadata);
     }
 
     @Override
     public int hashCode() {
-        int result = assignedPartitions.hashCode();
+        int result = error;
+        result = 31 * result + partitions.hashCode();
         result = 31 * result + metadata.hashCode();
         return result;
     }
 
     @Override
     public String toString() {
-        return "MemberTargetAssignment(" +
-            "assignedPartitions=" + assignedPartitions +
+        return "MemberAssignment(" +
+            "error=" + error +
+            ", partitions=" + partitions +
             ", metadata=" + metadata +
             ')';
     }
