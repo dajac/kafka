@@ -17,11 +17,16 @@
 package org.apache.kafka.coordinator.group;
 
 import org.apache.kafka.common.Uuid;
+import org.apache.kafka.coordinator.group.generated.ConsumerGroupCurrentMemberAssignmentValue;
+import org.apache.kafka.coordinator.group.generated.ConsumerGroupTargetAssignmentMemberValue;
 
+import java.nio.ByteBuffer;
 import java.util.Collections;
+import java.util.HashSet;
 import java.util.Map;
 import java.util.Objects;
 import java.util.Set;
+import java.util.stream.Collectors;
 
 public class ConsumerGroupMemberAssignment {
     public static ConsumerGroupMemberAssignment EMPTY = new ConsumerGroupMemberAssignment(
@@ -88,5 +93,33 @@ public class ConsumerGroupMemberAssignment {
             ", partitions=" + partitions +
             ", metadata=" + metadata +
             ')';
+    }
+
+    public static ConsumerGroupMemberAssignment fromRecord(
+        ConsumerGroupTargetAssignmentMemberValue record
+    ) {
+        return new ConsumerGroupMemberAssignment(
+            record.error(),
+            record.topicPartitions().stream().collect(Collectors.toMap(
+                ConsumerGroupTargetAssignmentMemberValue.TopicPartition::topicId,
+                topicPartitions -> new HashSet<>(topicPartitions.partitions()))),
+            new VersionedMetadata(
+                record.metadataVersion(),
+                ByteBuffer.wrap(record.metadataBytes()))
+        );
+    }
+
+    public static ConsumerGroupMemberAssignment fromRecord(
+        ConsumerGroupCurrentMemberAssignmentValue record
+    ) {
+        return new ConsumerGroupMemberAssignment(
+            record.error(),
+            record.topicPartitions().stream().collect(Collectors.toMap(
+                ConsumerGroupCurrentMemberAssignmentValue.TopicPartition::topicId,
+                topicPartitions -> new HashSet<>(topicPartitions.partitions()))),
+            new VersionedMetadata(
+                record.metadataVersion(),
+                ByteBuffer.wrap(record.metadataBytes()))
+        );
     }
 }

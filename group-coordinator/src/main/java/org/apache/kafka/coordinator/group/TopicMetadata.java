@@ -17,6 +17,7 @@
 package org.apache.kafka.coordinator.group;
 
 import org.apache.kafka.common.Uuid;
+import org.apache.kafka.coordinator.group.generated.ConsumerGroupPartitionMetadataValue;
 
 import java.util.Objects;
 import java.util.Set;
@@ -64,7 +65,6 @@ public class TopicMetadata {
         if (!id.equals(that.id)) return false;
         if (!name.equals(that.name)) return false;
         return numPartitions == that.numPartitions;
-
     }
 
     @Override
@@ -82,5 +82,15 @@ public class TopicMetadata {
             ", name=" + name +
             ", numPartitions=" + numPartitions +
             ')';
+    }
+
+    public static TopicMetadata fromRecord(
+        ConsumerGroupPartitionMetadataValue.TopicMetadata record
+    ) {
+        return new TopicMetadata(
+            record.topicId(),
+            record.topicName(),
+            record.numPartitions()
+        );
     }
 }

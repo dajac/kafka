@@ -16,6 +16,8 @@
  */
 package org.apache.kafka.coordinator.group;
 
+import org.apache.kafka.coordinator.group.generated.ConsumerGroupMemberMetadataValue;
+
 import java.nio.ByteBuffer;
 import java.util.Objects;
 
@@ -131,5 +133,18 @@ public class AssignorState {
             ", metadataVersion=" + metadataVersion +
             ", metadataBytes=" + metadataBytes +
             ')';
+    }
+
+    public static AssignorState fromRecord(
+        ConsumerGroupMemberMetadataValue.Assignor record
+    ) {
+        return new AssignorState(
+            record.name(),
+            record.reason(),
+            record.minimumVersion(),
+            record.maximumVersion(),
+            record.version(),
+            ByteBuffer.wrap(record.metadata())
+        );
     }
 }

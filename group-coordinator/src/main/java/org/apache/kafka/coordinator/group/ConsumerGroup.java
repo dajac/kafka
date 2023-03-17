@@ -16,6 +16,7 @@
  */
 package org.apache.kafka.coordinator.group;
 
+import org.apache.kafka.common.Uuid;
 import org.apache.kafka.common.errors.UnknownMemberIdException;
 import org.apache.kafka.image.TopicImage;
 import org.apache.kafka.image.TopicsImage;
@@ -84,6 +85,18 @@ public class ConsumerGroup {
      */
     private final TimelineHashMap<String, TopicMetadata> subscribedTopicMetadata;
 
+    /**
+     * The target owner of a given partition. This is updated when the target assignment
+     * is updated.
+     */
+    private final TimelineHashMap<Uuid, TimelineHashMap<Integer, String>> targetOwnerByTopicPartition;
+
+    /**
+     * The current owner of a given partition. This is updated when the current assignment
+     * is updated.
+     */
+    private final TimelineHashMap<Uuid, TimelineHashMap<Integer, String>> currentOwnerByTopicPartition;
+
     public ConsumerGroup(
         SnapshotRegistry snapshotRegistry,
         String groupId
@@ -98,6 +111,8 @@ public class ConsumerGroup {
         this.assignmentEpoch = new TimelineInteger(snapshotRegistry);
         this.members = new TimelineHashMap<>(snapshotRegistry, 0);
         this.subscribedTopicMetadata = new TimelineHashMap<>(snapshotRegistry, 0);
+        this.targetOwnerByTopicPartition = new TimelineHashMap<>(snapshotRegistry, 0);
+        this.currentOwnerByTopicPartition = new TimelineHashMap<>(snapshotRegistry, 0);
     }
 
     /**
@@ -107,11 +122,19 @@ public class ConsumerGroup {
         return groupEpoch.get();
     }
 
+    public void setGroupEpoch(int groupEpoch) {
+        this.groupEpoch.set(groupEpoch);
+    }
+
     /**
      * Returns the current assignment epoch.
      */
     public int assignmentEpoch() {
         return assignmentEpoch.get();
+    }
+
+    public void setAssignmentEpoch(int assignmentEpoch) {
+        this.assignmentEpoch.set(assignmentEpoch);
     }
 
     public ConsumerGroupMember member(
@@ -139,6 +162,10 @@ public class ConsumerGroup {
         return Collections.unmodifiableMap(members);
     }
 
+    public void removeMember(String memberId) {
+        members.remove(memberId);
+    }
+
     public Optional<String> preferredServerAssignor(
         String updatedMemberId,
         ConsumerGroupMemberSubscription updatedConsumerGroupMemberSubscription
@@ -163,6 +190,13 @@ public class ConsumerGroup {
 
     public Map<String, TopicMetadata> subscriptionMetadata() {
         return Collections.unmodifiableMap(subscribedTopicMetadata);
+    }
+
+    public void setSubscriptionMetadata(
+        Map<Uuid, TopicMetadata> subscriptionMetadata
+    ) {
+        this.subscribedTopicMetadata.clear();
+        this.subscribedTopicMetadata.putAll(subscribedTopicMetadata);
     }
 
     public Map<String, TopicMetadata> updateSubscriptionMetadata(
@@ -200,5 +234,71 @@ public class ConsumerGroup {
         });
 
         return newSubscriptionMetadata;
+    }
+
+    public String partitionTargetOwner(Uuid topicId, int partitionId) {
+        Map<Integer, String> partitions = targetOwnerByTopicPartition.get(topicId);
+        if (partitions != null) {
+            return partitions.get(partitionId);
+        } else {
+            return null;
+        }
+    }
+
+    public void addPartitionTargetOwner(Uuid topicId, int partitionId, String memberId) {
+        targetOwnerByTopicPartition.compute(topicId, (__, partitions) -> {
+            if (partitions == null) {
+                partitions = new TimelineHashMap<>(snapshotRegistry, 1);
+            }
+            partitions.put(partitionId, memberId);
+            return partitions;
+        });
+    }
+
+    public void removePartitionTargetOwner(Uuid topicId, int partitionId, String memberId) {
+        Map<Integer, String> partitions = targetOwnerByTopicPartition.get(topicId);
+        if (partitions != null) {
+            partitions.computeIfPresent(partitionId, (__, owner) -> {
+                if (memberId.equals(owner)) {
+                    return null;
+                } else {
+                    return owner;
+                }
+            });
+        }
+    }
+
+    public String partitionCurrentOwner(Uuid topicId, int partitionId) {
+        Map<Integer, String> partitions = currentOwnerByTopicPartition.get(topicId);
+        if (partitions != null) {
+            return partitions.get(partitionId);
+        } else {
+            return null;
+        }
+    }
+
+    public void addPartitionCurrentOwner(Uuid topicId, int partitionId, String memberId) {
+        currentOwnerByTopicPartition.compute(topicId, (__, partitions) -> {
+            if (partitions == null) {
+                partitions = new TimelineHashMap<>(snapshotRegistry, 1);
+            }
+            partitions.compute(partitionId, (___, currentOwner) -> {
+                if (currentOwner == null || currentOwner.equals(memberId)) {
+                    return memberId;
+                } else {
+                    return currentOwner;
+                }
+            });
+            return partitions;
+        });
+    }
+
+    public void removePartitionCurrentOwner(Uuid topicId, int partitionId, String memberId) {
+        currentOwnerByTopicPartition.compute(topicId, (__, partitions) -> {
+            partitions.compute(partitionId, (___, currentOwner) -> {
+                return partitionTargetOwner(topicId, partitionId);
+            });
+            return partitions;
+        });
     }
 }

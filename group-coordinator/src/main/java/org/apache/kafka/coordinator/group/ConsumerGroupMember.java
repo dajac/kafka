@@ -92,6 +92,22 @@ public class ConsumerGroupMember {
         }
     }
 
+    public void setSubscription(ConsumerGroupMemberSubscription subscription) {
+        this.subscription.set(subscription);
+    }
+
+    public void setTargetAssignment(ConsumerGroupMemberAssignment assignment) {
+        this.targetAssignment.set(assignment);
+    }
+
+    public void setCurrentAssignment(ConsumerGroupMemberAssignment assignment) {
+        this.currentAssignment.set(assignment);
+    }
+
+    public void setMemberEpoch(int memberEpoch) {
+        this.memberEpoch.set(memberEpoch);
+    }
+
     @Override
     public String toString() {
         return "ConsumerGroupMember(" +

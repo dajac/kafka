@@ -16,21 +16,38 @@
  */
 package org.apache.kafka.coordinator.group;
 
+import org.apache.kafka.common.Uuid;
 import org.apache.kafka.common.errors.GroupIdNotFoundException;
 import org.apache.kafka.common.errors.InvalidRequestException;
+import org.apache.kafka.common.errors.UnsupportedAssignorException;
 import org.apache.kafka.common.message.ConsumerGroupHeartbeatRequestData;
 import org.apache.kafka.common.message.ConsumerGroupHeartbeatResponseData;
+import org.apache.kafka.common.protocol.ApiMessage;
 import org.apache.kafka.common.protocol.Errors;
 import org.apache.kafka.common.requests.RequestContext;
 import org.apache.kafka.common.utils.LogContext;
 import org.apache.kafka.coordinator.group.assignor.PartitionAssignor;
+import org.apache.kafka.coordinator.group.generated.ConsumerGroupCurrentMemberAssignmentKey;
+import org.apache.kafka.coordinator.group.generated.ConsumerGroupCurrentMemberAssignmentValue;
+import org.apache.kafka.coordinator.group.generated.ConsumerGroupMemberMetadataKey;
+import org.apache.kafka.coordinator.group.generated.ConsumerGroupMemberMetadataValue;
+import org.apache.kafka.coordinator.group.generated.ConsumerGroupMetadataKey;
+import org.apache.kafka.coordinator.group.generated.ConsumerGroupMetadataValue;
+import org.apache.kafka.coordinator.group.generated.ConsumerGroupPartitionMetadataKey;
+import org.apache.kafka.coordinator.group.generated.ConsumerGroupPartitionMetadataValue;
+import org.apache.kafka.coordinator.group.generated.ConsumerGroupTargetAssignmentMemberKey;
+import org.apache.kafka.coordinator.group.generated.ConsumerGroupTargetAssignmentMemberValue;
+import org.apache.kafka.coordinator.group.generated.ConsumerGroupTargetAssignmentMetadataKey;
+import org.apache.kafka.coordinator.group.generated.ConsumerGroupTargetAssignmentMetadataValue;
 import org.apache.kafka.image.MetadataImage;
+import org.apache.kafka.server.common.ApiMessageAndVersion;
 import org.apache.kafka.timeline.SnapshotRegistry;
 import org.apache.kafka.timeline.TimelineHashMap;
 import org.slf4j.Logger;
 
 import java.nio.ByteBuffer;
 import java.util.ArrayList;
+import java.util.HashMap;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
@@ -111,6 +128,12 @@ public class GroupCoordinatorStateMachine {
         return group;
     }
 
+    private void removeGroup(
+        String groupId
+    ) {
+        groups.remove(groupId);
+    }
+
     private void validateConsumerGroupHeartbeatRequest(
         ConsumerGroupHeartbeatRequestData request
     ) throws InvalidRequestException {
@@ -161,7 +184,7 @@ public class GroupCoordinatorStateMachine {
             throw new InvalidRequestException("ServerAssignor and ClientAssignors Client can't be used together.");
         }
         if (hasServerAssignor && !assignors.containsKey(request.serverAssignor())) {
-            throw new InvalidRequestException("ServerAssignor " + request.serverAssignor() + " is not supported.");
+            throw new UnsupportedAssignorException("ServerAssignor " + request.serverAssignor() + " is not supported.");
         }
         if (hasClientAssignors) {
             request.clientAssignors().forEach(clientAssignor -> {
@@ -215,7 +238,10 @@ public class GroupCoordinatorStateMachine {
         // updated member epoch. In this case, the member will retry with the
         // previous one.
         if (request.memberEpoch() != member.memberEpoch()) {
-            return fenceMember(groupId, member.memberId());
+            return fenceMember(
+                groupId,
+                member.memberId()
+            );
         }
 
         int groupEpoch = group.groupEpoch();
@@ -304,7 +330,10 @@ public class GroupCoordinatorStateMachine {
             targetAssignmentEpoch,
             targetAssignment,
             request,
-            (topicId, partitionId) -> true // TODO Solve this.
+            // A partition is free to use if the current owner is not set or if the current member is
+            // the actual owner.
+            (topicId, partitionId) -> member.memberId().equals(group.partitionCurrentOwner(topicId, partitionId))
+
         );
 
         // This change will be reverted if this request fails. However, if this request
@@ -312,7 +341,7 @@ public class GroupCoordinatorStateMachine {
         // not ideal but it would recover.
         member.maybeUpdateReconciliationAssignment(nextReconciledAssignment);
 
-        if (currentReconciledAssignment.memberEpoch() != nextReconciledAssignment.memberEpoch()) {
+        if (member.memberEpoch() != nextReconciledAssignment.memberEpoch()) {
             records.add(newCurrentAssignmentRecord(
                 groupId,
                 member.memberId(),
@@ -454,7 +483,195 @@ public class GroupCoordinatorStateMachine {
         );
     }
 
+    private ApiMessage messageOrNull(ApiMessageAndVersion apiMessageAndVersion) {
+        if (apiMessageAndVersion == null) {
+            return null;
+        } else {
+            return apiMessageAndVersion.message();
+        }
+    }
+
     public void replay(Record record) {
-        // TODO
+        ApiMessageAndVersion key = record.key();
+        ApiMessageAndVersion value = record.value();
+
+        if (key == null) {
+            throw new IllegalStateException("Received a null key in " + record);
+        }
+
+        switch (key.version()) {
+            case ConsumerGroupMemberMetadataKey.HIGHEST_SUPPORTED_VERSION:
+                replay(
+                    (ConsumerGroupMemberMetadataKey) key.message(),
+                    (ConsumerGroupMemberMetadataValue) messageOrNull(value)
+                );
+                break;
+
+            case ConsumerGroupMetadataKey.HIGHEST_SUPPORTED_VERSION:
+                replay(
+                    (ConsumerGroupMetadataKey) key.message(),
+                    (ConsumerGroupMetadataValue) messageOrNull(value)
+                );
+                break;
+
+            case ConsumerGroupPartitionMetadataKey.HIGHEST_SUPPORTED_VERSION:
+                replay(
+                    (ConsumerGroupPartitionMetadataKey) key.message(),
+                    (ConsumerGroupPartitionMetadataValue) messageOrNull(value)
+                );
+                break;
+
+            case ConsumerGroupTargetAssignmentMemberKey.HIGHEST_SUPPORTED_VERSION:
+                replay(
+                    (ConsumerGroupTargetAssignmentMemberKey) key.message(),
+                    (ConsumerGroupTargetAssignmentMemberValue) messageOrNull(value)
+                );
+                break;
+
+            case ConsumerGroupTargetAssignmentMetadataKey.HIGHEST_SUPPORTED_VERSION:
+                replay(
+                    (ConsumerGroupTargetAssignmentMetadataKey) key.message(),
+                    (ConsumerGroupTargetAssignmentMetadataValue) messageOrNull(value)
+                );
+                break;
+
+            case ConsumerGroupCurrentMemberAssignmentKey.HIGHEST_SUPPORTED_VERSION:
+                replay(
+                    (ConsumerGroupCurrentMemberAssignmentKey) key.message(),
+                    (ConsumerGroupCurrentMemberAssignmentValue) messageOrNull(value)
+                );
+                break;
+
+            default:
+                throw new IllegalStateException("Received an unknown record type " + key.version()
+                    + " in " + record);
+        }
+    }
+
+    private void replay(
+        ConsumerGroupMemberMetadataKey key,
+        ConsumerGroupMemberMetadataValue value
+    ) {
+        String groupId = key.groupId();
+        String memberId = key.memberId();
+
+        if (value != null) {
+            ConsumerGroup consumerGroup = consumerGroup(groupId, true);
+            ConsumerGroupMember member = consumerGroup.member(memberId, true);
+            member.setSubscription(ConsumerGroupMemberSubscription.fromRecord(value));
+        } else {
+            ConsumerGroup consumerGroup = consumerGroup(groupId, false);
+            // TODO Check that we have received all tombstones.
+            consumerGroup.removeMember(memberId);
+        }
+    }
+
+    private void replay(
+        ConsumerGroupMetadataKey key,
+        ConsumerGroupMetadataValue value
+    ) {
+        String groupId = key.groupId();
+
+        if (value != null) {
+            ConsumerGroup consumerGroup = consumerGroup(groupId, true);
+            consumerGroup.setGroupEpoch(value.epoch());
+        } else {
+            ConsumerGroup consumerGroup = consumerGroup(groupId, false);
+
+            if (!consumerGroup.members().isEmpty()) {
+                throw new IllegalStateException("Received a tombstone record to delete group " + groupId
+                    + " but the group still has " + consumerGroup.members().size() + " members,");
+            }
+
+            removeGroup(groupId);
+        }
+
+    }
+
+    private void replay(
+        ConsumerGroupPartitionMetadataKey key,
+        ConsumerGroupPartitionMetadataValue value
+    ) {
+        String groupId = key.groupId();
+
+        if (value != null) {
+            ConsumerGroup consumerGroup = consumerGroup(groupId, false);
+            Map<Uuid, TopicMetadata> subscriptionMetadata = new HashMap<>();
+            value.topics().forEach(topicMetadata -> {
+                subscriptionMetadata.put(topicMetadata.topicId(), TopicMetadata.fromRecord(topicMetadata));
+            });
+            consumerGroup.setSubscriptionMetadata(subscriptionMetadata);
+        } else {
+            // Nothing to do. Group will be deleted.
+            // TODO Should we set it to null?
+        }
+    }
+
+    private void replay(
+        ConsumerGroupTargetAssignmentMemberKey key,
+        ConsumerGroupTargetAssignmentMemberValue value
+    ) {
+        String groupId = key.groupId();
+        String memberId = key.memberId();
+        ConsumerGroup consumerGroup = consumerGroup(groupId, false);
+        ConsumerGroupMember member = consumerGroup.member(memberId, false);
+
+        ConsumerGroupMemberAssignment currentAssignment = member.targetAssignment();
+        currentAssignment.partitions().forEach((topicId, partitions) -> {
+            consumerGroup.removePartitionTargetOwner(topicId, partitionId, memberId);
+        });
+
+        if (value != null) {
+            ConsumerGroupMemberAssignment assignment = ConsumerGroupMemberAssignment.fromRecord(value);
+            member.setTargetAssignment(assignment);
+            assignment.partitions().forEach((topicId, partitions) -> {
+                consumerGroup.addPartitionTargetOwner(topicId, partitionId, memberId);
+            });
+        } else {
+            // Nothing to do. Member will be deleted.
+            // TODO Should we set it to null?
+        }
+    }
+
+    private void replay(
+        ConsumerGroupTargetAssignmentMetadataKey key,
+        ConsumerGroupTargetAssignmentMetadataValue value
+    ) {
+        String groupId = key.groupId();
+        ConsumerGroup consumerGroup = consumerGroup(groupId, false);
+
+        if (value != null) {
+            consumerGroup.setAssignmentEpoch(value.assignmentEpoch());
+        } else {
+            // Nothing to do. Group will be deleted.
+            // TODO Should we set it to -1?
+        }
+    }
+
+    private void replay(
+        ConsumerGroupCurrentMemberAssignmentKey key,
+        ConsumerGroupCurrentMemberAssignmentValue value
+    ) {
+        String groupId = key.groupId();
+        String memberId = key.memberId();
+        ConsumerGroup consumerGroup = consumerGroup(groupId, false);
+        ConsumerGroupMember member = consumerGroup.member(memberId, false);
+
+        ConsumerGroupMemberAssignment currentAssignment = member.currentAssignment();
+        currentAssignment.partitions().forEach((topicId, partitions) -> {
+            consumerGroup.removePartitionCurrentOwner(topicId, partitionId, memberId);
+        });
+
+        if (value != null) {
+            member.setMemberEpoch(value.memberEpoch());
+            ConsumerGroupMemberAssignment assignment = ConsumerGroupMemberAssignment.fromRecord(value);
+            member.setCurrentAssignment(assignment);
+            assignment.partitions().forEach((topicId, partitions) -> {
+                consumerGroup.addPartitionCurrentOwner(topicId, partitionId, memberId);
+            });
+        } else {
+            // Nothing to do. Member will be deleted.
+            // TODO Should we set it to null?
+        }
     }
 }

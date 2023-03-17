@@ -16,9 +16,12 @@
  */
 package org.apache.kafka.coordinator.group;
 
+import org.apache.kafka.coordinator.group.generated.ConsumerGroupMemberMetadataValue;
+
 import java.util.Collections;
 import java.util.List;
 import java.util.Objects;
+import java.util.stream.Collectors;
 
 /**
  * An immutable representation of a member subscription.
@@ -225,5 +228,21 @@ public class ConsumerGroupMemberSubscription {
             ", serverAssignorName=" + serverAssignorName +
             ", assignorStates=" + assignorStates +
             ')';
+    }
+
+    public static ConsumerGroupMemberSubscription fromRecord(
+        ConsumerGroupMemberMetadataValue record
+    ) {
+        return new ConsumerGroupMemberSubscription(
+            record.instanceId(),
+            record.rackId(),
+            record.rebalanceTimeoutMs(),
+            record.clientId(),
+            record.clientHost(),
+            record.subscribedTopicNames(),
+            record.subscribedTopicRegex(),
+            record.serverAssignor(),
+            record.assignors().stream().map(AssignorState::fromRecord).collect(Collectors.toList())
+        );
     }
 }
