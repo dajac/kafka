@@ -39,6 +39,7 @@ import org.apache.kafka.coordinator.group.generated.ConsumerGroupTargetAssignmen
 import org.apache.kafka.coordinator.group.generated.ConsumerGroupTargetAssignmentMemberValue;
 import org.apache.kafka.coordinator.group.generated.ConsumerGroupTargetAssignmentMetadataKey;
 import org.apache.kafka.coordinator.group.generated.ConsumerGroupTargetAssignmentMetadataValue;
+import org.apache.kafka.image.MetadataDelta;
 import org.apache.kafka.image.MetadataImage;
 import org.apache.kafka.server.common.ApiMessageAndVersion;
 import org.apache.kafka.timeline.SnapshotRegistry;
@@ -91,7 +92,7 @@ public class GroupCoordinatorStateMachine {
         this.groups = new TimelineHashMap<>(snapshotRegistry, 0);
     }
 
-    public Result<ConsumerGroupHeartbeatResponseData> handleConsumerGroupHeartbeat(
+    public Result<ConsumerGroupHeartbeatResponseData> consumerGroupHeartbeat(
         RequestContext context,
         ConsumerGroupHeartbeatRequestData request
     ) {
@@ -111,7 +112,12 @@ public class GroupCoordinatorStateMachine {
         }
     }
 
-    // TODO Add image changes handler.
+    public List<Record> onNewMetadataImage(
+        MetadataImage image,
+        MetadataDelta delta
+    ) {
+        this.image = image;
+    }
 
     private ConsumerGroup consumerGroup(
         String groupId,
