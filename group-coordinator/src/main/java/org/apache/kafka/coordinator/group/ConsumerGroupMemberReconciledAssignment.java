@@ -29,17 +29,17 @@ import java.util.function.BiFunction;
 
 public class ConsumerGroupMemberReconciledAssignment {
 
-    public static ConsumerGroupMemberReconciledAssignment UNINITIALIZED = new ConsumerGroupMemberReconciledAssignment(
-        ReconciliationState.UNINITIALIZED,
-        0,
-        0,
+    public static ConsumerGroupMemberReconciledAssignment UNDEFINED = new ConsumerGroupMemberReconciledAssignment(
+        ReconciliationState.UNDEFINED,
+        -1,
+        -1,
         Collections.emptyMap(),
         Collections.emptyMap(),
         Collections.emptyMap()
     );
 
     public enum ReconciliationState {
-        UNINITIALIZED,
+        UNDEFINED,
         REVOKE,
         ASSIGN,
         STABLE
@@ -265,8 +265,21 @@ public class ConsumerGroupMemberReconciledAssignment {
         ConsumerGroupHeartbeatRequestData request,
         BiFunction<Uuid, Integer, Boolean> isFree
     ) {
+        // If the target epoch has changed, we need to re-initialize the state
+        // machine for the new target assignment.
+        if (targetAssignmentEpoch != assignmentEpoch) {
+            return UNDEFINED.computeNextState(
+                currentMemberEpoch,
+                currentAssignment,
+                targetAssignmentEpoch,
+                targetAssignment,
+                request,
+                isFree
+            );
+        }
+
         switch (state) {
-            case UNINITIALIZED:
+            case UNDEFINED:
                 if (currentMemberEpoch < targetAssignmentEpoch) {
                     return computeRevokeState(
                         currentMemberEpoch,

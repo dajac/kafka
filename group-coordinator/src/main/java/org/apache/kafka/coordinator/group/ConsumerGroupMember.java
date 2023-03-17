@@ -48,7 +48,7 @@ public class ConsumerGroupMember {
         this.subscription = new TimelineObject<>(snapshotRegistry, ConsumerGroupMemberSubscription.EMPTY);
         this.targetAssignment = new TimelineObject<>(snapshotRegistry, ConsumerGroupMemberAssignment.EMPTY);
         this.currentAssignment = new TimelineObject<>(snapshotRegistry, ConsumerGroupMemberAssignment.EMPTY);
-        this.reconciledAssignment = new TimelineObject<>(snapshotRegistry, ConsumerGroupMemberReconciledAssignment.UNINITIALIZED);
+        this.reconciledAssignment = new TimelineObject<>(snapshotRegistry, ConsumerGroupMemberReconciledAssignment.UNDEFINED);
     }
 
     public String memberId() {
@@ -71,15 +71,8 @@ public class ConsumerGroupMember {
         return currentAssignment.get();
     }
 
-    public ConsumerGroupMemberReconciledAssignment reconciledAssignment(
-        int targetAssignmentEpoch
-    ){
-        ConsumerGroupMemberReconciledAssignment assignment = reconciledAssignment.get();
-        if (assignment.assignmentEpoch() == targetAssignmentEpoch) {
-            return assignment;
-        } else {
-            return ConsumerGroupMemberReconciledAssignment.UNINITIALIZED;
-        }
+    public ConsumerGroupMemberReconciledAssignment reconciledAssignment(){
+        return reconciledAssignment.get();
     }
 
     public void maybeUpdateReconciliationAssignment(

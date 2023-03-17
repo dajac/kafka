@@ -48,6 +48,7 @@ import org.slf4j.Logger;
 
 import java.nio.ByteBuffer;
 import java.util.ArrayList;
+import java.util.Collections;
 import java.util.HashMap;
 import java.util.LinkedHashMap;
 import java.util.List;
@@ -117,6 +118,7 @@ public class GroupCoordinatorStateMachine {
         MetadataDelta delta
     ) {
         this.image = image;
+        return Collections.emptyList();
     }
 
     private ConsumerGroup consumerGroup(
@@ -329,7 +331,7 @@ public class GroupCoordinatorStateMachine {
         }
 
         // Reconcile...
-        ConsumerGroupMemberReconciledAssignment currentReconciledAssignment = member.reconciledAssignment(targetAssignmentEpoch);
+        ConsumerGroupMemberReconciledAssignment currentReconciledAssignment = member.reconciledAssignment();
         ConsumerGroupMemberReconciledAssignment nextReconciledAssignment = currentReconciledAssignment.computeNextState(
             member.memberEpoch(),
             member.currentAssignment(),
