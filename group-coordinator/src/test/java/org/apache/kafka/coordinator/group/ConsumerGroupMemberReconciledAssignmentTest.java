@@ -20,39 +20,18 @@ import org.apache.kafka.common.Uuid;
 import org.apache.kafka.common.message.ConsumerGroupHeartbeatRequestData;
 import org.junit.jupiter.api.Test;
 
-import java.util.AbstractMap;
 import java.util.ArrayList;
-import java.util.Arrays;
 import java.util.Collections;
-import java.util.HashMap;
-import java.util.HashSet;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
 
+import static org.apache.kafka.coordinator.group.AssignmentTestUtil.mkAssignment;
+import static org.apache.kafka.coordinator.group.AssignmentTestUtil.mkTopicAssignment;
 import static org.apache.kafka.coordinator.group.ConsumerGroupMemberReconciledAssignment.UNDEFINED;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 
 public class ConsumerGroupMemberReconciledAssignmentTest {
-
-    private static Map.Entry<Uuid, Set<Integer>> mkTopicAssignment(
-        Uuid topicId,
-        Integer... partitions
-    ) {
-        return new AbstractMap.SimpleEntry<>(
-            topicId,
-            new HashSet<>(Arrays.asList(partitions))
-        );
-    }
-
-    @SafeVarargs
-    private static Map<Uuid, Set<Integer>> mkAssignment(Map.Entry<Uuid, Set<Integer>>... entries) {
-        Map<Uuid, Set<Integer>> assignment = new HashMap<>();
-        for (Map.Entry<Uuid, Set<Integer>> entry : entries) {
-            assignment.put(entry.getKey(), entry.getValue());
-        }
-        return assignment;
-    }
 
     private static ConsumerGroupHeartbeatRequestData requestFromAssignment(Map<Uuid, Set<Integer>> assignment) {
         ConsumerGroupHeartbeatRequestData request = new ConsumerGroupHeartbeatRequestData();

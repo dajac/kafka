@@ -109,9 +109,10 @@ public class ConsumerGroupMemberSubscription {
         this.rebalanceTimeoutMs = rebalanceTimeoutMs;
         this.clientId = clientId;
         this.clientHost = clientHost;
-        this.subscribedTopicNames = Collections.unmodifiableList(subscribedTopicNames);
         // Sort subscriptions to avoid rebalancing when the order changes.
-        this.subscribedTopicNames.sort(String::compareTo);
+        this.subscribedTopicNames = Collections.unmodifiableList(subscribedTopicNames.stream()
+            .sorted()
+            .collect(Collectors.toList()));
         this.subscribedTopicRegex = subscribedTopicRegex;
         this.serverAssignorName = serverAssignorName;
         this.assignorStates = Collections.unmodifiableList(assignorStates);
