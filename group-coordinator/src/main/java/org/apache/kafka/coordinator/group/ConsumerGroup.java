@@ -193,10 +193,10 @@ public class ConsumerGroup {
     }
 
     public void setSubscriptionMetadata(
-        Map<Uuid, TopicMetadata> subscriptionMetadata
+        Map<String, TopicMetadata> subscriptionMetadata
     ) {
         this.subscribedTopicMetadata.clear();
-        this.subscribedTopicMetadata.putAll(subscribedTopicMetadata);
+        this.subscribedTopicMetadata.putAll(subscriptionMetadata);
     }
 
     public Map<String, TopicMetadata> updateSubscriptionMetadata(
@@ -206,8 +206,8 @@ public class ConsumerGroup {
     ) {
         Map<String, TopicMetadata> newSubscriptionMetadata = new HashMap<>(subscriptionMetadata().size());
 
-        Consumer<ConsumerGroupMemberSubscription> updateSubscription = (subscription) -> {
-            subscription.subscribedTopicNames().forEach(topicName -> {
+        Consumer<ConsumerGroupMemberSubscription> updateSubscription = subscription ->
+            subscription.subscribedTopicNames().forEach(topicName ->
                 newSubscriptionMetadata.computeIfAbsent(topicName, __ -> {
                     TopicImage topicImage = topicsImage.getTopic(topicName);
                     if (topicImage == null) {
@@ -219,9 +219,8 @@ public class ConsumerGroup {
                             topicImage.partitions().size()
                         );
                     }
-                });
-            });
-        };
+                })
+            );
 
         if (updatedConsumerGroupMemberSubscription != null) {
             updateSubscription.accept(updatedConsumerGroupMemberSubscription);

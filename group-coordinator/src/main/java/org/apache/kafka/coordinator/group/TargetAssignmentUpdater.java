@@ -37,7 +37,7 @@ import static org.apache.kafka.coordinator.group.RecordBuilders.newTargetAssignm
 import static org.apache.kafka.coordinator.group.RecordBuilders.newTargetAssignmentRecord;
 
 public class TargetAssignmentUpdater {
-    private Consumer<Record> recordCollector = record -> {};
+    private Consumer<Record> recordCollector = record -> { };
     private Map<String, ConsumerGroupMember> members;
     private Map<String, TopicMetadata> subscriptionMetadata;
     private String groupId;

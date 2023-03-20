@@ -29,7 +29,6 @@ class Record {
         ApiMessageAndVersion value
     ) {
         Objects.requireNonNull(key);
-        Objects.requireNonNull(value);
 
         this.key = key;
         this.value = value;

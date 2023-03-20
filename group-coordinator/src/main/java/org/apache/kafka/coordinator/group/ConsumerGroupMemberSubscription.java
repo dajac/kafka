@@ -27,7 +27,7 @@ import java.util.stream.Collectors;
  * An immutable representation of a member subscription.
  */
 public class ConsumerGroupMemberSubscription {
-    public static ConsumerGroupMemberSubscription EMPTY = new ConsumerGroupMemberSubscription(
+    public static final ConsumerGroupMemberSubscription EMPTY = new ConsumerGroupMemberSubscription(
         "",
         "",
         -1,

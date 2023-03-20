@@ -27,9 +27,22 @@ import java.util.Objects;
 import java.util.Set;
 import java.util.function.BiFunction;
 
+/**
+ * This class encapsulates the reconciliation logic to transition from a current
+ * assignment to a target assignment. The reconciliation process has four states:
+ * - UNDEFINED - This is where the process starts.
+ * - REVOKE    - When the current epoch is smaller than the target epoch and
+ *               partitions must be revoked.
+ * - ASSIGN    - When the member has revoked all its partitions but not all
+ *               the newly assigned partitions are available.
+ * - STABLE    - When the member has got all its partitions.
+ *
+ * If the target assignment changes during the reconciliation process, the
+ * process is restart from UNDEFINED with the new target.
+ */
 public class ConsumerGroupMemberReconciledAssignment {
 
-    public static ConsumerGroupMemberReconciledAssignment UNDEFINED = new ConsumerGroupMemberReconciledAssignment(
+    public static final ConsumerGroupMemberReconciledAssignment UNDEFINED = new ConsumerGroupMemberReconciledAssignment(
         ReconciliationState.UNDEFINED,
         -1,
         -1,
@@ -172,7 +185,7 @@ public class ConsumerGroupMemberReconciledAssignment {
             targetAssignmentEpoch,
             assigned,
             Collections.emptyMap(),
-            assigned
+            pending
         );
     }
 
@@ -267,7 +280,7 @@ public class ConsumerGroupMemberReconciledAssignment {
     ) {
         // If the target epoch has changed, we need to re-initialize the state
         // machine for the new target assignment.
-        if (targetAssignmentEpoch != assignmentEpoch) {
+        if (state != ReconciliationState.UNDEFINED && targetAssignmentEpoch != assignmentEpoch) {
             return UNDEFINED.computeNextState(
                 currentMemberEpoch,
                 currentAssignment,

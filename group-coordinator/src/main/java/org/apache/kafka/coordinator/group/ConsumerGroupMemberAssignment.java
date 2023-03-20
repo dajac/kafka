@@ -29,7 +29,7 @@ import java.util.Set;
 import java.util.stream.Collectors;
 
 public class ConsumerGroupMemberAssignment {
-    public static ConsumerGroupMemberAssignment EMPTY = new ConsumerGroupMemberAssignment(
+    public static final ConsumerGroupMemberAssignment EMPTY = new ConsumerGroupMemberAssignment(
         (byte) 0,
         Collections.emptyMap(),
         VersionedMetadata.EMPTY
@@ -46,8 +46,8 @@ public class ConsumerGroupMemberAssignment {
         Map<Uuid, Set<Integer>> partitions,
         VersionedMetadata metadata
     ) {
-        Objects.nonNull(partitions);
-        Objects.nonNull(metadata);
+        Objects.requireNonNull(partitions);
+        Objects.requireNonNull(metadata);
 
         this.error = error;
         this.partitions = Collections.unmodifiableMap(partitions);

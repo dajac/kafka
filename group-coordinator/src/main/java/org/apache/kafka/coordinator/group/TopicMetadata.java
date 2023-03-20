@@ -20,7 +20,6 @@ import org.apache.kafka.common.Uuid;
 import org.apache.kafka.coordinator.group.generated.ConsumerGroupPartitionMetadataValue;
 
 import java.util.Objects;
-import java.util.Set;
 
 public class TopicMetadata {
 

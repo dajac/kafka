@@ -23,7 +23,7 @@ import java.util.Objects;
  * Immutable versioned metadata.
  */
 public class VersionedMetadata {
-    public static VersionedMetadata EMPTY = new VersionedMetadata((short) -1, ByteBuffer.allocate(0));
+    public static final VersionedMetadata EMPTY = new VersionedMetadata((short) 0, ByteBuffer.allocate(0));
 
     private final short version;
     private final ByteBuffer metadata;
@@ -33,10 +33,6 @@ public class VersionedMetadata {
         ByteBuffer metadata
     ) {
         Objects.requireNonNull(metadata);
-
-        if (version < 0) {
-            throw new IllegalStateException("Version must be a positive value.");
-        }
 
         this.version = version;
         this.metadata = metadata;

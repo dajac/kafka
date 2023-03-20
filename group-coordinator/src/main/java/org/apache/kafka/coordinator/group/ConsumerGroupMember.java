@@ -71,7 +71,7 @@ public class ConsumerGroupMember {
         return currentAssignment.get();
     }
 
-    public ConsumerGroupMemberReconciledAssignment reconciledAssignment(){
+    public ConsumerGroupMemberReconciledAssignment reconciledAssignment() {
         return reconciledAssignment.get();
     }
 

@@ -16,7 +16,6 @@
  */
 package org.apache.kafka.coordinator.group;
 
-import org.apache.kafka.common.Uuid;
 import org.apache.kafka.common.errors.GroupIdNotFoundException;
 import org.apache.kafka.common.errors.InvalidRequestException;
 import org.apache.kafka.common.errors.UnsupportedAssignorException;
@@ -604,9 +603,9 @@ public class GroupCoordinatorStateMachine {
 
         if (value != null) {
             ConsumerGroup consumerGroup = consumerGroup(groupId, false);
-            Map<Uuid, TopicMetadata> subscriptionMetadata = new HashMap<>();
+            Map<String, TopicMetadata> subscriptionMetadata = new HashMap<>();
             value.topics().forEach(topicMetadata -> {
-                subscriptionMetadata.put(topicMetadata.topicId(), TopicMetadata.fromRecord(topicMetadata));
+                subscriptionMetadata.put(topicMetadata.topicName(), TopicMetadata.fromRecord(topicMetadata));
             });
             consumerGroup.setSubscriptionMetadata(subscriptionMetadata);
         } else {
