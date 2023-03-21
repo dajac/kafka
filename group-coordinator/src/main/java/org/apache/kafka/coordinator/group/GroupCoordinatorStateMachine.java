@@ -54,13 +54,13 @@ import java.util.List;
 import java.util.Map;
 import java.util.stream.Collectors;
 
-import static org.apache.kafka.coordinator.group.RecordBuilders.newCurrentAssignmentRecord;
-import static org.apache.kafka.coordinator.group.RecordBuilders.newCurrentAssignmentTombstoneRecord;
-import static org.apache.kafka.coordinator.group.RecordBuilders.newGroupEpochRecord;
-import static org.apache.kafka.coordinator.group.RecordBuilders.newGroupSubscriptionMetadataRecord;
-import static org.apache.kafka.coordinator.group.RecordBuilders.newMemberSubscriptionRecord;
-import static org.apache.kafka.coordinator.group.RecordBuilders.newMemberSubscriptionTombstoneRecord;
-import static org.apache.kafka.coordinator.group.RecordBuilders.newTargetAssignmentTombstoneRecord;
+import static org.apache.kafka.coordinator.group.RecordHelpers.newCurrentAssignmentRecord;
+import static org.apache.kafka.coordinator.group.RecordHelpers.newCurrentAssignmentTombstoneRecord;
+import static org.apache.kafka.coordinator.group.RecordHelpers.newGroupEpochRecord;
+import static org.apache.kafka.coordinator.group.RecordHelpers.newGroupSubscriptionMetadataRecord;
+import static org.apache.kafka.coordinator.group.RecordHelpers.newMemberSubscriptionRecord;
+import static org.apache.kafka.coordinator.group.RecordHelpers.newMemberSubscriptionTombstoneRecord;
+import static org.apache.kafka.coordinator.group.RecordHelpers.newTargetAssignmentTombstoneRecord;
 
 public class GroupCoordinatorStateMachine {
 
@@ -353,7 +353,7 @@ public class GroupCoordinatorStateMachine {
                 groupId,
                 member.memberId(),
                 nextReconciledAssignment.memberEpoch(),
-                targetAssignment
+                targetAssignment.partitions()
             ));
         }
 

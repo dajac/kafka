@@ -20,6 +20,7 @@ import org.apache.kafka.coordinator.group.generated.ConsumerGroupMemberMetadataV
 import org.junit.jupiter.api.Test;
 
 import java.nio.ByteBuffer;
+import java.nio.charset.StandardCharsets;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 
@@ -33,7 +34,7 @@ public class AssignorStateTest {
             (short) 5,
             (short) 10,
             (short) 8,
-            ByteBuffer.wrap("hello".getBytes())
+            ByteBuffer.wrap("hello".getBytes(StandardCharsets.UTF_8))
         );
 
         assertEquals("range", assignorState.name());
@@ -41,7 +42,7 @@ public class AssignorStateTest {
         assertEquals((short) 5, assignorState.minimumVersion());
         assertEquals((short) 10, assignorState.maximumVersion());
         assertEquals((short) 8, assignorState.metadataVersion());
-        assertEquals(ByteBuffer.wrap("hello".getBytes()), assignorState.metadataBytes());
+        assertEquals(ByteBuffer.wrap("hello".getBytes(StandardCharsets.UTF_8)), assignorState.metadataBytes());
     }
 
     @Test
@@ -52,7 +53,7 @@ public class AssignorStateTest {
             .setMinimumVersion((byte) 5)
             .setMaximumVersion((byte) 10)
             .setVersion((byte) 8)
-            .setMetadata("hello".getBytes());
+            .setMetadata("hello".getBytes(StandardCharsets.UTF_8));
 
         AssignorState assignorState = AssignorState.fromRecord(record);
 
@@ -61,7 +62,7 @@ public class AssignorStateTest {
         assertEquals((short) 5, assignorState.minimumVersion());
         assertEquals((short) 10, assignorState.maximumVersion());
         assertEquals((short) 8, assignorState.metadataVersion());
-        assertEquals(ByteBuffer.wrap("hello".getBytes()), assignorState.metadataBytes());
+        assertEquals(ByteBuffer.wrap("hello".getBytes(StandardCharsets.UTF_8)), assignorState.metadataBytes());
     }
 
     @Test
@@ -72,7 +73,7 @@ public class AssignorStateTest {
             (short) 5,
             (short) 10,
             (short) 8,
-            ByteBuffer.wrap("hello".getBytes())
+            ByteBuffer.wrap("hello".getBytes(StandardCharsets.UTF_8))
         );
 
         AssignorState assignorState2 = new AssignorState(
@@ -81,7 +82,7 @@ public class AssignorStateTest {
             (short) 5,
             (short) 10,
             (short) 8,
-            ByteBuffer.wrap("hello".getBytes())
+            ByteBuffer.wrap("hello".getBytes(StandardCharsets.UTF_8))
         );
 
         assertEquals(assignorState1, assignorState2);

@@ -36,8 +36,8 @@ import java.util.Map;
 import java.util.Set;
 import java.util.stream.Collectors;
 
-public class RecordBuilders {
-    private RecordBuilders() {}
+public class RecordHelpers {
+    private RecordHelpers() {}
 
     public static Record newMemberSubscriptionRecord(
         String groupId,
@@ -86,7 +86,7 @@ public class RecordBuilders {
                     .setMemberId(memberId),
                 (short) 5
             ),
-            null
+            null // Tombstone.
         );
     }
 
@@ -116,6 +116,19 @@ public class RecordBuilders {
         );
     }
 
+    public static Record newGroupSubscriptionMetadataTombstoneRecord(
+        String groupId
+    ) {
+        return new Record(
+            new ApiMessageAndVersion(
+                new ConsumerGroupPartitionMetadataKey()
+                    .setGroupId(groupId),
+                (short) 4
+            ),
+            null // Tombstone.
+        );
+    }
+
     public static Record newGroupEpochRecord(
         String groupId,
         int newGroupEpoch
@@ -131,6 +144,19 @@ public class RecordBuilders {
                     .setEpoch(newGroupEpoch),
                 (short) 0
             )
+        );
+    }
+
+    public static Record newGroupEpochTombstoneRecord(
+        String groupId
+    ) {
+        return new Record(
+            new ApiMessageAndVersion(
+                new ConsumerGroupMetadataKey()
+                    .setGroupId(groupId),
+                (short) 3
+            ),
+            null // Tombstone.
         );
     }
 
@@ -169,13 +195,13 @@ public class RecordBuilders {
                     .setMemberId(memberId),
                 (short) 7
             ),
-            null
+            null // Tombstone.
         );
     }
 
     public static Record newTargetAssignmentEpochRecord(
         String groupId,
-        int groupEpcoh
+        int groupEpoch
     ) {
         return new Record(
             new ApiMessageAndVersion(
@@ -185,9 +211,22 @@ public class RecordBuilders {
             ),
             new ApiMessageAndVersion(
                 new ConsumerGroupTargetAssignmentMetadataValue()
-                    .setAssignmentEpoch(groupEpcoh),
+                    .setAssignmentEpoch(groupEpoch),
                 (short) 0
             )
+        );
+    }
+
+    public static Record newTargetAssignmentEpochTombstoneRecord(
+        String groupId
+    ) {
+        return new Record(
+            new ApiMessageAndVersion(
+                new ConsumerGroupTargetAssignmentMetadataKey()
+                    .setGroupId(groupId),
+                (short) 6
+            ),
+            null // Tombstone.
         );
     }
 
@@ -195,7 +234,7 @@ public class RecordBuilders {
         String groupId,
         String memberId,
         int memberEpoch,
-        ConsumerGroupMemberAssignment targetAssignment
+        Map<Uuid, Set<Integer>> partitions
     ) {
         return new Record(
             new ApiMessageAndVersion(
@@ -207,7 +246,7 @@ public class RecordBuilders {
             new ApiMessageAndVersion(
                 new ConsumerGroupCurrentMemberAssignmentValue()
                     .setMemberEpoch(memberEpoch)
-                    .setTopicPartitions(targetAssignment.partitions().entrySet().stream()
+                    .setTopicPartitions(partitions.entrySet().stream()
                         .map(keyValue -> new ConsumerGroupCurrentMemberAssignmentValue.TopicPartition()
                             .setTopicId(keyValue.getKey())
                             .setPartitions(new ArrayList<>(keyValue.getValue())))

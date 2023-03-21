@@ -22,6 +22,7 @@ import org.apache.kafka.coordinator.group.generated.ConsumerGroupTargetAssignmen
 import org.junit.jupiter.api.Test;
 
 import java.nio.ByteBuffer;
+import java.nio.charset.StandardCharsets;
 import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.List;
@@ -42,7 +43,7 @@ public class ConsumerGroupMemberAssignmentTest {
 
         VersionedMetadata metadata = new VersionedMetadata(
             (short) 1,
-            ByteBuffer.wrap("hello".getBytes())
+            ByteBuffer.wrap("hello".getBytes(StandardCharsets.UTF_8))
         );
 
         ConsumerGroupMemberAssignment assignment = new ConsumerGroupMemberAssignment(
@@ -73,7 +74,7 @@ public class ConsumerGroupMemberAssignmentTest {
             .setError((byte) 1)
             .setTopicPartitions(partitions)
             .setMetadataVersion((short) 2)
-            .setMetadataBytes("foo".getBytes());
+            .setMetadataBytes("foo".getBytes(StandardCharsets.UTF_8));
 
         ConsumerGroupMemberAssignment assignment = ConsumerGroupMemberAssignment.fromRecord(record);
 
@@ -84,7 +85,7 @@ public class ConsumerGroupMemberAssignmentTest {
         ), assignment.partitions());
         assertEquals(new VersionedMetadata(
             (short) 2,
-            ByteBuffer.wrap("foo".getBytes())
+            ByteBuffer.wrap("foo".getBytes(StandardCharsets.UTF_8))
         ), assignment.metadata());
     }
 
@@ -105,7 +106,7 @@ public class ConsumerGroupMemberAssignmentTest {
             .setError((byte) 1)
             .setTopicPartitions(partitions)
             .setMetadataVersion((short) 2)
-            .setMetadataBytes("foo".getBytes());
+            .setMetadataBytes("foo".getBytes(StandardCharsets.UTF_8));
 
         ConsumerGroupMemberAssignment assignment = ConsumerGroupMemberAssignment.fromRecord(record);
 
@@ -116,7 +117,7 @@ public class ConsumerGroupMemberAssignmentTest {
         ), assignment.partitions());
         assertEquals(new VersionedMetadata(
             (short) 2,
-            ByteBuffer.wrap("foo".getBytes())
+            ByteBuffer.wrap("foo".getBytes(StandardCharsets.UTF_8))
         ), assignment.metadata());
     }
 
@@ -128,7 +129,7 @@ public class ConsumerGroupMemberAssignmentTest {
 
         VersionedMetadata metadata = new VersionedMetadata(
             (short) 1,
-            ByteBuffer.wrap("hello".getBytes())
+            ByteBuffer.wrap("hello".getBytes(StandardCharsets.UTF_8))
         );
 
         ConsumerGroupMemberAssignment assignment1 = new ConsumerGroupMemberAssignment(

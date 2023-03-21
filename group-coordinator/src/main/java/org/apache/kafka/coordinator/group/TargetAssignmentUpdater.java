@@ -33,8 +33,8 @@ import java.util.Optional;
 import java.util.Set;
 import java.util.function.Consumer;
 
-import static org.apache.kafka.coordinator.group.RecordBuilders.newTargetAssignmentEpochRecord;
-import static org.apache.kafka.coordinator.group.RecordBuilders.newTargetAssignmentRecord;
+import static org.apache.kafka.coordinator.group.RecordHelpers.newTargetAssignmentEpochRecord;
+import static org.apache.kafka.coordinator.group.RecordHelpers.newTargetAssignmentRecord;
 
 public class TargetAssignmentUpdater {
     private Consumer<Record> recordCollector = record -> { };

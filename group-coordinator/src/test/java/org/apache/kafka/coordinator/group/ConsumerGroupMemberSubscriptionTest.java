@@ -20,6 +20,7 @@ import org.apache.kafka.coordinator.group.generated.ConsumerGroupMemberMetadataV
 import org.junit.jupiter.api.Test;
 
 import java.nio.ByteBuffer;
+import java.nio.charset.StandardCharsets;
 import java.util.Arrays;
 import java.util.Collections;
 
@@ -47,7 +48,7 @@ public class ConsumerGroupMemberSubscriptionTest {
                 (byte) 1,
                 (byte) 2,
                 (byte) 2,
-                ByteBuffer.wrap("hello".getBytes())
+                ByteBuffer.wrap("hello".getBytes(StandardCharsets.UTF_8))
             ))
         );
 
@@ -66,7 +67,7 @@ public class ConsumerGroupMemberSubscriptionTest {
             (byte) 1,
             (byte) 2,
             (byte) 2,
-            ByteBuffer.wrap("hello".getBytes())
+            ByteBuffer.wrap("hello".getBytes(StandardCharsets.UTF_8))
         )), subscription.assignorStates());
     }
 
@@ -87,7 +88,7 @@ public class ConsumerGroupMemberSubscriptionTest {
                 (byte) 1,
                 (byte) 2,
                 (byte) 2,
-                ByteBuffer.wrap("hello".getBytes())
+                ByteBuffer.wrap("hello".getBytes(StandardCharsets.UTF_8))
             ))
         );
 
@@ -120,7 +121,7 @@ public class ConsumerGroupMemberSubscriptionTest {
                 (byte) 1,
                 (byte) 2,
                 (byte) 2,
-                ByteBuffer.wrap("hello".getBytes())
+                ByteBuffer.wrap("hello".getBytes(StandardCharsets.UTF_8))
             ))
         );
 
@@ -142,7 +143,7 @@ public class ConsumerGroupMemberSubscriptionTest {
             (byte) 1,
             (byte) 2,
             (byte) 2,
-            ByteBuffer.wrap("hello".getBytes())
+            ByteBuffer.wrap("hello".getBytes(StandardCharsets.UTF_8))
         )), subscription2.assignorStates());
     }
 
@@ -162,7 +163,7 @@ public class ConsumerGroupMemberSubscriptionTest {
                 .setMinimumVersion((short) 1)
                 .setMaximumVersion((short) 10)
                 .setVersion((short) 5)
-                .setMetadata("hello".getBytes())));
+                .setMetadata("hello".getBytes(StandardCharsets.UTF_8))));
 
         ConsumerGroupMemberSubscription subscription = ConsumerGroupMemberSubscription.fromRecord(record);
 
@@ -182,7 +183,7 @@ public class ConsumerGroupMemberSubscriptionTest {
                     (byte) 1,
                     (byte) 10,
                     (byte) 5,
-                    ByteBuffer.wrap("hello".getBytes())
+                    ByteBuffer.wrap("hello".getBytes(StandardCharsets.UTF_8))
                 ))),
             subscription
         );

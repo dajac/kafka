@@ -49,14 +49,14 @@ class Record {
 
         Record record = (Record) o;
 
-        if (!key.equals(record.key)) return false;
-        return value.equals(record.value);
+        if (!Objects.equals(key, record.key)) return false;
+        return Objects.equals(value, record.value);
     }
 
     @Override
     public int hashCode() {
-        int result = key.hashCode();
-        result = 31 * result + value.hashCode();
+        int result = key != null ? key.hashCode() : 0;
+        result = 31 * result + (value != null ? value.hashCode() : 0);
         return result;
     }
 

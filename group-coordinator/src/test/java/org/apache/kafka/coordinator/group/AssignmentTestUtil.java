@@ -22,6 +22,7 @@ import java.util.AbstractMap;
 import java.util.Arrays;
 import java.util.HashMap;
 import java.util.HashSet;
+import java.util.LinkedHashMap;
 import java.util.Map;
 import java.util.Set;
 
@@ -39,6 +40,15 @@ public class AssignmentTestUtil {
     @SafeVarargs
     public static Map<Uuid, Set<Integer>> mkAssignment(Map.Entry<Uuid, Set<Integer>>... entries) {
         Map<Uuid, Set<Integer>> assignment = new HashMap<>();
+        for (Map.Entry<Uuid, Set<Integer>> entry : entries) {
+            assignment.put(entry.getKey(), entry.getValue());
+        }
+        return assignment;
+    }
+
+    @SafeVarargs
+    public static Map<Uuid, Set<Integer>> mkOrderedAssignment(Map.Entry<Uuid, Set<Integer>>... entries) {
+        Map<Uuid, Set<Integer>> assignment = new LinkedHashMap<>();
         for (Map.Entry<Uuid, Set<Integer>> entry : entries) {
             assignment.put(entry.getKey(), entry.getValue());
         }
