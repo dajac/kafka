@@ -18,19 +18,22 @@ package org.apache.kafka.coordinator.group.runtime;
 
 import org.apache.kafka.common.TopicPartition;
 
+import java.util.concurrent.CompletableFuture;
+
 /**
- * An event processed by the {@link CoordinatorRuntime}.
+ * Interface to implement a coordinator loader.
  */
-public interface CoordinatorEvent extends EventAccumulator.Event<TopicPartition> {
-    /**
-     * Executes the event.
-     */
-    void run();
+interface CoordinatorLoader<U> {
 
     /**
-     * Completes the event.
+     * Loads the coordinator by reading all the records from the TopicPartition
+     * and applying them to the Replayable object.
      *
-     * @param exception An exception if the processing of the event failed or null.
+     * @param tp            The TopicPartition to read from.
+     * @param replayable    The object to apply records to.
      */
-    void complete(Throwable exception);
+    CompletableFuture<Void> load(
+        TopicPartition tp,
+        Replayable<U> replayable
+    );
 }

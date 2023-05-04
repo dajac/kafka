@@ -16,21 +16,15 @@
  */
 package org.apache.kafka.coordinator.group.runtime;
 
-import org.apache.kafka.common.TopicPartition;
-
 /**
- * An event processed by the {@link CoordinatorRuntime}.
+ * The Replayable interface.
  */
-public interface CoordinatorEvent extends EventAccumulator.Event<TopicPartition> {
+public interface Replayable<U> {
     /**
-     * Executes the event.
-     */
-    void run();
-
-    /**
-     * Completes the event.
+     * Applies the given record to this object.
      *
-     * @param exception An exception if the processing of the event failed or null.
+     * @param record A record.
+     * @throws RuntimeException if the record can not be applied.
      */
-    void complete(Throwable exception);
+    void replay(U record) throws RuntimeException;
 }

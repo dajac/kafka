@@ -18,19 +18,27 @@ package org.apache.kafka.coordinator.group.runtime;
 
 import org.apache.kafka.common.TopicPartition;
 
+import java.util.Iterator;
+
 /**
- * An event processed by the {@link CoordinatorRuntime}.
+ * A simple interface to read records from Partitions/Logs.
+ *
+ * @param <T> The record type.
  */
-public interface CoordinatorEvent extends EventAccumulator.Event<TopicPartition> {
-    /**
-     * Executes the event.
-     */
-    void run();
+public interface PartitionReader<T> {
 
     /**
-     * Completes the event.
+     * An iterator which reads all records from a partition/log.
      *
-     * @param exception An exception if the processing of the event failed or null.
+     * @param <T> The record type.
      */
-    void complete(Throwable exception);
+    interface RecordsIterator<T> extends Iterator<T>, AutoCloseable { }
+
+    /**
+     * Read all the records from the partitions.
+     *
+     * @param tp The partition to read records from.
+     * @return An records iterator
+     */
+    RecordsIterator<T> read(TopicPartition tp);
 }

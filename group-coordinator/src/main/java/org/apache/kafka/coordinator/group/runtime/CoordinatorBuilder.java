@@ -16,21 +16,30 @@
  */
 package org.apache.kafka.coordinator.group.runtime;
 
-import org.apache.kafka.common.TopicPartition;
+import org.apache.kafka.timeline.SnapshotRegistry;
 
 /**
- * An event processed by the {@link CoordinatorRuntime}.
+ * A builder to build a {@link Coordinator} replicated state machine.
+ *
+ * @param <S> The type of the coordinator.
+ * @param <U> The record type.
  */
-public interface CoordinatorEvent extends EventAccumulator.Event<TopicPartition> {
-    /**
-     * Executes the event.
-     */
-    void run();
+interface CoordinatorBuilder<S extends Coordinator<U>, U> {
 
     /**
-     * Completes the event.
+     * Sets the snapshot registry used to back all the timeline
+     * datastructures used by the coordinator.
      *
-     * @param exception An exception if the processing of the event failed or null.
+     * @param snapshotRegistry The registry.
+     *
+     * @return The builder.
      */
-    void complete(Throwable exception);
+    CoordinatorBuilder<S, U> withSnapshotRegistry(
+        SnapshotRegistry snapshotRegistry
+    );
+
+    /**
+     * @return The built coordinator.
+     */
+    S build();
 }
