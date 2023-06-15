@@ -898,16 +898,8 @@ public final class Utils {
             return;
         Files.walkFileTree(rootFile.toPath(), new SimpleFileVisitor<Path>() {
             @Override
-            public FileVisitResult visitFileFailed(Path path, IOException exc) throws IOException {
-                // If the root path did not exist, ignore the error; otherwise throw it.
-                if (exc instanceof NoSuchFileException && path.toFile().equals(rootFile))
-                    return FileVisitResult.TERMINATE;
-                throw exc;
-            }
-
-            @Override
             public FileVisitResult visitFile(Path path, BasicFileAttributes attrs) throws IOException {
-                Files.delete(path);
+                Files.deleteIfExists(path);
                 return FileVisitResult.CONTINUE;
             }
 
@@ -918,7 +910,7 @@ public final class Utils {
                     throw exc;
                 }
 
-                Files.delete(path);
+                Files.deleteIfExists(path);
                 return FileVisitResult.CONTINUE;
             }
         });
