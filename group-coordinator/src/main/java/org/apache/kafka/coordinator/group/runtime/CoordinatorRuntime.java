@@ -1412,6 +1412,7 @@ public class CoordinatorRuntime<S extends CoordinatorShard<U>, U> implements Aut
             tp,
             marker
         );
+        enqueue(event);
         return event.future;
     }
 
