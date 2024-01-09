@@ -911,9 +911,10 @@ public class GroupCoordinatorService implements GroupCoordinator {
             request.producerEpoch(),
             Duration.ofMillis(config.offsetCommitTimeoutMs),
             coordinator -> coordinator.commitTransactionalOffset(context, request)
-        ).exceptionally(exception ->
-            TxnOffsetCommitRequest.getErrorResponse(request, normalizeException(exception))
-        );
+        ).exceptionally(exception -> {
+            log.debug("scheduleTransactionalWriteOperation for {} returned {}", request, exception);
+            return TxnOffsetCommitRequest.getErrorResponse(request, normalizeException(exception));
+        });
     }
 
     /**
