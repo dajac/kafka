@@ -35,8 +35,8 @@ public final class OffsetAndTimestamp {
         if (offset < 0)
             throw new IllegalArgumentException("Invalid negative offset");
 
-        if (timestamp < 0)
-            throw new IllegalArgumentException("Invalid negative timestamp");
+//        if (timestamp < 0)
+//            throw new IllegalArgumentException("Invalid negative timestamp");
 
         this.offset = offset;
         this.timestamp = timestamp;
