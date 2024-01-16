@@ -970,6 +970,9 @@ public class OffsetMetadataManager {
             TimelineHashSet<Long> openTransactions = openTransactionsByGroup.get(groupId);
             if (openTransactions != null) {
                 openTransactions.remove(producerId);
+                if (openTransactions.isEmpty()) {
+                    openTransactionsByGroup.remove(groupId);
+                }
             }
         });
 
@@ -982,12 +985,15 @@ public class OffsetMetadataManager {
                         log.debug("Committed transaction offset commit for producer id {} in group {} " +
                             "with topic {}, partition {}, and offset {}.",
                             producerId, groupId, topicName, partitionId, offsetAndMetadata);
-                        offsets.put(
+                        OffsetAndMetadata previousValue = offsets.put(
                             groupId,
                             topicName,
                             partitionId,
                             offsetAndMetadata
                         );
+                        if (previousValue == null) {
+                            metrics.incrementNumOffsets();
+                        }
                     });
                 });
             });

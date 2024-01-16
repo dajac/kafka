@@ -2692,6 +2692,47 @@ public class OffsetMetadataManagerTest {
     }
 
     @Test
+    public void testOffsetCommitsNumberMetricWithTransactionalOffsets() {
+        OffsetMetadataManagerTestContext context = new OffsetMetadataManagerTestContext.Builder().build();
+
+        // Add pending transactional commit for producer id 4.
+        verifyTransactionalReplay(context, 4L, "foo", "bar", 0, new OffsetAndMetadata(
+            100L,
+            OptionalInt.empty(),
+            "small",
+            context.time.milliseconds(),
+            OptionalLong.empty()
+        ));
+
+        // Add pending transactional commit for producer id 5.
+        verifyTransactionalReplay(context, 5L, "foo", "bar", 0, new OffsetAndMetadata(
+            101L,
+            OptionalInt.empty(),
+            "small",
+            context.time.milliseconds(),
+            OptionalLong.empty()
+        ));
+
+        // Add pending transactional commit for producer id 6.
+        verifyTransactionalReplay(context, 6L, "foo", "bar", 1, new OffsetAndMetadata(
+            200L,
+            OptionalInt.empty(),
+            "small",
+            context.time.milliseconds(),
+            OptionalLong.empty()
+        ));
+
+        // Commit all the transactions.
+        context.replayEndTransactionMarker(4L, TransactionResult.COMMIT);
+        context.replayEndTransactionMarker(5L, TransactionResult.COMMIT);
+        context.replayEndTransactionMarker(6L, TransactionResult.COMMIT);
+
+        // Verify the sensor is called twice as we have only
+        // two partitions.
+        verify(context.metrics, times(2)).incrementNumOffsets();
+    }
+
+    @Test
     public void testOffsetCommitsSensor() {
         OffsetMetadataManagerTestContext context = new OffsetMetadataManagerTestContext.Builder().build();
 
