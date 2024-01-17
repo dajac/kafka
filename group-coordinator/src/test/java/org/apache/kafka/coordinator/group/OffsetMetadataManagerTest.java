@@ -501,13 +501,11 @@ public class OffsetMetadataManagerTest {
 
             final OffsetDeleteResponseData.OffsetDeleteResponsePartitionCollection expectedResponsePartitionCollection =
                 new OffsetDeleteResponseData.OffsetDeleteResponsePartitionCollection();
-            if (hasOffset(groupId, topic, partition)) {
-                expectedResponsePartitionCollection.add(
-                    new OffsetDeleteResponseData.OffsetDeleteResponsePartition()
-                        .setPartitionIndex(partition)
-                        .setErrorCode(expectedError.code())
-                );
-            }
+            expectedResponsePartitionCollection.add(
+                new OffsetDeleteResponseData.OffsetDeleteResponsePartition()
+                    .setPartitionIndex(partition)
+                    .setErrorCode(expectedError.code())
+            );
 
             final OffsetDeleteResponseData.OffsetDeleteResponseTopicCollection expectedResponseTopicCollection =
                 new OffsetDeleteResponseData.OffsetDeleteResponseTopicCollection(Collections.singletonList(
