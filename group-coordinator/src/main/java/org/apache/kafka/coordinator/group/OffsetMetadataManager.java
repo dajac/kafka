@@ -589,9 +589,6 @@ public class OffsetMetadataManager {
         final List<Record> records = new ArrayList<>();
         final OffsetDeleteResponseData.OffsetDeleteResponseTopicCollection responseTopicCollection =
             new OffsetDeleteResponseData.OffsetDeleteResponseTopicCollection();
-        final TimelineHashMap<String, TimelineHashMap<Integer, OffsetAndMetadata>> offsetsByTopic =
-            offsets.offsetsByGroup.get(request.groupId());
-        final TimelineHashSet<Long> openTransactions = openTransactionsByGroup.get(request.groupId());
 
         request.topics().forEach(topic -> {
             final OffsetDeleteResponseData.OffsetDeleteResponsePartitionCollection responsePartitionCollection =
@@ -605,45 +602,21 @@ public class OffsetMetadataManager {
                     )
                 );
             } else {
-                final TimelineHashMap<Integer, OffsetAndMetadata> offsetsByPartition = offsetsByTopic == null ?
-                    null : offsetsByTopic.get(topic.name());
-
                 topic.partitions().forEach(partition -> {
                     // We always add the partition to the response.
                     responsePartitionCollection.add(new OffsetDeleteResponseData.OffsetDeleteResponsePartition()
                         .setPartitionIndex(partition.partitionIndex())
                     );
 
-                    boolean deleted = false;
-
-                    // We delete from the main offset storage if present.
-                    if (offsetsByPartition != null && offsetsByPartition.containsKey(partition.partitionIndex())) {
+                    // A tombstone is written if an offset is present is the main storage or
+                    // if a pending transactional offset exists.
+                    if (offsets.get(request.groupId(), topic.name(), partition.partitionIndex()) != null ||
+                        hasPendingTransactionalOffsets(request.groupId(), topic.name(), partition.partitionIndex())) {
                         records.add(RecordHelpers.newOffsetCommitTombstoneRecord(
                             request.groupId(),
                             topic.name(),
                             partition.partitionIndex()
                         ));
-                        deleted = true;
-                    }
-
-                    // Otherwise, we check the pending transactional offsets to ensure that we don't
-                    // have a pending offset there. We can skip checking if we already wrote a tombstone
-                    // in the previous step.
-                    if (!deleted) {
-                        for (Long openProducerId : openTransactions) {
-                            final Offsets pendingOffsets = pendingTransactionalOffsets.get(openProducerId);
-                            if (pendingOffsets.get(request.groupId(), topic.name(), partition.partitionIndex()) != null) {
-                                records.add(RecordHelpers.newOffsetCommitTombstoneRecord(
-                                    request.groupId(),
-                                    topic.name(),
-                                    partition.partitionIndex()
-                                ));
-
-                                // We only need to write one tombstone hence we can stop if we found at least one
-                                // pending transactional offset commit.
-                                break;
-                            }
-                        }
                     }
                 });
             }
@@ -895,8 +868,9 @@ public class OffsetMetadataManager {
         offsetsByTopic.forEach((topic, partitions) -> {
             if (!group.isSubscribedToTopic(topic)) {
                 partitions.forEach((partition, offsetAndMetadata) -> {
+                    // We don't expire the offset yet if there is a pending transactional offset for the partition.
                     if (condition.isOffsetExpired(offsetAndMetadata, currentTimestampMs, config.offsetsRetentionMs) &&
-                        hasPendingTransactionalOffsets(groupId, topic, partition)) {
+                        !hasPendingTransactionalOffsets(groupId, topic, partition)) {
                         expiredPartitions.add(appendOffsetCommitTombstone(groupId, topic, partition, records).toString());
                         log.debug("[GroupId {}] Expired offset for partition={}-{}", groupId, topic, partition);
                     } else {
