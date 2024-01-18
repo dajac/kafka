@@ -674,7 +674,7 @@ public class OffsetMetadataManager {
                     if (pendingGroupOffsets != null) {
                         pendingGroupOffsets.forEach((topic, offsetsByPartition) -> {
                             offsetsByPartition.keySet().forEach(partition -> {
-                                if (offsets.get(groupId, topic, partition) != null) {
+                                if (offsets.get(groupId, topic, partition) == null) {
                                     records.add(RecordHelpers.newOffsetCommitTombstoneRecord(groupId, topic, partition));
                                     numDeletedOffsets.getAndIncrement();
                                 }
@@ -691,8 +691,10 @@ public class OffsetMetadataManager {
     /**
      * @return true iff there is at least one pending transactional offset for the given
      * group, topic and partition.
+     *
+     * Package private for testing.
      */
-    private boolean hasPendingTransactionalOffsets(
+    boolean hasPendingTransactionalOffsets(
         String groupId,
         String topic,
         int partition
