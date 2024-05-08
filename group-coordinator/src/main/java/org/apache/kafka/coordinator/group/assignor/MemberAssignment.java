@@ -16,11 +16,7 @@
  */
 package org.apache.kafka.coordinator.group.assignor;
 
-import org.apache.kafka.common.Uuid;
-
-import java.util.Map;
 import java.util.Objects;
-import java.util.Set;
 
 /**
  * The partition assignment for a consumer group member.
@@ -29,9 +25,9 @@ public class MemberAssignment {
     /**
      * The target partitions assigned to this member keyed by topicId.
      */
-    private final Map<Uuid, Set<Integer>> targetPartitions;
+    private final Assignment targetPartitions;
 
-    public MemberAssignment(Map<Uuid, Set<Integer>> targetPartitions) {
+    public MemberAssignment(Assignment targetPartitions) {
         Objects.requireNonNull(targetPartitions);
         this.targetPartitions = targetPartitions;
     }
@@ -39,7 +35,7 @@ public class MemberAssignment {
     /**
      * @return Target partitions keyed by topic Ids.
      */
-    public Map<Uuid, Set<Integer>> targetPartitions() {
+    public Assignment targetPartitions() {
         return this.targetPartitions;
     }
 

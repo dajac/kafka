@@ -17,6 +17,7 @@
 package org.apache.kafka.coordinator.group;
 
 import org.apache.kafka.coordinator.group.assignor.AssignmentSpec;
+import org.apache.kafka.coordinator.group.assignor.CopyOnWriteAssignment;
 import org.apache.kafka.coordinator.group.assignor.GroupAssignment;
 import org.apache.kafka.coordinator.group.assignor.MemberAssignment;
 import org.apache.kafka.coordinator.group.assignor.PartitionAssignor;
@@ -39,7 +40,7 @@ public class NoOpPartitionAssignor implements PartitionAssignor {
             .stream()
             .collect(Collectors.toMap(
                 Map.Entry::getKey,
-                entry -> new MemberAssignment(entry.getValue().assignedPartitions())
+                entry -> new MemberAssignment(new CopyOnWriteAssignment(entry.getValue().assignedPartitions()))
             )));
     }
 }

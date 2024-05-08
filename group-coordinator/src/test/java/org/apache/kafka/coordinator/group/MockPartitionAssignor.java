@@ -51,6 +51,6 @@ public class MockPartitionAssignor implements PartitionAssignor {
 
     public Map<Uuid, Set<Integer>> targetPartitions(String memberId) {
         Objects.requireNonNull(prepareGroupAssignment);
-        return prepareGroupAssignment.members().get(memberId).targetPartitions();
+        return prepareGroupAssignment.members().get(memberId).targetPartitions().asMap();
     }
 }

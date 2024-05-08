@@ -328,7 +328,7 @@ public class TargetAssignmentBuilder {
     ) {
         MemberAssignment newMemberAssignment = newGroupAssignment.members().get(memberId);
         if (newMemberAssignment != null) {
-            return new Assignment(newMemberAssignment.targetPartitions());
+            return new Assignment(newMemberAssignment.targetPartitions().asMap());
         } else {
             return Assignment.EMPTY;
         }

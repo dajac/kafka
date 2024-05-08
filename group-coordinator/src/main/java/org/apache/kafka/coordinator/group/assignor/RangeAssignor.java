@@ -154,10 +154,9 @@ public class RangeAssignor implements PartitionAssignor {
                     for (int i = 0; i < retainedPartitionsCount; i++) {
                         assignedStickyPartitionsForTopic
                             .add(currentAssignmentListForTopic.get(i));
-                        newAssignment.computeIfAbsent(memberId, k -> new MemberAssignment(new HashMap<>()))
+                        newAssignment.computeIfAbsent(memberId, k -> new MemberAssignment(new CopyOnWriteAssignment(Collections.emptyMap())))
                             .targetPartitions()
-                            .computeIfAbsent(topicId, k -> new HashSet<>())
-                            .add(currentAssignmentListForTopic.get(i));
+                            .assign(topicId, currentAssignmentListForTopic.get(i));
                     }
                 }
 
@@ -175,10 +174,9 @@ public class RangeAssignor implements PartitionAssignor {
                     // add the extra partition that will be present at the index right after min quota was satisfied.
                     assignedStickyPartitionsForTopic
                         .add(currentAssignmentListForTopic.get(minRequiredQuota));
-                    newAssignment.computeIfAbsent(memberId, k -> new MemberAssignment(new HashMap<>()))
+                    newAssignment.computeIfAbsent(memberId, k -> new MemberAssignment(new CopyOnWriteAssignment(Collections.emptyMap())))
                         .targetPartitions()
-                        .computeIfAbsent(topicId, k -> new HashSet<>())
-                        .add(currentAssignmentListForTopic.get(minRequiredQuota));
+                        .assign(topicId, currentAssignmentListForTopic.get(minRequiredQuota));
                 } else {
                     MemberWithRemainingAssignments newPair = new MemberWithRemainingAssignments(memberId, remaining);
                     potentiallyUnfilledMembers.add(newPair);
@@ -210,10 +208,12 @@ public class RangeAssignor implements PartitionAssignor {
                     List<Integer> partitionsToAssign = unassignedPartitionsForTopic
                         .subList(unassignedPartitionsListStartPointer, unassignedPartitionsListStartPointer + remaining);
                     unassignedPartitionsListStartPointer += remaining;
-                    newAssignment.computeIfAbsent(memberId, k -> new MemberAssignment(new HashMap<>()))
-                        .targetPartitions()
-                        .computeIfAbsent(topicId, k -> new HashSet<>())
-                        .addAll(partitionsToAssign);
+                    Assignment assignment = newAssignment
+                        .computeIfAbsent(memberId, k -> new MemberAssignment(new CopyOnWriteAssignment(Collections.emptyMap())))
+                        .targetPartitions();
+                    for (Integer partitionId : partitionsToAssign) {
+                        assignment.assign(topicId, partitionId);
+                    }
                 }
             }
         });

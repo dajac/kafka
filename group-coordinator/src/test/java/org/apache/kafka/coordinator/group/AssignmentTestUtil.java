@@ -17,6 +17,8 @@
 package org.apache.kafka.coordinator.group;
 
 import org.apache.kafka.common.Uuid;
+import org.apache.kafka.coordinator.group.assignor.Assignment;
+import org.apache.kafka.coordinator.group.assignor.CopyOnWriteAssignment;
 import org.apache.kafka.coordinator.group.assignor.GroupAssignment;
 
 import java.util.AbstractMap;
@@ -52,6 +54,15 @@ public class AssignmentTestUtil {
     }
 
     @SafeVarargs
+    public static Assignment mkAssignment2(Map.Entry<Uuid, Set<Integer>>... entries) {
+        Map<Uuid, Set<Integer>> assignment = new HashMap<>();
+        for (Map.Entry<Uuid, Set<Integer>> entry : entries) {
+            assignment.put(entry.getKey(), entry.getValue());
+        }
+        return new CopyOnWriteAssignment(assignment);
+    }
+
+    @SafeVarargs
     public static Map<Uuid, Set<Integer>> mkAssignment(Map.Entry<Uuid, Set<Integer>>... entries) {
         Map<Uuid, Set<Integer>> assignment = new HashMap<>();
         for (Map.Entry<Uuid, Set<Integer>> entry : entries) {
@@ -78,7 +89,7 @@ public class AssignmentTestUtil {
     ) {
         assertEquals(expectedAssignment.size(), computedGroupAssignment.members().size());
         computedGroupAssignment.members().forEach((memberId, memberAssignment) -> {
-            Map<Uuid, Set<Integer>> computedAssignmentForMember = memberAssignment.targetPartitions();
+            Map<Uuid, Set<Integer>> computedAssignmentForMember = memberAssignment.targetPartitions().asMap();
             assertEquals(expectedAssignment.get(memberId), computedAssignmentForMember);
         });
     }

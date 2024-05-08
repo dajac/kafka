@@ -139,7 +139,7 @@ public class GeneralUniformAssignmentBuilder extends AbstractUniformAssignmentBu
                 }
                 subscribedTopicIds.add(topicId);
                 membersPerTopic.computeIfAbsent(topicId, k -> new ArrayList<>()).add(memberId);
-                targetAssignment.put(memberId, new MemberAssignment(new HashMap<>()));
+                targetAssignment.put(memberId, new MemberAssignment(new CopyOnWriteAssignment(Collections.emptyMap())));
             })
         );
         this.rackInfo = new RackInfo(assignmentSpec, subscribedTopicDescriber, subscribedTopicIds);
@@ -304,7 +304,7 @@ public class GeneralUniformAssignmentBuilder extends AbstractUniformAssignmentBu
      * @return true if the member can participate in reassignment, false otherwise.
      */
     private boolean canMemberParticipateInReassignment(String memberId) {
-        Set<Uuid> assignedTopicIds = targetAssignment.get(memberId).targetPartitions().keySet();
+        Set<Uuid> assignedTopicIds = targetAssignment.get(memberId).targetPartitions().topicIds();
 
         int currentAssignmentSize = assignmentManager.targetAssignmentSize(memberId);
         int maxAssignmentSize = assignmentManager.maxAssignmentSize(memberId);
@@ -352,7 +352,7 @@ public class GeneralUniformAssignmentBuilder extends AbstractUniformAssignmentBu
 
             // Otherwise make sure it cannot get any more partitions.
             for (Uuid topicId : members.get(member).subscribedTopicIds()) {
-                Set<Integer> assignedPartitions = targetAssignment.get(member).targetPartitions().get(topicId);
+                Set<Integer> assignedPartitions = targetAssignment.get(member).targetPartitions().partitions(topicId);
                 for (int i = 0; i < subscribedTopicDescriber.numPartitions(topicId); i++) {
                     TopicIdPartition topicIdPartition = new TopicIdPartition(topicId, i);
                     if (assignedPartitions == null || !assignedPartitions.contains(i)) {
@@ -899,16 +899,8 @@ public class GeneralUniformAssignmentBuilder extends AbstractUniformAssignmentBu
          * @param memberId              Member that the partition needs to be revoked from.
          */
         private void removePartitionFromTargetAssignment(TopicIdPartition topicIdPartition, String memberId) {
-            Map<Uuid, Set<Integer>> targetPartitionsMap = targetAssignment.get(memberId).targetPartitions();
-            Set<Integer> partitionsSet = targetPartitionsMap.get(topicIdPartition.topicId());
-            // Remove the partition from the assignment, if there are no more partitions from a particular topic,
-            // remove the topic from the assignment as well.
-            if (partitionsSet != null) {
-                partitionsSet.remove(topicIdPartition.partitionId());
-                if (partitionsSet.isEmpty()) {
-                    targetPartitionsMap.remove(topicIdPartition.topicId());
-                }
-            }
+            Assignment assignment = targetAssignment.get(memberId).targetPartitions();
+            assignment.unassign(topicIdPartition.topicId(), topicIdPartition.partitionId());
 
             partitionOwnerInTargetAssignment.remove(topicIdPartition, memberId);
             // Remove the member's assignment data from the set to update it.

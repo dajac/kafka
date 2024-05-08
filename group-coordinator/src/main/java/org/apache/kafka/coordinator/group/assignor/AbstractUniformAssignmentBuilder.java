@@ -70,10 +70,10 @@ public abstract class AbstractUniformAssignmentBuilder {
         Uuid topicId,
         int partition
     ) {
-        memberAssignments.get(memberId)
+        memberAssignments
+            .get(memberId)
             .targetPartitions()
-            .computeIfAbsent(topicId, __ -> new HashSet<>())
-            .add(partition);
+            .assign(topicId, partition);
     }
 
     /**
@@ -247,8 +247,8 @@ public abstract class AbstractUniformAssignmentBuilder {
 
             // Sort the list based on the size of each member's assignment.
             membersList.sort((member1, member2) -> {
-                int sum1 = assignment.get(member1).targetPartitions().values().stream().mapToInt(Set::size).sum();
-                int sum2 = assignment.get(member2).targetPartitions().values().stream().mapToInt(Set::size).sum();
+                int sum1 = assignment.get(member1).targetPartitions().size();
+                int sum2 = assignment.get(member2).targetPartitions().size();
 
                 return Integer.compare(sum1, sum2);
             });

@@ -160,7 +160,7 @@ public class TargetAssignmentBuilderBenchmark {
 
         for (Map.Entry<String, MemberAssignment> entry : groupAssignment.members().entrySet()) {
             String memberId = entry.getKey();
-            Map<Uuid, Set<Integer>> topicPartitions = entry.getValue().targetPartitions();
+            Map<Uuid, Set<Integer>> topicPartitions = entry.getValue().targetPartitions().asMap();
 
             Assignment assignment = new Assignment(topicPartitions);
 

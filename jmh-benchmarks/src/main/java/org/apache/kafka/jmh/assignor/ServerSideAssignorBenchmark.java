@@ -250,7 +250,7 @@ public class ServerSideAssignorBenchmark {
                 memberSpec.instanceId(),
                 memberSpec.rackId(),
                 memberSpec.subscribedTopicIds(),
-                memberAssignment.targetPartitions()
+                memberAssignment.targetPartitions().asMap()
             ));
         });
 

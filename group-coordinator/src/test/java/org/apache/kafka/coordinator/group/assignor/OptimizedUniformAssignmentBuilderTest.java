@@ -1093,7 +1093,7 @@ public class OptimizedUniformAssignmentBuilderTest {
         List<Integer> totalAssignmentSizesOfAllMembers = new ArrayList<>(membersList.size());
         membersList.forEach(member -> {
             Map<Uuid, Set<Integer>> computedAssignmentForMember = computedGroupAssignment
-                .members().get(member).targetPartitions();
+                .members().get(member).targetPartitions().asMap();
             int sum = computedAssignmentForMember.values().stream().mapToInt(Set::size).sum();
             totalAssignmentSizesOfAllMembers.add(sum);
         });
@@ -1101,7 +1101,7 @@ public class OptimizedUniformAssignmentBuilderTest {
         for (int i = 0; i < numMembers; i++) {
             String memberId = membersList.get(i);
             Map<Uuid, Set<Integer>> computedAssignmentForMember =
-                computedGroupAssignment.members().get(memberId).targetPartitions();
+                computedGroupAssignment.members().get(memberId).targetPartitions().asMap();
             // Each member is subscribed to topics of all the partitions assigned to it.
             computedAssignmentForMember.keySet().forEach(topicId -> {
                 // Check if the topic exists in the subscription.
@@ -1113,7 +1113,7 @@ public class OptimizedUniformAssignmentBuilderTest {
             for (int j = i + 1; j < numMembers; j++) {
                 String otherMemberId = membersList.get(j);
                 Map<Uuid, Set<Integer>> computedAssignmentForOtherMember = computedGroupAssignment
-                    .members().get(otherMemberId).targetPartitions();
+                    .members().get(otherMemberId).targetPartitions().asMap();
                 // Each partition should be assigned to at most one member
                 computedAssignmentForMember.keySet().forEach(topicId -> {
                     Set<Integer> intersection = new HashSet<>();

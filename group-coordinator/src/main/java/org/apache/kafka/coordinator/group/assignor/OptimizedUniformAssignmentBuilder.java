@@ -162,7 +162,7 @@ public class OptimizedUniformAssignmentBuilder extends AbstractUniformAssignment
         remainingMembersToGetAnExtraPartition = totalPartitionsCount % numberOfMembers;
 
         assignmentSpec.members().keySet().forEach(memberId ->
-            targetAssignment.put(memberId, new MemberAssignment(new HashMap<>())
+            targetAssignment.put(memberId, new MemberAssignment(new CopyOnWriteAssignment(Collections.emptyMap()))
         ));
 
         unassignedPartitions = topicIdPartitions(subscribedTopicIds, subscribedTopicDescriber);
