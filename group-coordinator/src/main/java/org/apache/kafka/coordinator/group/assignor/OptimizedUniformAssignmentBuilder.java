@@ -31,10 +31,8 @@ import java.util.List;
 import java.util.Map;
 import java.util.Queue;
 import java.util.Set;
+import java.util.concurrent.atomic.AtomicInteger;
 import java.util.stream.Collectors;
-import java.util.stream.IntStream;
-
-import static java.lang.Math.min;
 
 /**
  * The optimized uniform assignment builder is used to generate the target assignment for a consumer group with
@@ -161,10 +159,6 @@ public class OptimizedUniformAssignmentBuilder extends AbstractUniformAssignment
         final int minQuota = totalPartitionsCount / numberOfMembers;
         remainingMembersToGetAnExtraPartition = totalPartitionsCount % numberOfMembers;
 
-        assignmentSpec.members().keySet().forEach(memberId ->
-            targetAssignment.put(memberId, new MemberAssignment(new CopyOnWriteAssignment(Collections.emptyMap()))
-        ));
-
         unassignedPartitions = topicIdPartitions(subscribedTopicIds, subscribedTopicDescriber);
         potentiallyUnfilledMembers = assignStickyPartitions(minQuota);
 
@@ -203,47 +197,32 @@ public class OptimizedUniformAssignmentBuilder extends AbstractUniformAssignment
     private Map<String, Integer> assignStickyPartitions(int minQuota) {
         Map<String, Integer> potentiallyUnfilledMembers = new HashMap<>();
 
-        assignmentSpec.members().forEach((memberId, assignmentMemberSpec) -> {
-            List<TopicIdPartition> validCurrentMemberAssignment = validCurrentMemberAssignment(
-                memberId,
-                assignmentMemberSpec.assignedPartitions()
-            );
+        for (Map.Entry<String, AssignmentMemberSpec> entry : assignmentSpec.members().entrySet()) {
+            String memberId = entry.getKey();
+            AssignmentMemberSpec assignmentMemberSpec = entry.getValue();
+            Assignment assignment = new CopyOnWriteAssignment(assignmentMemberSpec.assignedPartitions());
+            targetAssignment.put(memberId, new MemberAssignment(assignment));
 
-            int currentAssignmentSize = validCurrentMemberAssignment.size();
-            // Number of partitions required to meet the minimum quota.
-            int remaining = minQuota - currentAssignmentSize;
+            AtomicInteger quota = new AtomicInteger(minQuota);
+            if (remainingMembersToGetAnExtraPartition > 0) {
+                quota.incrementAndGet();
+                remainingMembersToGetAnExtraPartition--;
+            }
 
-            if (currentAssignmentSize > 0) {
-                int retainedPartitionsCount = min(currentAssignmentSize, minQuota);
-                IntStream.range(0, retainedPartitionsCount).forEach(i -> {
-                    TopicIdPartition topicIdPartition = validCurrentMemberAssignment.get(i);
-                    addPartitionToAssignment(
-                        targetAssignment,
-                        memberId,
-                        topicIdPartition.topicId(),
-                        topicIdPartition.partitionId()
-                    );
+            assignment.forEach((topicId, partitionId) -> {
+                TopicIdPartition topicIdPartition = new TopicIdPartition(topicId, partitionId);
+                if (subscribedTopicIds.contains(topicId) && quota.get() > 0 && !rackInfo.racksMismatch(memberId, topicIdPartition)) {
+                    quota.decrementAndGet();
                     unassignedPartitions.remove(topicIdPartition);
-                });
-
-                // The extra partition is located at the last index from the previous step.
-                if (remaining < 0 && remainingMembersToGetAnExtraPartition > 0) {
-                    TopicIdPartition topicIdPartition = validCurrentMemberAssignment.get(retainedPartitionsCount);
-                    addPartitionToAssignment(
-                        targetAssignment,
-                        memberId,
-                        topicIdPartition.topicId(),
-                        topicIdPartition.partitionId()
-                    );
-                    unassignedPartitions.remove(topicIdPartition);
-                    remainingMembersToGetAnExtraPartition--;
+                } else {
+                    assignment.unassign(topicId, partitionId);
                 }
-            }
+            });
 
-            if (remaining >= 0) {
-                potentiallyUnfilledMembers.put(memberId, remaining);
+            if (quota.get() > 0) {
+                potentiallyUnfilledMembers.put(memberId, quota.get());
             }
-        });
+        }
 
         return potentiallyUnfilledMembers;
     }

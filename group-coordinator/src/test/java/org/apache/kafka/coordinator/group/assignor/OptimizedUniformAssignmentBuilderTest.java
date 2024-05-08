@@ -671,12 +671,12 @@ public class OptimizedUniformAssignmentBuilderTest {
 
         Map<String, Map<Uuid, Set<Integer>>> expectedAssignment = new HashMap<>();
         expectedAssignment.put(memberA, mkAssignment(
-            mkTopicAssignment(topic1Uuid, 0, 3),
-            mkTopicAssignment(topic2Uuid, 0, 3, 2)
+            mkTopicAssignment(topic2Uuid, 0, 3),
+            mkTopicAssignment(topic1Uuid, 0, 3, 2)
         ));
         expectedAssignment.put(memberB, mkAssignment(
-            mkTopicAssignment(topic1Uuid, 1, 4, 2),
-            mkTopicAssignment(topic2Uuid, 1, 4)
+            mkTopicAssignment(topic2Uuid, 1, 4, 2),
+            mkTopicAssignment(topic1Uuid, 1, 4)
         ));
 
         assertAssignment(expectedAssignment, computedAssignment);
