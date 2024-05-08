@@ -228,41 +228,6 @@ public class OptimizedUniformAssignmentBuilder extends AbstractUniformAssignment
     }
 
     /**
-     * Filters the current assignment of partitions for a given member based on certain criteria.
-     *
-     * Any partition that still belongs to the member's subscribed topics list is considered valid.
-     * If rack aware strategy can be used: Only partitions with matching rack are valid and non-matching partitions are
-     * tracked with their current owner for future use.
-     *
-     * @param memberId                      The Id of the member whose assignment is being validated.
-     * @param currentMemberAssignment       The map of topics to partitions currently assigned to the member.
-     *
-     * @return List of valid partitions after applying the filters.
-     */
-    private List<TopicIdPartition> validCurrentMemberAssignment(
-        String memberId,
-        Map<Uuid, Set<Integer>> currentMemberAssignment
-    ) {
-        List<TopicIdPartition> validCurrentAssignmentList = new ArrayList<>();
-        currentMemberAssignment.forEach((topicId, partitions) -> {
-            if (subscribedTopicIds.contains(topicId)) {
-                partitions.forEach(partition -> {
-                    TopicIdPartition topicIdPartition = new TopicIdPartition(topicId, partition);
-                    if (rackInfo.useRackStrategy && rackInfo.racksMismatch(memberId, topicIdPartition)) {
-                        currentPartitionOwners.put(topicIdPartition, memberId);
-                    } else {
-                        validCurrentAssignmentList.add(topicIdPartition);
-                    }
-                });
-            } else {
-                LOG.debug("The topic " + topicId + " is no longer present in the subscribed topics list");
-            }
-        });
-
-        return validCurrentAssignmentList;
-    }
-
-    /**
      * Allocates the unassigned partitions to unfilled members present in the same rack.
      * Partitions with the least number of potential members in the same rack are allotted first.
      * Members in the same rack with the least number of partitions in the target assignment
