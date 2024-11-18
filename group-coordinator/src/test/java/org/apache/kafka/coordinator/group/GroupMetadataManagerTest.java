@@ -14942,7 +14942,7 @@ public class GroupMetadataManagerTest {
 
         assertEquals(
             Optional.of(resolvedRegularExpression),
-            context.groupMetadataManager.consumerGroup("foo").regularExpression("abc*")
+            context.groupMetadataManager.consumerGroup("foo").resolvedRegularExpression("abc*")
         );
     }
 
@@ -14976,7 +14976,7 @@ public class GroupMetadataManagerTest {
 
         assertEquals(
             Optional.empty(),
-            context.groupMetadataManager.consumerGroup("foo").regularExpression("abc*")
+            context.groupMetadataManager.consumerGroup("foo").resolvedRegularExpression("abc*")
         );
     }
 

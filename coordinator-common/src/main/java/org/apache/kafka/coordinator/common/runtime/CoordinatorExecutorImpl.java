@@ -92,7 +92,7 @@ public class CoordinatorExecutorImpl<S extends CoordinatorShard<U>, U> implement
             runtime.scheduleWriteOperation(
                 key,
                 shard,
-                Duration.ofMillis(Long.MAX_VALUE),
+                Duration.ofMillis(Integer.MAX_VALUE),
                 coordinator -> {
                     // If the task associated with the task is not us, it means
                     // that the task was either replaced or cancelled. We stop.

@@ -47,6 +47,7 @@ import org.apache.kafka.timeline.TimelineObject;
 import java.nio.ByteBuffer;
 import java.util.Collections;
 import java.util.HashMap;
+import java.util.Iterator;
 import java.util.List;
 import java.util.Locale;
 import java.util.Map;
@@ -378,14 +379,35 @@ public class ConsumerGroup extends ModernGroup<ConsumerGroupMember> {
     }
 
     /**
+     * @return The last time resolved regular expressions were refresh or Long.MAX_VALUE if
+     * there are no resolved regular expression. Note that we use the timestamp of the first
+     * entry as a proxy for all of them. They are always resolved together.
+     */
+    public long lastResolvedRegularExpressionRefreshTimeMs() {
+        Iterator<ResolvedRegularExpression> iterator = resolvedRegularExpressions.values().iterator();
+        if (iterator.hasNext()) {
+            return iterator.next().timestamp;
+        } else {
+            return Long.MAX_VALUE;
+        }
+    }
+
+    /**
      * Return an optional containing the resolved regular expression corresponding to the provided regex
      * or an empty optional.
      *
      * @param regex The regular expression.
      * @return The optional containing the resolved regular expression or an empty optional.
      */
-    public Optional<ResolvedRegularExpression> regularExpression(String regex) {
+    public Optional<ResolvedRegularExpression> resolvedRegularExpression(String regex) {
         return Optional.ofNullable(resolvedRegularExpressions.get(regex));
+    }
+
+    /**
+     * @return The number of resolved regular expressions.
+     */
+    public int numResolvedRegularExpressions() {
+        return resolvedRegularExpressions.size();
     }
 
     /**
@@ -393,6 +415,14 @@ public class ConsumerGroup extends ModernGroup<ConsumerGroupMember> {
      */
     public int numSubscribedMembers(String regex) {
         return subscribedRegularExpressions.getOrDefault(regex, 0);
+    }
+
+    /**
+     * @return An immutable map containing all the subscribed regular expressions
+     *         with the subscribers counts.
+     */
+    public Map<String, Integer> subscribedRegularExpressions() {
+        return Collections.unmodifiableMap(subscribedRegularExpressions);
     }
 
     /**

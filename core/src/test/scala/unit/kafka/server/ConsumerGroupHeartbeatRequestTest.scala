@@ -39,7 +39,8 @@ import scala.jdk.CollectionConverters._
   types = Array(Type.KRAFT),
   serverProperties = Array(
     new ClusterConfigProperty(key = GroupCoordinatorConfig.OFFSETS_TOPIC_PARTITIONS_CONFIG, value = "1"),
-    new ClusterConfigProperty(key = GroupCoordinatorConfig.OFFSETS_TOPIC_REPLICATION_FACTOR_CONFIG, value = "1")
+    new ClusterConfigProperty(key = GroupCoordinatorConfig.OFFSETS_TOPIC_REPLICATION_FACTOR_CONFIG, value = "1"),
+    new ClusterConfigProperty(key = GroupCoordinatorConfig.CONSUMER_GROUP_REGEX_REFRESH_INTERVAL_MS_CONFIG, value = "5000")
   )
 )
 class ConsumerGroupHeartbeatRequestTest(cluster: ClusterInstance) {
@@ -184,13 +185,13 @@ class ConsumerGroupHeartbeatRequestTest(cluster: ClusterInstance) {
 
       // Heartbeat request to join the group. Note that the member subscribes
       // to an nonexistent topic.
-      val consumerGroupHeartbeatRequest = new ConsumerGroupHeartbeatRequest.Builder(
+      var consumerGroupHeartbeatRequest = new ConsumerGroupHeartbeatRequest.Builder(
         new ConsumerGroupHeartbeatRequestData()
           .setGroupId("grp")
           .setMemberId(Uuid.randomUuid().toString)
           .setMemberEpoch(0)
           .setRebalanceTimeoutMs(5 * 60 * 1000)
-          .setSubscribedTopicRegex("foo")
+          .setSubscribedTopicRegex("foo*")
           .setTopicPartitions(List.empty.asJava),
         true
       ).build()
@@ -207,6 +208,40 @@ class ConsumerGroupHeartbeatRequestTest(cluster: ClusterInstance) {
       assertNotNull(consumerGroupHeartbeatResponse.data.memberId)
       assertEquals(1, consumerGroupHeartbeatResponse.data.memberEpoch)
       assertEquals(new ConsumerGroupHeartbeatResponseData.Assignment(), consumerGroupHeartbeatResponse.data.assignment)
+
+      // Create the topic.
+      val topicId = TestUtils.createTopicWithAdminRaw(
+        admin = admin,
+        topic = "foo",
+        numPartitions = 3
+      )
+
+      // Prepare the next heartbeat.
+      consumerGroupHeartbeatRequest = new ConsumerGroupHeartbeatRequest.Builder(
+        new ConsumerGroupHeartbeatRequestData()
+          .setGroupId("grp")
+          .setMemberId(consumerGroupHeartbeatResponse.data.memberId)
+          .setMemberEpoch(consumerGroupHeartbeatResponse.data.memberEpoch),
+        true
+      ).build()
+
+      // This is the expected assignment.
+      val expectedAssignment = new ConsumerGroupHeartbeatResponseData.Assignment()
+        .setTopicPartitions(List(new ConsumerGroupHeartbeatResponseData.TopicPartitions()
+          .setTopicId(topicId)
+          .setPartitions(List[Integer](0, 1, 2).asJava)).asJava)
+
+      // Heartbeats until the partitions are assigned.
+      consumerGroupHeartbeatResponse = null
+      TestUtils.waitUntilTrue(() => {
+        consumerGroupHeartbeatResponse = connectAndReceive(consumerGroupHeartbeatRequest)
+        consumerGroupHeartbeatResponse.data.errorCode == Errors.NONE.code &&
+          consumerGroupHeartbeatResponse.data.assignment == expectedAssignment
+      }, msg = s"Could not get partitions assigned. Last response $consumerGroupHeartbeatResponse.")
+
+      // Verify the response.
+      assertEquals(2, consumerGroupHeartbeatResponse.data.memberEpoch)
+      assertEquals(expectedAssignment, consumerGroupHeartbeatResponse.data.assignment)
     } finally {
       admin.close()
     }

@@ -62,6 +62,7 @@ import org.apache.kafka.common.requests.RequestContext;
 import org.apache.kafka.common.requests.ShareGroupHeartbeatRequest;
 import org.apache.kafka.common.utils.LogContext;
 import org.apache.kafka.common.utils.Time;
+import org.apache.kafka.coordinator.common.runtime.CoordinatorExecutor;
 import org.apache.kafka.coordinator.common.runtime.CoordinatorRecord;
 import org.apache.kafka.coordinator.common.runtime.CoordinatorResult;
 import org.apache.kafka.coordinator.common.runtime.CoordinatorTimer;
@@ -129,11 +130,13 @@ import org.slf4j.Logger;
 
 import java.nio.ByteBuffer;
 import java.util.ArrayList;
+import java.util.Arrays;
 import java.util.Collections;
 import java.util.HashMap;
 import java.util.HashSet;
 import java.util.List;
 import java.util.Map;
+import java.util.Objects;
 import java.util.Optional;
 import java.util.Set;
 import java.util.concurrent.CompletableFuture;
@@ -199,11 +202,13 @@ public class GroupMetadataManager {
         private SnapshotRegistry snapshotRegistry = null;
         private Time time = null;
         private CoordinatorTimer<Void, CoordinatorRecord> timer = null;
+        private CoordinatorExecutor<CoordinatorRecord> executor = null;
         private List<ConsumerGroupPartitionAssignor> consumerGroupAssignors = null;
         private GroupConfigManager groupConfigManager = null;
         private int consumerGroupMaxSize = Integer.MAX_VALUE;
         private int consumerGroupHeartbeatIntervalMs = 5000;
         private int consumerGroupMetadataRefreshIntervalMs = Integer.MAX_VALUE;
+        private int consumerGroupRegularExpressionRefreshInternalMs = 5 * 60 * 1000;
         private MetadataImage metadataImage = null;
         private int consumerGroupSessionTimeoutMs = 45000;
         private int classicGroupMaxSize = Integer.MAX_VALUE;
@@ -239,6 +244,11 @@ public class GroupMetadataManager {
             return this;
         }
 
+        Builder withExecutor(CoordinatorExecutor<CoordinatorRecord> executor) {
+            this.executor = executor;
+            return this;
+        }
+
         Builder withConsumerGroupAssignors(List<ConsumerGroupPartitionAssignor> consumerGroupAssignors) {
             this.consumerGroupAssignors = consumerGroupAssignors;
             return this;
@@ -266,6 +276,11 @@ public class GroupMetadataManager {
 
         Builder withConsumerGroupMetadataRefreshIntervalMs(int consumerGroupMetadataRefreshIntervalMs) {
             this.consumerGroupMetadataRefreshIntervalMs = consumerGroupMetadataRefreshIntervalMs;
+            return this;
+        }
+
+        Builder withConsumerGroupRegularExpressionRefreshInternalMs(int consumerGroupRegularExpressionRefreshInternalMs) {
+            this.consumerGroupRegularExpressionRefreshInternalMs = consumerGroupRegularExpressionRefreshInternalMs;
             return this;
         }
 
@@ -342,6 +357,8 @@ public class GroupMetadataManager {
 
             if (timer == null)
                 throw new IllegalArgumentException("Timer must be set.");
+            if (executor == null)
+                throw new IllegalArgumentException("Executor must be set.");
             if (consumerGroupAssignors == null || consumerGroupAssignors.isEmpty())
                 throw new IllegalArgumentException("Assignors must be set before building.");
             if (shareGroupAssignor == null)
@@ -356,6 +373,7 @@ public class GroupMetadataManager {
                 logContext,
                 time,
                 timer,
+                executor,
                 metrics,
                 consumerGroupAssignors,
                 metadataImage,
@@ -364,6 +382,7 @@ public class GroupMetadataManager {
                 consumerGroupSessionTimeoutMs,
                 consumerGroupHeartbeatIntervalMs,
                 consumerGroupMetadataRefreshIntervalMs,
+                consumerGroupRegularExpressionRefreshInternalMs,
                 classicGroupMaxSize,
                 classicGroupInitialRebalanceDelayMs,
                 classicGroupNewMemberJoinTimeoutMs,
@@ -403,6 +422,11 @@ public class GroupMetadataManager {
      * The system timer.
      */
     private final CoordinatorTimer<Void, CoordinatorRecord> timer;
+
+    /**
+     * The executor to executor asynchronous tasks.
+     */
+    private final CoordinatorExecutor<CoordinatorRecord> executor;
 
     /**
      * The coordinator metrics.
@@ -453,6 +477,11 @@ public class GroupMetadataManager {
      * The metadata refresh interval.
      */
     private final int consumerGroupMetadataRefreshIntervalMs;
+
+    /**
+     * The regular expressions refresh interval.
+     */
+    private final int consumerGroupRegularExpressionRefreshInternalMs;
 
     /**
      * The metadata image.
@@ -528,6 +557,7 @@ public class GroupMetadataManager {
         LogContext logContext,
         Time time,
         CoordinatorTimer<Void, CoordinatorRecord> timer,
+        CoordinatorExecutor<CoordinatorRecord> executor,
         GroupCoordinatorMetricsShard metrics,
         List<ConsumerGroupPartitionAssignor> consumerGroupAssignors,
         MetadataImage metadataImage,
@@ -536,6 +566,7 @@ public class GroupMetadataManager {
         int consumerGroupSessionTimeoutMs,
         int consumerGroupHeartbeatIntervalMs,
         int consumerGroupMetadataRefreshIntervalMs,
+        int consumerGroupRegularExpressionRefreshInternalMs,
         int classicGroupMaxSize,
         int classicGroupInitialRebalanceDelayMs,
         int classicGroupNewMemberJoinTimeoutMs,
@@ -553,6 +584,7 @@ public class GroupMetadataManager {
         this.snapshotRegistry = snapshotRegistry;
         this.time = time;
         this.timer = timer;
+        this.executor = executor;
         this.metrics = metrics;
         this.metadataImage = metadataImage;
         this.consumerGroupAssignors = consumerGroupAssignors.stream().collect(Collectors.toMap(ConsumerGroupPartitionAssignor::name, Function.identity()));
@@ -564,6 +596,7 @@ public class GroupMetadataManager {
         this.consumerGroupSessionTimeoutMs = consumerGroupSessionTimeoutMs;
         this.consumerGroupHeartbeatIntervalMs = consumerGroupHeartbeatIntervalMs;
         this.consumerGroupMetadataRefreshIntervalMs = consumerGroupMetadataRefreshIntervalMs;
+        this.consumerGroupRegularExpressionRefreshInternalMs = consumerGroupRegularExpressionRefreshInternalMs;
         this.classicGroupMaxSize = classicGroupMaxSize;
         this.classicGroupInitialRebalanceDelayMs = classicGroupInitialRebalanceDelayMs;
         this.classicGroupNewMemberJoinTimeoutMs = classicGroupNewMemberJoinTimeoutMs;
@@ -1812,8 +1845,19 @@ public class GroupMetadataManager {
             .setClassicMemberMetadata(null)
             .build();
 
-        boolean bumpGroupEpoch = hasMemberSubscriptionChanged(
+        // If the group is empty, we must bump the epoch to fully
+        // intitialize the group.
+        boolean bumpGroupEpoch = group.isEmpty();
+
+        bumpGroupEpoch |= hasMemberSubscriptionChanged(
             groupId,
+            member,
+            updatedMember,
+            records
+        );
+
+        bumpGroupEpoch |= maybeUpdateRegularExpressions(
+            group,
             member,
             updatedMember,
             records
@@ -1821,14 +1865,16 @@ public class GroupMetadataManager {
 
         int groupEpoch = group.groupEpoch();
         Map<String, TopicMetadata> subscriptionMetadata = group.subscriptionMetadata();
-        Map<String, Integer> subscribedTopicNamesMap = group.subscribedTopicNames();
         SubscriptionType subscriptionType = group.subscriptionType();
 
         if (bumpGroupEpoch || group.hasMetadataExpired(currentTimeMs)) {
             // The subscription metadata is updated in two cases:
             // 1) The member has updated its subscriptions;
             // 2) The refresh deadline has been reached.
-            subscribedTopicNamesMap = group.computeSubscribedTopicNames(member, updatedMember);
+            Map<String, Integer> subscribedTopicNamesMap = group.computeSubscribedTopicNames(
+                member,
+                updatedMember
+            );
             subscriptionMetadata = group.computeSubscriptionMetadata(
                 subscribedTopicNamesMap,
                 metadataImage.topics(),
@@ -2434,18 +2480,248 @@ public class GroupMetadataManager {
                 return true;
             }
 
-            if (!updatedMember.subscribedTopicRegex().equals(member.subscribedTopicRegex())) {
-                log.debug("[GroupId {}] Member {} updated its subscribed regex to: {}.",
-                    groupId, memberId, updatedMember.subscribedTopicRegex());
-                // If the regular expression has changed, we compile it to ensure that
-                // its syntax is valid.
-                if (updatedMember.subscribedTopicRegex() != null) {
-                    throwIfRegularExpressionIsInvalid(updatedMember.subscribedTopicRegex());
-                }
-                return true;
-            }
+//            if (!updatedMember.subscribedTopicRegex().equals(member.subscribedTopicRegex())) {
+//                log.debug("[GroupId {}] Member {} updated its subscribed regex to: {}.",
+//                    groupId, memberId, updatedMember.subscribedTopicRegex());
+//                // If the regular expression has changed, we compile it to ensure that
+//                // its syntax is valid.
+//                if (updatedMember.subscribedTopicRegex() != null) {
+//                    throwIfRegularExpressionIsInvalid(updatedMember.subscribedTopicRegex());
+//                }
+//                return true;
+//            }
         }
         return false;
+    }
+
+    /**
+     *
+     * @param group
+     * @param member
+     * @param updatedMember
+     * @param records
+     * @return
+     */
+    private boolean maybeUpdateRegularExpressions(
+        ConsumerGroup group,
+        ConsumerGroupMember member,
+        ConsumerGroupMember updatedMember,
+        List<CoordinatorRecord> records
+    ) {
+        String groupId = group.groupId();
+        String memberId = updatedMember.memberId();
+        String oldSubscribedTopicRegex = member.subscribedTopicRegex();
+        String newSubscribedTopicRegex = updatedMember.subscribedTopicRegex();
+
+        boolean bumpGroupEpoch = false;
+        boolean requireRefresh = false;
+
+        if (!Objects.equals(oldSubscribedTopicRegex, newSubscribedTopicRegex)) {
+            log.debug("[GroupId {}] Member {} updated its subscribed regex to: {}.",
+                groupId, memberId, newSubscribedTopicRegex);
+
+            if (oldSubscribedTopicRegex != null && group.numSubscribedMembers(oldSubscribedTopicRegex) == 1) {
+                // If the member was the last one subscribed to the regex, we delete the
+                // resolved regular expression.
+                records.add(GroupCoordinatorRecordHelpers.newConsumerGroupRegularExpressionTombstone(
+                    groupId,
+                    oldSubscribedTopicRegex
+                ));
+            }
+
+            if (newSubscribedTopicRegex != null) {
+                if (group.numSubscribedMembers(newSubscribedTopicRegex) == 0) {
+                    // If the member subscribed to a new regex, we compile it to ensure its validity.
+                    // We also trigger a refresh of the regexes in order to resolve it.
+                    throwIfRegularExpressionIsInvalid(updatedMember.subscribedTopicRegex());
+                    requireRefresh = true;
+                } else {
+                    // If the new regex is already resolved, we trigger a rebalance
+                    // by bumping the group epoch.
+                    bumpGroupEpoch = group.resolvedRegularExpression(newSubscribedTopicRegex).isPresent();
+                }
+            }
+        }
+
+        String key = group.groupId() + "-regex";
+
+        // If a refresh is already inflight, we can schedule a new one so
+        // we stop here.
+        if (executor.isScheduled(key)) {
+            return bumpGroupEpoch;
+        }
+
+        // Adjust the count to account for the updated member.
+        Map<String, Integer> subscribedRegularExpressions = new HashMap<>(group.subscribedRegularExpressions());
+        if (oldSubscribedTopicRegex != null) {
+            subscribedRegularExpressions.compute(oldSubscribedTopicRegex, Utils::decValue);
+        }
+        if (newSubscribedTopicRegex != null) {
+            subscribedRegularExpressions.compute(newSubscribedTopicRegex, Utils::incValue);
+        }
+
+        // If the number of subscribed regexes is different from the number of resolved ones,
+        // we must trigger a refresh.
+        requireRefresh |= subscribedRegularExpressions.size() != group.numResolvedRegularExpressions();
+
+        // If the last time that regexes were refreshed is older than the refresh interval,
+        // we must trigger a refresh.
+        requireRefresh |= time.milliseconds() >
+            group.lastResolvedRegularExpressionRefreshTimeMs() + consumerGroupRegularExpressionRefreshInternalMs;
+
+        if (requireRefresh) {
+            Set<String> regexes = subscribedRegularExpressions.keySet();
+            executor.schedule(
+                key,
+                () -> refreshRegularExpressions(groupId, log, time, metadataImage, regexes),
+                (result, exception) -> handleRegularExpressionsResult(groupId, result, exception)
+            );
+        }
+
+        return bumpGroupEpoch;
+    }
+
+    /**
+     * Resolves the provided regular expressions. Note that this static method is executed
+     * as an asynchronous task in the executor. Hence, it should not access any state from
+     * the manager.
+     *
+     * @param groupId   The group id.
+     * @param log       The log instance.
+     * @param time      The time instance.
+     * @param image     The metadata image to use for listing the topics.
+     * @param regexes   The list of regular expressions that must be resolved.
+     * @return The list of resolved regular expressions.
+     */
+    private static Map<String, ResolvedRegularExpression> refreshRegularExpressions(
+        String groupId,
+        Logger log,
+        Time time,
+        MetadataImage image,
+        Set<String> regexes
+    ) {
+        log.debug("[GroupId {}] Refreshing regular expressions.", groupId);
+        Map<String, Set<String>> resolvedRegexes = new HashMap<>(regexes.size());
+        List<Pattern> compiledRegexes = new ArrayList<>(regexes.size());
+        for (String regex : regexes) {
+            resolvedRegexes.put(regex, new HashSet<>());
+            try {
+                compiledRegexes.add(Pattern.compile(regex));
+            } catch (PatternSyntaxException ex) {
+                // This should not happen because the regular expressions are valided
+                // when received from the members. If for some reasons, it would
+                // happen, we log it and ignore it.
+                log.error("[GroupId {}] Couldn't parse regular expression '{}' due to `{}`. Ignoring it.",
+                    groupId, regex, ex.getDescription());
+            }
+        }
+
+        for (String topicName : image.topics().topicsByName().keySet()) {
+            for (Pattern regex : compiledRegexes) {
+                if (regex.matcher(topicName).matches()) {
+                    resolvedRegexes.get(regex.pattern()).add(topicName);
+                }
+            }
+        }
+
+        long version = image.provenance().lastContainedOffset();
+        long currentTimeMs = time.milliseconds();
+        Map<String, ResolvedRegularExpression> result = new HashMap<>(resolvedRegexes.size());
+        for (Map.Entry<String, Set<String>> resolvedRegex : resolvedRegexes.entrySet()) {
+            result.put(
+                resolvedRegex.getKey(),
+                new ResolvedRegularExpression(resolvedRegex.getValue(), version, currentTimeMs)
+            );
+        }
+
+        return result;
+    }
+
+    /**
+     * Handle the result of the asynchronous tasks which resolves the regular expressions.
+     *
+     * @param resolvedRegularExpressions    The resolved regular expressions.
+     * @param exception                     The exception if the resolution failed.
+     * @return A CoordinatorResult containing the records to mutate the group state.
+     */
+    private CoordinatorResult<Void, CoordinatorRecord> handleRegularExpressionsResult(
+        String groupId,
+        Map<String, ResolvedRegularExpression> resolvedRegularExpressions,
+        Throwable exception
+    ) {
+        if (exception != null) {
+            log.error("[GroupId {}] Couldn't update regular expression due to: {}",
+                groupId, exception.getMessage());
+            return new CoordinatorResult<>(Collections.emptyList());
+        }
+
+        if (log.isDebugEnabled()) {
+            log.debug("[GroupId {}] Received updated regular expressions: {}.",
+                groupId, resolvedRegularExpressions);
+        }
+
+        List<CoordinatorRecord> records = new ArrayList<>();
+        try {
+            ConsumerGroup group = consumerGroup(groupId);
+            Map<String, Integer> subscribedTopicNames = new HashMap<>(group.subscribedTopicNames());
+
+            resolvedRegularExpressions.forEach((regex, resolvedRegex) -> {
+                // We can skip the regex if the group is no longer
+                // subscribed to it.
+                if (group.numSubscribedMembers(regex) == 0) return;
+
+                // If we had a previous resolved one, we must remove it from
+                // the subscribed topic names.
+                group.resolvedRegularExpression(regex).ifPresent(resolvedRegularExpression -> {
+                    resolvedRegularExpression.topics.forEach(topicName ->
+                        subscribedTopicNames.compute(topicName, Utils::decValue)
+                    );
+                });
+
+                // We had the new resolved one to the subscribed topic names.
+                resolvedRegex.topics.forEach(topicName ->
+                    subscribedTopicNames.compute(topicName, Utils::incValue)
+                );
+
+                // Add the record to persist the change.
+                records.add(GroupCoordinatorRecordHelpers.newConsumerGroupRegularExpressionRecord(
+                    groupId,
+                    regex,
+                    resolvedRegex
+                ));
+            });
+
+            // Compute the subscription metadata.
+            Map<String, TopicMetadata> subscriptionMetadata = group.computeSubscriptionMetadata(
+                subscribedTopicNames,
+                metadataImage.topics(),
+                metadataImage.cluster()
+            );
+
+            if (!subscriptionMetadata.equals(group.subscriptionMetadata())) {
+                if (log.isDebugEnabled()) {
+                    log.debug("[GroupId {}] Computed new subscription metadata: {}.",
+                        groupId, subscriptionMetadata);
+                }
+
+                records.add(newConsumerGroupSubscriptionMetadataRecord(groupId, subscriptionMetadata));
+
+                int groupEpoch = group.groupEpoch() + 1;
+                records.add(newConsumerGroupEpochRecord(groupId, groupEpoch));
+                log.info("[GroupId {}] Bumped group epoch to {}.", groupId, groupEpoch);
+                metrics.record(CONSUMER_GROUP_REBALANCES_SENSOR_NAME);
+
+                group.setMetadataRefreshDeadline(
+                    time.milliseconds() + consumerGroupMetadataRefreshIntervalMs,
+                    groupEpoch
+                );
+            }
+        } catch (GroupIdNotFoundException ex) {
+            log.debug("[GroupId {}] Received result of regular expression resolution but " +
+                "it no longer exists.", groupId);
+        }
+
+        return new CoordinatorResult<>(records);
     }
 
     /**
@@ -2615,14 +2891,17 @@ public class GroupMetadataManager {
                     .withTargetAssignment(group.targetAssignment())
                     .withInvertedTargetAssignment(group.invertedTargetAssignment())
                     .withTopicsImage(metadataImage.topics())
-                    .withResolvedRegularExpressions(group.resolvedRegularExpressions())
-                    .addOrUpdateMember(updatedMember.memberId(), updatedMember);
+                    .withResolvedRegularExpressions(group.resolvedRegularExpressions());
 
-            // If the instance id was associated to a different member, it means that the
-            // static member is replaced by the current member hence we remove the previous one.
-            String previousMemberId = group.staticMemberId(updatedMember.instanceId());
-            if (previousMemberId != null && !updatedMember.memberId().equals(previousMemberId)) {
-                assignmentResultBuilder.removeMember(previousMemberId);
+            if (updatedMember != null) {
+                assignmentResultBuilder.addOrUpdateMember(updatedMember.memberId(), updatedMember);
+
+                // If the instance id was associated to a different member, it means that the
+                // static member is replaced by the current member hence we remove the previous one.
+                String previousMemberId = group.staticMemberId(updatedMember.instanceId());
+                if (previousMemberId != null && !updatedMember.memberId().equals(previousMemberId)) {
+                    assignmentResultBuilder.removeMember(previousMemberId);
+                }
             }
 
             long startTimeMs = time.milliseconds();
