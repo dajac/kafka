@@ -52,8 +52,7 @@ class ConsumerGroupHeartbeatRequestTest(cluster: ClusterInstance) {
   )
   def testConsumerGroupHeartbeatIsInaccessibleWhenDisabledByStaticConfig(): Unit = {
     val consumerGroupHeartbeatRequest = new ConsumerGroupHeartbeatRequest.Builder(
-      new ConsumerGroupHeartbeatRequestData(),
-      true
+      new ConsumerGroupHeartbeatRequestData()
     ).build()
 
     val consumerGroupHeartbeatResponse = connectAndReceive(consumerGroupHeartbeatRequest)
@@ -68,8 +67,7 @@ class ConsumerGroupHeartbeatRequestTest(cluster: ClusterInstance) {
   )
   def testConsumerGroupHeartbeatIsInaccessibleWhenFeatureFlagNotEnabled(): Unit = {
     val consumerGroupHeartbeatRequest = new ConsumerGroupHeartbeatRequest.Builder(
-      new ConsumerGroupHeartbeatRequestData(),
-      true
+      new ConsumerGroupHeartbeatRequestData()
     ).build()
 
     val consumerGroupHeartbeatResponse = connectAndReceive(consumerGroupHeartbeatRequest)
@@ -100,8 +98,7 @@ class ConsumerGroupHeartbeatRequestTest(cluster: ClusterInstance) {
           .setMemberEpoch(0)
           .setRebalanceTimeoutMs(5 * 60 * 1000)
           .setSubscribedTopicNames(List("foo").asJava)
-          .setTopicPartitions(List.empty.asJava),
-        true
+          .setTopicPartitions(List.empty.asJava)
       ).build()
 
       // Send the request until receiving a successful response. There is a delay
@@ -129,8 +126,7 @@ class ConsumerGroupHeartbeatRequestTest(cluster: ClusterInstance) {
         new ConsumerGroupHeartbeatRequestData()
           .setGroupId("grp")
           .setMemberId(consumerGroupHeartbeatResponse.data.memberId)
-          .setMemberEpoch(consumerGroupHeartbeatResponse.data.memberEpoch),
-        true
+          .setMemberEpoch(consumerGroupHeartbeatResponse.data.memberEpoch)
       ).build()
 
       // This is the expected assignment.
@@ -156,8 +152,7 @@ class ConsumerGroupHeartbeatRequestTest(cluster: ClusterInstance) {
         new ConsumerGroupHeartbeatRequestData()
           .setGroupId("grp")
           .setMemberId(consumerGroupHeartbeatResponse.data.memberId)
-          .setMemberEpoch(-1),
-        true
+          .setMemberEpoch(-1)
       ).build()
 
       consumerGroupHeartbeatResponse = connectAndReceive(consumerGroupHeartbeatRequest)
@@ -192,8 +187,7 @@ class ConsumerGroupHeartbeatRequestTest(cluster: ClusterInstance) {
           .setMemberEpoch(0)
           .setRebalanceTimeoutMs(5 * 60 * 1000)
           .setSubscribedTopicRegex("foo*")
-          .setTopicPartitions(List.empty.asJava),
-        true
+          .setTopicPartitions(List.empty.asJava)
       ).build()
 
       // Send the request until receiving a successful response. There is a delay
@@ -221,8 +215,7 @@ class ConsumerGroupHeartbeatRequestTest(cluster: ClusterInstance) {
         new ConsumerGroupHeartbeatRequestData()
           .setGroupId("grp")
           .setMemberId(consumerGroupHeartbeatResponse.data.memberId)
-          .setMemberEpoch(consumerGroupHeartbeatResponse.data.memberEpoch),
-        true
+          .setMemberEpoch(consumerGroupHeartbeatResponse.data.memberEpoch)
       ).build()
 
       // This is the expected assignment.
@@ -270,8 +263,7 @@ class ConsumerGroupHeartbeatRequestTest(cluster: ClusterInstance) {
           .setMemberEpoch(0)
           .setRebalanceTimeoutMs(5 * 60 * 1000)
           .setSubscribedTopicRegex("[")
-          .setTopicPartitions(List.empty.asJava),
-        true
+          .setTopicPartitions(List.empty.asJava)
       ).build()
 
       // Send the request until receiving a successful response. There is a delay
@@ -313,8 +305,7 @@ class ConsumerGroupHeartbeatRequestTest(cluster: ClusterInstance) {
           .setMemberEpoch(0)
           .setRebalanceTimeoutMs(5 * 60 * 1000)
           .setSubscribedTopicNames(List("foo").asJava)
-          .setTopicPartitions(List.empty.asJava),
-        true
+          .setTopicPartitions(List.empty.asJava)
       ).build()
 
       // Send the request until receiving a successful response. There is a delay
@@ -343,8 +334,7 @@ class ConsumerGroupHeartbeatRequestTest(cluster: ClusterInstance) {
           .setGroupId("grp")
           .setInstanceId(instanceId)
           .setMemberId(consumerGroupHeartbeatResponse.data.memberId)
-          .setMemberEpoch(consumerGroupHeartbeatResponse.data.memberEpoch),
-        true
+          .setMemberEpoch(consumerGroupHeartbeatResponse.data.memberEpoch)
       ).build()
 
       // This is the expected assignment.
@@ -374,8 +364,7 @@ class ConsumerGroupHeartbeatRequestTest(cluster: ClusterInstance) {
           .setGroupId("grp")
           .setInstanceId(instanceId)
           .setMemberId(consumerGroupHeartbeatResponse.data.memberId)
-          .setMemberEpoch(-2),
-        true
+          .setMemberEpoch(-2)
       ).build()
 
       consumerGroupHeartbeatResponse = connectAndReceive(consumerGroupHeartbeatRequest)
@@ -392,8 +381,7 @@ class ConsumerGroupHeartbeatRequestTest(cluster: ClusterInstance) {
           .setMemberEpoch(0)
           .setRebalanceTimeoutMs(5 * 60 * 1000)
           .setSubscribedTopicNames(List("foo").asJava)
-          .setTopicPartitions(List.empty.asJava),
-        true
+          .setTopicPartitions(List.empty.asJava)
       ).build()
 
       consumerGroupHeartbeatResponse = connectAndReceive(consumerGroupHeartbeatRequest)
@@ -439,8 +427,7 @@ class ConsumerGroupHeartbeatRequestTest(cluster: ClusterInstance) {
           .setMemberEpoch(0)
           .setRebalanceTimeoutMs(5 * 60 * 1000)
           .setSubscribedTopicNames(List("foo").asJava)
-          .setTopicPartitions(List.empty.asJava),
-        true
+          .setTopicPartitions(List.empty.asJava)
       ).build()
 
       // Send the request until receiving a successful response. There is a delay
@@ -469,8 +456,7 @@ class ConsumerGroupHeartbeatRequestTest(cluster: ClusterInstance) {
           .setGroupId("grp")
           .setInstanceId(instanceId)
           .setMemberId(consumerGroupHeartbeatResponse.data.memberId)
-          .setMemberEpoch(consumerGroupHeartbeatResponse.data.memberEpoch),
-        true
+          .setMemberEpoch(consumerGroupHeartbeatResponse.data.memberEpoch)
       ).build()
 
       // This is the expected assignment.
@@ -500,8 +486,7 @@ class ConsumerGroupHeartbeatRequestTest(cluster: ClusterInstance) {
           .setMemberEpoch(0)
           .setRebalanceTimeoutMs(5 * 60 * 1000)
           .setSubscribedTopicNames(List("foo").asJava)
-          .setTopicPartitions(List.empty.asJava),
-        true
+          .setTopicPartitions(List.empty.asJava)
       ).build()
 
       // Validating that trying to join with an in-use instanceId would throw an UnreleasedInstanceIdException.
@@ -556,8 +541,7 @@ class ConsumerGroupHeartbeatRequestTest(cluster: ClusterInstance) {
           .setMemberEpoch(0)
           .setRebalanceTimeoutMs(5 * 60 * 1000)
           .setSubscribedTopicNames(List("foo").asJava)
-          .setTopicPartitions(List.empty.asJava),
-        true
+          .setTopicPartitions(List.empty.asJava)
       ).build()
 
       // Send the request until receiving a successful response. There is a delay
@@ -587,8 +571,7 @@ class ConsumerGroupHeartbeatRequestTest(cluster: ClusterInstance) {
           .setGroupId(consumerGroupId)
           .setInstanceId(instanceId)
           .setMemberId(consumerGroupHeartbeatResponse.data.memberId)
-          .setMemberEpoch(consumerGroupHeartbeatResponse.data.memberEpoch),
-        true
+          .setMemberEpoch(consumerGroupHeartbeatResponse.data.memberEpoch)
       ).build()
 
       // Verify the response. The heartbeat interval was updated.
@@ -622,8 +605,7 @@ class ConsumerGroupHeartbeatRequestTest(cluster: ClusterInstance) {
           .setMemberEpoch(0)
           .setRebalanceTimeoutMs(5 * 60 * 1000)
           .setSubscribedTopicNames(List("foo").asJava)
-          .setTopicPartitions(List.empty.asJava),
-        true
+          .setTopicPartitions(List.empty.asJava)
       ).build()
 
       var consumerGroupHeartbeatResponse: ConsumerGroupHeartbeatResponse = null
@@ -655,8 +637,7 @@ class ConsumerGroupHeartbeatRequestTest(cluster: ClusterInstance) {
         .setMemberEpoch(0)
         .setRebalanceTimeoutMs(5 * 60 * 1000)
         .setSubscribedTopicNames(List("foo").asJava)
-        .setTopicPartitions(List.empty.asJava),
-      true
+        .setTopicPartitions(List.empty.asJava)
     ).build(0)
 
     var consumerGroupHeartbeatResponse: ConsumerGroupHeartbeatResponse = null
