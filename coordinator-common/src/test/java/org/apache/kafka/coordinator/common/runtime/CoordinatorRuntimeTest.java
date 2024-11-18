@@ -69,6 +69,7 @@ import java.util.OptionalInt;
 import java.util.Set;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.ExecutionException;
+import java.util.concurrent.ExecutorService;
 import java.util.concurrent.RejectedExecutionException;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.TimeoutException;
@@ -342,7 +343,7 @@ public class CoordinatorRuntimeTest {
                     "offset=" + offset +
                     ", producerId=" + producerId +
                     ", producerEpoch=" + producerEpoch +
-                    ", record='" + record.substring(0, 10) + '\'' +
+                    ", record='" + record.substring(0, Math.min(10, record.length())) + '\'' +
                     ')';
             }
         }
@@ -351,15 +352,25 @@ public class CoordinatorRuntimeTest {
         private final TimelineHashSet<RecordAndMetadata> records;
         private final TimelineHashMap<Long, TimelineHashSet<RecordAndMetadata>> pendingRecords;
         private final CoordinatorTimer<Void, String> timer;
+        private final CoordinatorExecutor<String> executor;
 
         MockCoordinatorShard(
             SnapshotRegistry snapshotRegistry,
             CoordinatorTimer<Void, String> timer
         ) {
+            this(snapshotRegistry, timer, null);
+        }
+
+        MockCoordinatorShard(
+            SnapshotRegistry snapshotRegistry,
+            CoordinatorTimer<Void, String> timer,
+            CoordinatorExecutor<String> executor
+        ) {
             this.snapshotRegistry = snapshotRegistry;
             this.records = new TimelineHashSet<>(snapshotRegistry, 0);
             this.pendingRecords = new TimelineHashMap<>(snapshotRegistry, 0);
             this.timer = timer;
+            this.executor = executor;
         }
 
         @Override
@@ -434,6 +445,7 @@ public class CoordinatorRuntimeTest {
     private static class MockCoordinatorShardBuilder implements CoordinatorShardBuilder<MockCoordinatorShard, String> {
         private SnapshotRegistry snapshotRegistry;
         private CoordinatorTimer<Void, String> timer;
+        private CoordinatorExecutor<String> executor;
 
         @Override
         public CoordinatorShardBuilder<MockCoordinatorShard, String> withSnapshotRegistry(
@@ -454,6 +466,14 @@ public class CoordinatorRuntimeTest {
         public CoordinatorShardBuilder<MockCoordinatorShard, String> withTime(
             Time time
         ) {
+            return this;
+        }
+
+        @Override
+        public CoordinatorShardBuilder<MockCoordinatorShard, String> withExecutor(
+            CoordinatorExecutor<String> executor
+        ) {
+            this.executor = executor;
             return this;
         }
 
@@ -481,7 +501,8 @@ public class CoordinatorRuntimeTest {
         public MockCoordinatorShard build() {
             return new MockCoordinatorShard(
                 Objects.requireNonNull(this.snapshotRegistry),
-                Objects.requireNonNull(this.timer)
+                Objects.requireNonNull(this.timer),
+                Objects.requireNonNull(this.executor)
             );
         }
     }
@@ -634,6 +655,7 @@ public class CoordinatorRuntimeTest {
                 .withCoordinatorRuntimeMetrics(mock(CoordinatorRuntimeMetrics.class))
                 .withCoordinatorMetrics(mock(CoordinatorMetrics.class))
                 .withSerializer(new StringSerializer())
+                .withExecutorService(mock(ExecutorService.class))
                 .build();
 
         when(builder.withSnapshotRegistry(any())).thenReturn(builder);
@@ -642,6 +664,7 @@ public class CoordinatorRuntimeTest {
         when(builder.withTimer(any())).thenReturn(builder);
         when(builder.withCoordinatorMetrics(any())).thenReturn(builder);
         when(builder.withTopicPartition(any())).thenReturn(builder);
+        when(builder.withExecutor(any())).thenReturn(builder);
         when(builder.build()).thenReturn(coordinator);
         when(supplier.get()).thenReturn(builder);
         CompletableFuture<CoordinatorLoader.LoadSummary> future = new CompletableFuture<>();
@@ -704,6 +727,7 @@ public class CoordinatorRuntimeTest {
                 .withCoordinatorRuntimeMetrics(mock(CoordinatorRuntimeMetrics.class))
                 .withCoordinatorMetrics(mock(CoordinatorMetrics.class))
                 .withSerializer(new StringSerializer())
+                .withExecutorService(mock(ExecutorService.class))
                 .build();
 
         when(builder.withSnapshotRegistry(any())).thenReturn(builder);
@@ -712,6 +736,7 @@ public class CoordinatorRuntimeTest {
         when(builder.withTimer(any())).thenReturn(builder);
         when(builder.withCoordinatorMetrics(any())).thenReturn(builder);
         when(builder.withTopicPartition(any())).thenReturn(builder);
+        when(builder.withExecutor(any())).thenReturn(builder);
         when(builder.build()).thenReturn(coordinator);
         when(supplier.get()).thenReturn(builder);
         CompletableFuture<CoordinatorLoader.LoadSummary> future = new CompletableFuture<>();
@@ -754,6 +779,7 @@ public class CoordinatorRuntimeTest {
                 .withCoordinatorRuntimeMetrics(mock(CoordinatorRuntimeMetrics.class))
                 .withCoordinatorMetrics(mock(CoordinatorMetrics.class))
                 .withSerializer(new StringSerializer())
+                .withExecutorService(mock(ExecutorService.class))
                 .build();
 
         when(builder.withSnapshotRegistry(any())).thenReturn(builder);
@@ -762,6 +788,7 @@ public class CoordinatorRuntimeTest {
         when(builder.withTimer(any())).thenReturn(builder);
         when(builder.withCoordinatorMetrics(any())).thenReturn(builder);
         when(builder.withTopicPartition(any())).thenReturn(builder);
+        when(builder.withExecutor(any())).thenReturn(builder);
         when(builder.build()).thenReturn(coordinator);
         when(supplier.get()).thenReturn(builder);
         CompletableFuture<CoordinatorLoader.LoadSummary> future = new CompletableFuture<>();
@@ -808,6 +835,7 @@ public class CoordinatorRuntimeTest {
                 .withCoordinatorRuntimeMetrics(mock(CoordinatorRuntimeMetrics.class))
                 .withCoordinatorMetrics(mock(CoordinatorMetrics.class))
                 .withSerializer(new StringSerializer())
+                .withExecutorService(mock(ExecutorService.class))
                 .build();
 
         when(builder.withSnapshotRegistry(any())).thenReturn(builder);
@@ -816,6 +844,7 @@ public class CoordinatorRuntimeTest {
         when(builder.withTimer(any())).thenReturn(builder);
         when(builder.withCoordinatorMetrics(any())).thenReturn(builder);
         when(builder.withTopicPartition(any())).thenReturn(builder);
+        when(builder.withExecutor(any())).thenReturn(builder);
         when(builder.build()).thenReturn(coordinator);
         when(supplier.get()).thenReturn(builder);
         CompletableFuture<CoordinatorLoader.LoadSummary> future = new CompletableFuture<>();
@@ -879,6 +908,7 @@ public class CoordinatorRuntimeTest {
                 .withCoordinatorRuntimeMetrics(mock(CoordinatorRuntimeMetrics.class))
                 .withCoordinatorMetrics(mock(CoordinatorMetrics.class))
                 .withSerializer(new StringSerializer())
+                .withExecutorService(mock(ExecutorService.class))
                 .build();
 
         when(builder.withSnapshotRegistry(any())).thenReturn(builder);
@@ -887,6 +917,7 @@ public class CoordinatorRuntimeTest {
         when(builder.withTimer(any())).thenReturn(builder);
         when(builder.withCoordinatorMetrics(any())).thenReturn(builder);
         when(builder.withTopicPartition(any())).thenReturn(builder);
+        when(builder.withExecutor(any())).thenReturn(builder);
         when(builder.build()).thenReturn(coordinator);
         when(supplier.get()).thenReturn(builder);
 
@@ -933,6 +964,7 @@ public class CoordinatorRuntimeTest {
                 .withCoordinatorRuntimeMetrics(mock(CoordinatorRuntimeMetrics.class))
                 .withCoordinatorMetrics(mock(CoordinatorMetrics.class))
                 .withSerializer(new StringSerializer())
+                .withExecutorService(mock(ExecutorService.class))
                 .build();
 
         when(builder.withSnapshotRegistry(any())).thenReturn(builder);
@@ -941,6 +973,7 @@ public class CoordinatorRuntimeTest {
         when(builder.withTimer(any())).thenReturn(builder);
         when(builder.withCoordinatorMetrics(any())).thenReturn(builder);
         when(builder.withTopicPartition(any())).thenReturn(builder);
+        when(builder.withExecutor(any())).thenReturn(builder);
         when(builder.build()).thenReturn(coordinator);
         when(supplier.get()).thenReturn(builder);
 
@@ -987,6 +1020,7 @@ public class CoordinatorRuntimeTest {
                 .withCoordinatorRuntimeMetrics(mock(CoordinatorRuntimeMetrics.class))
                 .withCoordinatorMetrics(mock(CoordinatorMetrics.class))
                 .withSerializer(new StringSerializer())
+                .withExecutorService(mock(ExecutorService.class))
                 .build();
 
         when(builder.withSnapshotRegistry(any())).thenReturn(builder);
@@ -994,6 +1028,7 @@ public class CoordinatorRuntimeTest {
         when(builder.withTime(any())).thenReturn(builder);
         when(builder.withTimer(any())).thenReturn(builder);
         when(builder.withTopicPartition(any())).thenReturn(builder);
+        when(builder.withExecutor(any())).thenReturn(builder);
         when(builder.build()).thenReturn(coordinator);
         when(supplier.get()).thenReturn(builder);
 
@@ -1029,6 +1064,7 @@ public class CoordinatorRuntimeTest {
                 .withCoordinatorRuntimeMetrics(mock(CoordinatorRuntimeMetrics.class))
                 .withCoordinatorMetrics(mock(CoordinatorMetrics.class))
                 .withSerializer(new StringSerializer())
+                .withExecutorService(mock(ExecutorService.class))
                 .build();
 
         when(builder.withSnapshotRegistry(any())).thenReturn(builder);
@@ -1039,6 +1075,8 @@ public class CoordinatorRuntimeTest {
         when(builder.withTimer(any())).thenReturn(builder);
         when(builder.withCoordinatorMetrics(any())).thenReturn(builder);
         when(builder.withTopicPartition(any())).thenReturn(builder);
+        when(builder.withExecutor(any())).thenReturn(builder);
+        when(builder.withExecutor(any())).thenReturn(builder);
         when(builder.build()).thenReturn(coordinator);
         when(supplier.get()).thenReturn(builder);
 
@@ -1072,6 +1110,7 @@ public class CoordinatorRuntimeTest {
                 .withCoordinatorRuntimeMetrics(mock(CoordinatorRuntimeMetrics.class))
                 .withCoordinatorMetrics(mock(CoordinatorMetrics.class))
                 .withSerializer(new StringSerializer())
+                .withExecutorService(mock(ExecutorService.class))
                 .build();
 
         // Schedule the loading.
@@ -1193,6 +1232,7 @@ public class CoordinatorRuntimeTest {
                 .withCoordinatorRuntimeMetrics(mock(CoordinatorRuntimeMetrics.class))
                 .withCoordinatorMetrics(mock(CoordinatorMetrics.class))
                 .withSerializer(new StringSerializer())
+                .withExecutorService(mock(ExecutorService.class))
                 .build();
 
         // Scheduling a write fails with a NotCoordinatorException because the coordinator
@@ -1217,6 +1257,7 @@ public class CoordinatorRuntimeTest {
                 .withCoordinatorRuntimeMetrics(mock(CoordinatorRuntimeMetrics.class))
                 .withCoordinatorMetrics(mock(CoordinatorMetrics.class))
                 .withSerializer(new StringSerializer())
+                .withExecutorService(mock(ExecutorService.class))
                 .build();
 
         // Loads the coordinator.
@@ -1245,6 +1286,7 @@ public class CoordinatorRuntimeTest {
                 .withCoordinatorRuntimeMetrics(mock(CoordinatorRuntimeMetrics.class))
                 .withCoordinatorMetrics(mock(CoordinatorMetrics.class))
                 .withSerializer(new StringSerializer())
+                .withExecutorService(mock(ExecutorService.class))
                 .build();
 
         // Loads the coordinator.
@@ -1305,6 +1347,7 @@ public class CoordinatorRuntimeTest {
                 .withCoordinatorRuntimeMetrics(mock(CoordinatorRuntimeMetrics.class))
                 .withCoordinatorMetrics(mock(CoordinatorMetrics.class))
                 .withSerializer(new StringSerializer())
+                .withExecutorService(mock(ExecutorService.class))
                 .build();
 
         // Loads the coordinator.
@@ -1357,6 +1400,7 @@ public class CoordinatorRuntimeTest {
                 .withCoordinatorRuntimeMetrics(mock(CoordinatorRuntimeMetrics.class))
                 .withCoordinatorMetrics(mock(CoordinatorMetrics.class))
                 .withSerializer(new StringSerializer())
+                .withExecutorService(mock(ExecutorService.class))
                 .build();
 
         // Loads the coordinator.
@@ -1394,6 +1438,7 @@ public class CoordinatorRuntimeTest {
                 .withCoordinatorRuntimeMetrics(mock(CoordinatorRuntimeMetrics.class))
                 .withCoordinatorMetrics(mock(CoordinatorMetrics.class))
                 .withSerializer(new StringSerializer())
+                .withExecutorService(mock(ExecutorService.class))
                 .build();
 
         TopicPartition coordinator0 = new TopicPartition("__consumer_offsets", 0);
@@ -1465,6 +1510,7 @@ public class CoordinatorRuntimeTest {
                 .withCoordinatorRuntimeMetrics(mock(CoordinatorRuntimeMetrics.class))
                 .withCoordinatorMetrics(mock(CoordinatorMetrics.class))
                 .withSerializer(new StringSerializer())
+                .withExecutorService(mock(ExecutorService.class))
                 .build();
 
         // Schedule the loading.
@@ -1558,6 +1604,7 @@ public class CoordinatorRuntimeTest {
                 .withCoordinatorRuntimeMetrics(mock(CoordinatorRuntimeMetrics.class))
                 .withCoordinatorMetrics(mock(CoordinatorMetrics.class))
                 .withSerializer(new StringSerializer())
+                .withExecutorService(mock(ExecutorService.class))
                 .build();
 
         // Schedule the loading.
@@ -1616,6 +1663,7 @@ public class CoordinatorRuntimeTest {
                 .withCoordinatorRuntimeMetrics(mock(CoordinatorRuntimeMetrics.class))
                 .withCoordinatorMetrics(mock(CoordinatorMetrics.class))
                 .withSerializer(new StringSerializer())
+                .withExecutorService(mock(ExecutorService.class))
                 .build();
 
         // Schedule the loading.
@@ -1728,6 +1776,7 @@ public class CoordinatorRuntimeTest {
                 .withCoordinatorRuntimeMetrics(mock(CoordinatorRuntimeMetrics.class))
                 .withCoordinatorMetrics(mock(CoordinatorMetrics.class))
                 .withSerializer(new StringSerializer())
+                .withExecutorService(mock(ExecutorService.class))
                 .build();
 
         // Loads the coordinator.
@@ -1785,6 +1834,7 @@ public class CoordinatorRuntimeTest {
                 .withCoordinatorRuntimeMetrics(mock(CoordinatorRuntimeMetrics.class))
                 .withCoordinatorMetrics(mock(CoordinatorMetrics.class))
                 .withSerializer(new StringSerializer())
+                .withExecutorService(mock(ExecutorService.class))
                 .build();
 
         // Loads the coordinator.
@@ -1851,6 +1901,7 @@ public class CoordinatorRuntimeTest {
                 .withCoordinatorRuntimeMetrics(mock(CoordinatorRuntimeMetrics.class))
                 .withCoordinatorMetrics(mock(CoordinatorMetrics.class))
                 .withSerializer(new StringSerializer())
+                .withExecutorService(mock(ExecutorService.class))
                 .build();
 
         // Loads the coordinator.
@@ -1943,6 +1994,7 @@ public class CoordinatorRuntimeTest {
                 .withCoordinatorRuntimeMetrics(mock(CoordinatorRuntimeMetrics.class))
                 .withCoordinatorMetrics(mock(CoordinatorMetrics.class))
                 .withSerializer(new StringSerializer())
+                .withExecutorService(mock(ExecutorService.class))
                 .build();
 
         // Loads the coordinator.
@@ -2001,6 +2053,7 @@ public class CoordinatorRuntimeTest {
                 .withCoordinatorRuntimeMetrics(mock(CoordinatorRuntimeMetrics.class))
                 .withCoordinatorMetrics(mock(CoordinatorMetrics.class))
                 .withSerializer(new StringSerializer())
+                .withExecutorService(mock(ExecutorService.class))
                 .build();
 
         // Schedule a read. It fails because the coordinator does not exist.
@@ -2026,6 +2079,7 @@ public class CoordinatorRuntimeTest {
                 .withCoordinatorRuntimeMetrics(mock(CoordinatorRuntimeMetrics.class))
                 .withCoordinatorMetrics(mock(CoordinatorMetrics.class))
                 .withSerializer(new StringSerializer())
+                .withExecutorService(mock(ExecutorService.class))
                 .build();
 
         // Loads the coordinator.
@@ -2072,6 +2126,7 @@ public class CoordinatorRuntimeTest {
                 .withCoordinatorRuntimeMetrics(mock(CoordinatorRuntimeMetrics.class))
                 .withCoordinatorMetrics(mock(CoordinatorMetrics.class))
                 .withSerializer(new StringSerializer())
+                .withExecutorService(mock(ExecutorService.class))
                 .build();
 
         TopicPartition coordinator0 = new TopicPartition("__consumer_offsets", 0);
@@ -2112,6 +2167,7 @@ public class CoordinatorRuntimeTest {
     public void testClose() throws Exception {
         MockCoordinatorLoader loader = spy(new MockCoordinatorLoader());
         MockTimer timer = new MockTimer();
+        ExecutorService executorService = mock(ExecutorService.class);
         CoordinatorRuntime<MockCoordinatorShard, String> runtime =
             new CoordinatorRuntime.Builder<MockCoordinatorShard, String>()
                 .withTime(timer.time())
@@ -2124,6 +2180,7 @@ public class CoordinatorRuntimeTest {
                 .withCoordinatorRuntimeMetrics(mock(CoordinatorRuntimeMetrics.class))
                 .withCoordinatorMetrics(mock(CoordinatorMetrics.class))
                 .withSerializer(new StringSerializer())
+                .withExecutorService(executorService)
                 .build();
 
         // Loads the coordinator.
@@ -2168,6 +2225,9 @@ public class CoordinatorRuntimeTest {
 
         // The coordinator timer should be empty.
         assertEquals(0, ctx.timer.size());
+
+        // Verify that the executor service was shutdown.
+        verify(executorService).shutdown();
     }
 
     @Test
@@ -2193,6 +2253,7 @@ public class CoordinatorRuntimeTest {
                 .withCoordinatorRuntimeMetrics(mock(CoordinatorRuntimeMetrics.class))
                 .withCoordinatorMetrics(mock(CoordinatorMetrics.class))
                 .withSerializer(new StringSerializer())
+                .withExecutorService(mock(ExecutorService.class))
                 .build();
 
         MockCoordinatorShard coordinator0 = mock(MockCoordinatorShard.class);
@@ -2205,6 +2266,7 @@ public class CoordinatorRuntimeTest {
         when(builder.withTimer(any())).thenReturn(builder);
         when(builder.withCoordinatorMetrics(any())).thenReturn(builder);
         when(builder.withTopicPartition(any())).thenReturn(builder);
+        when(builder.withExecutor(any())).thenReturn(builder);
         when(builder.withTime(any())).thenReturn(builder);
         when(builder.build())
             .thenReturn(coordinator0)
@@ -2256,6 +2318,7 @@ public class CoordinatorRuntimeTest {
                 .withCoordinatorRuntimeMetrics(mock(CoordinatorRuntimeMetrics.class))
                 .withCoordinatorMetrics(mock(CoordinatorMetrics.class))
                 .withSerializer(new StringSerializer())
+                .withExecutorService(mock(ExecutorService.class))
                 .build();
 
         // Loads the coordinator.
@@ -2311,6 +2374,7 @@ public class CoordinatorRuntimeTest {
                 .withCoordinatorRuntimeMetrics(mock(CoordinatorRuntimeMetrics.class))
                 .withCoordinatorMetrics(mock(CoordinatorMetrics.class))
                 .withSerializer(new StringSerializer())
+                .withExecutorService(mock(ExecutorService.class))
                 .build();
 
         // Loads the coordinator.
@@ -2386,6 +2450,7 @@ public class CoordinatorRuntimeTest {
                 .withCoordinatorRuntimeMetrics(mock(CoordinatorRuntimeMetrics.class))
                 .withCoordinatorMetrics(mock(CoordinatorMetrics.class))
                 .withSerializer(new StringSerializer())
+                .withExecutorService(mock(ExecutorService.class))
                 .build();
 
         // Loads the coordinator.
@@ -2458,6 +2523,7 @@ public class CoordinatorRuntimeTest {
                 .withCoordinatorRuntimeMetrics(mock(CoordinatorRuntimeMetrics.class))
                 .withCoordinatorMetrics(mock(CoordinatorMetrics.class))
                 .withSerializer(new StringSerializer())
+                .withExecutorService(mock(ExecutorService.class))
                 .build();
 
         // Loads the coordinator.
@@ -2518,6 +2584,7 @@ public class CoordinatorRuntimeTest {
                 .withCoordinatorRuntimeMetrics(mock(CoordinatorRuntimeMetrics.class))
                 .withCoordinatorMetrics(mock(CoordinatorMetrics.class))
                 .withSerializer(new StringSerializer())
+                .withExecutorService(mock(ExecutorService.class))
                 .build();
 
         // Loads the coordinator.
@@ -2592,6 +2659,7 @@ public class CoordinatorRuntimeTest {
                 .withCoordinatorRuntimeMetrics(mock(CoordinatorRuntimeMetrics.class))
                 .withCoordinatorMetrics(mock(CoordinatorMetrics.class))
                 .withSerializer(new StringSerializer())
+                .withExecutorService(mock(ExecutorService.class))
                 .build();
 
         // Loads the coordinator.
@@ -2635,6 +2703,7 @@ public class CoordinatorRuntimeTest {
                 .withCoordinatorRuntimeMetrics(mock(CoordinatorRuntimeMetrics.class))
                 .withCoordinatorMetrics(mock(CoordinatorMetrics.class))
                 .withSerializer(new StringSerializer())
+                .withExecutorService(mock(ExecutorService.class))
                 .build();
 
         // Loads the coordinator.
@@ -2693,6 +2762,7 @@ public class CoordinatorRuntimeTest {
                 .withCoordinatorRuntimeMetrics(runtimeMetrics)
                 .withCoordinatorMetrics(mock(CoordinatorMetrics.class))
                 .withSerializer(new StringSerializer())
+                .withExecutorService(mock(ExecutorService.class))
                 .build();
 
         when(builder.withSnapshotRegistry(any())).thenReturn(builder);
@@ -2701,6 +2771,7 @@ public class CoordinatorRuntimeTest {
         when(builder.withTimer(any())).thenReturn(builder);
         when(builder.withCoordinatorMetrics(any())).thenReturn(builder);
         when(builder.withTopicPartition(any())).thenReturn(builder);
+        when(builder.withExecutor(any())).thenReturn(builder);
         when(builder.build()).thenReturn(coordinator);
         when(supplier.get()).thenReturn(builder);
         CompletableFuture<CoordinatorLoader.LoadSummary> future = new CompletableFuture<>();
@@ -2771,6 +2842,7 @@ public class CoordinatorRuntimeTest {
                 .withCoordinatorRuntimeMetrics(runtimeMetrics)
                 .withCoordinatorMetrics(mock(CoordinatorMetrics.class))
                 .withSerializer(new StringSerializer())
+                .withExecutorService(mock(ExecutorService.class))
                 .build();
 
         when(builder.withSnapshotRegistry(any())).thenReturn(builder);
@@ -2779,6 +2851,7 @@ public class CoordinatorRuntimeTest {
         when(builder.withTimer(any())).thenReturn(builder);
         when(builder.withCoordinatorMetrics(any())).thenReturn(builder);
         when(builder.withTopicPartition(any())).thenReturn(builder);
+        when(builder.withExecutor(any())).thenReturn(builder);
         when(builder.build()).thenReturn(coordinator);
         when(supplier.get()).thenReturn(builder);
 
@@ -2827,6 +2900,7 @@ public class CoordinatorRuntimeTest {
                 .withCoordinatorRuntimeMetrics(runtimeMetrics)
                 .withCoordinatorMetrics(mock(CoordinatorMetrics.class))
                 .withSerializer(new StringSerializer())
+                .withExecutorService(mock(ExecutorService.class))
                 .build();
 
         when(builder.withSnapshotRegistry(any())).thenReturn(builder);
@@ -2835,6 +2909,7 @@ public class CoordinatorRuntimeTest {
         when(builder.withTimer(any())).thenReturn(builder);
         when(builder.withCoordinatorMetrics(any())).thenReturn(builder);
         when(builder.withTopicPartition(any())).thenReturn(builder);
+        when(builder.withExecutor(any())).thenReturn(builder);
         when(builder.build()).thenReturn(coordinator);
         when(supplier.get()).thenReturn(builder);
 
@@ -2884,6 +2959,7 @@ public class CoordinatorRuntimeTest {
                 .withCoordinatorRuntimeMetrics(runtimeMetrics)
                 .withCoordinatorMetrics(mock(CoordinatorMetrics.class))
                 .withSerializer(new StringSerializer())
+                .withExecutorService(mock(ExecutorService.class))
                 .build();
 
         when(builder.withSnapshotRegistry(any())).thenReturn(builder);
@@ -2892,6 +2968,7 @@ public class CoordinatorRuntimeTest {
         when(builder.withTimer(any())).thenReturn(builder);
         when(builder.withCoordinatorMetrics(any())).thenReturn(builder);
         when(builder.withTopicPartition(any())).thenReturn(builder);
+        when(builder.withExecutor(any())).thenReturn(builder);
         when(builder.build()).thenReturn(coordinator);
         when(supplier.get()).thenReturn(builder);
 
@@ -2927,6 +3004,7 @@ public class CoordinatorRuntimeTest {
                 .withCoordinatorRuntimeMetrics(mock(CoordinatorRuntimeMetrics.class))
                 .withCoordinatorMetrics(mock(CoordinatorMetrics.class))
                 .withSerializer(new StringSerializer())
+                .withExecutorService(mock(ExecutorService.class))
                 .build();
 
         // Loads the coordinator. Poll once to execute the load operation and once
@@ -2997,6 +3075,7 @@ public class CoordinatorRuntimeTest {
                 .withCoordinatorRuntimeMetrics(mock(CoordinatorRuntimeMetrics.class))
                 .withCoordinatorMetrics(mock(CoordinatorMetrics.class))
                 .withSerializer(new StringSerializer())
+                .withExecutorService(mock(ExecutorService.class))
                 .build();
 
         // Loads the coordinator. Poll once to execute the load operation and once
@@ -3071,6 +3150,7 @@ public class CoordinatorRuntimeTest {
                 .withCoordinatorRuntimeMetrics(mock(CoordinatorRuntimeMetrics.class))
                 .withCoordinatorMetrics(mock(CoordinatorMetrics.class))
                 .withSerializer(new StringSerializer())
+                .withExecutorService(mock(ExecutorService.class))
                 .build();
 
         // Loads the coordinator. Poll once to execute the load operation and once
@@ -3140,6 +3220,7 @@ public class CoordinatorRuntimeTest {
                 .withCoordinatorRuntimeMetrics(mock(CoordinatorRuntimeMetrics.class))
                 .withCoordinatorMetrics(mock(CoordinatorMetrics.class))
                 .withSerializer(serializer)
+                .withExecutorService(mock(ExecutorService.class))
                 .build();
 
         // Schedule the loading.
@@ -3191,6 +3272,7 @@ public class CoordinatorRuntimeTest {
                 .withCoordinatorMetrics(mock(CoordinatorMetrics.class))
                 .withSerializer(new StringSerializer())
                 .withAppendLingerMs(10)
+                .withExecutorService(mock(ExecutorService.class))
                 .build();
 
         // Schedule the loading.
@@ -3325,6 +3407,7 @@ public class CoordinatorRuntimeTest {
                 .withCoordinatorMetrics(mock(CoordinatorMetrics.class))
                 .withSerializer(new StringSerializer())
                 .withAppendLingerMs(10)
+                .withExecutorService(mock(ExecutorService.class))
                 .build();
 
         // Schedule the loading.
@@ -3376,6 +3459,7 @@ public class CoordinatorRuntimeTest {
                 .withCoordinatorMetrics(mock(CoordinatorMetrics.class))
                 .withSerializer(new StringSerializer())
                 .withAppendLingerMs(10)
+                .withExecutorService(mock(ExecutorService.class))
                 .build();
 
         // Schedule the loading.
@@ -3461,6 +3545,7 @@ public class CoordinatorRuntimeTest {
                 .withCoordinatorMetrics(mock(CoordinatorMetrics.class))
                 .withSerializer(new StringSerializer())
                 .withAppendLingerMs(10)
+                .withExecutorService(mock(ExecutorService.class))
                 .build();
 
         // Schedule the loading.
@@ -3558,6 +3643,7 @@ public class CoordinatorRuntimeTest {
                 .withCoordinatorMetrics(mock(CoordinatorMetrics.class))
                 .withSerializer(new StringSerializer())
                 .withAppendLingerMs(10)
+                .withExecutorService(mock(ExecutorService.class))
                 .build();
 
         // Schedule the loading.
@@ -3700,6 +3786,7 @@ public class CoordinatorRuntimeTest {
                 .withCoordinatorMetrics(mock(CoordinatorMetrics.class))
                 .withSerializer(new StringSerializer())
                 .withAppendLingerMs(10)
+                .withExecutorService(mock(ExecutorService.class))
                 .build();
 
         // Schedule the loading.
@@ -3814,6 +3901,7 @@ public class CoordinatorRuntimeTest {
                 .withCoordinatorMetrics(mock(CoordinatorMetrics.class))
                 .withSerializer(new StringSerializer())
                 .withAppendLingerMs(10)
+                .withExecutorService(mock(ExecutorService.class))
                 .build();
 
         // Schedule the loading.
@@ -3862,6 +3950,7 @@ public class CoordinatorRuntimeTest {
                 .withCoordinatorMetrics(mock(CoordinatorMetrics.class))
                 .withSerializer(new StringSerializer())
                 .withAppendLingerMs(10)
+                .withExecutorService(mock(ExecutorService.class))
                 .build();
 
         // Schedule the loading.
@@ -3970,6 +4059,7 @@ public class CoordinatorRuntimeTest {
                 .withCoordinatorMetrics(mock(CoordinatorMetrics.class))
                 .withSerializer(new StringSerializer())
                 .withAppendLingerMs(10)
+                .withExecutorService(mock(ExecutorService.class))
                 .build();
 
         // Schedule the loading.
@@ -4065,6 +4155,7 @@ public class CoordinatorRuntimeTest {
                 .withCoordinatorMetrics(mock(CoordinatorMetrics.class))
                 .withSerializer(new StringSerializer())
                 .withAppendLingerMs(10)
+                .withExecutorService(mock(ExecutorService.class))
                 .build();
 
         // Schedule the loading.
@@ -4153,6 +4244,7 @@ public class CoordinatorRuntimeTest {
                 .withCoordinatorMetrics(mock(CoordinatorMetrics.class))
                 .withSerializer(new StringSerializer())
                 .withAppendLingerMs(10)
+                .withExecutorService(mock(ExecutorService.class))
                 .build();
 
         // Schedule the loading.
@@ -4263,6 +4355,7 @@ public class CoordinatorRuntimeTest {
                 .withCoordinatorRuntimeMetrics(runtimeMetrics)
                 .withCoordinatorMetrics(mock(CoordinatorMetrics.class))
                 .withSerializer(new StringSerializer())
+                .withExecutorService(mock(ExecutorService.class))
                 .build();
 
         // Loads the coordinator. Poll once to execute the load operation and once
@@ -4325,6 +4418,93 @@ public class CoordinatorRuntimeTest {
         assertTrue(write2.isCompletedExceptionally());
         verify(runtimeMetrics, times(1)).recordEventPurgatoryTime(purgatoryTimeMs);
         verify(runtimeMetrics, times(1)).recordEventPurgatoryTime(writeTimeout.toMillis() + 1);
+    }
+
+    @Test
+    public void testCoordinatorExecutor() {
+        Duration writeTimeout = Duration.ofMillis(1000);
+        MockTimer timer = new MockTimer();
+        MockPartitionWriter writer = new MockPartitionWriter();
+        ManualEventProcessor processor = new ManualEventProcessor();
+        CoordinatorRuntimeMetrics runtimeMetrics = mock(CoordinatorRuntimeMetrics.class);
+        ExecutorService executorService = mock(ExecutorService.class);
+
+        when(executorService.submit(any(Runnable.class))).thenAnswer(args -> {
+            Runnable op = args.getArgument(0);
+            op.run();
+            return CompletableFuture.completedFuture(null);
+        });
+
+        CoordinatorRuntime<MockCoordinatorShard, String> runtime =
+            new CoordinatorRuntime.Builder<MockCoordinatorShard, String>()
+                .withTime(timer.time())
+                .withTimer(timer)
+                .withDefaultWriteTimeOut(writeTimeout)
+                .withLoader(new MockCoordinatorLoader())
+                .withEventProcessor(processor)
+                .withPartitionWriter(writer)
+                .withCoordinatorShardBuilderSupplier(new MockCoordinatorShardBuilderSupplier())
+                .withCoordinatorRuntimeMetrics(runtimeMetrics)
+                .withCoordinatorMetrics(mock(CoordinatorMetrics.class))
+                .withSerializer(new StringSerializer())
+                .withExecutorService(executorService)
+                .build();
+
+        // Loads the coordinator. Poll once to execute the load operation and once
+        // to complete the load.
+        runtime.scheduleLoadOperation(TP, 10);
+        processor.poll();
+        processor.poll();
+
+        // Schedule a write which schedules an async tasks.
+        CompletableFuture<String> write1 = runtime.scheduleWriteOperation("write#1", TP, writeTimeout,
+            state -> {
+                state.executor.schedule(
+                    "write#1#task",
+                    () -> "task result",
+                    (result, exception) -> {
+                        assertEquals("task result", result);
+                        assertNull(exception);
+                        return new CoordinatorResult<>(Collections.singletonList("record2"), null);
+                    }
+                );
+                return new CoordinatorResult<>(Collections.singletonList("record1"), "response1");
+            }
+        );
+
+        // Execute the write.
+        processor.poll();
+
+        // We should have a new write event in the queue as a result of the
+        // task being executed immediately.
+        assertEquals(1, processor.queue.size());
+
+        // Verify the state.
+        CoordinatorRuntime<MockCoordinatorShard, String>.CoordinatorContext ctx = runtime.contextOrThrow(TP);
+        assertEquals(1L, ctx.coordinator.lastWrittenOffset());
+        assertEquals(0L, ctx.coordinator.lastCommittedOffset());
+        assertEquals(List.of(
+            new MockCoordinatorShard.RecordAndMetadata(0, "record1")
+        ), ctx.coordinator.coordinator().fullRecords());
+
+        // Execute the pending write.
+        processor.poll();
+
+        // The processor must be empty now.
+        assertEquals(0, processor.queue.size());
+
+        // Verify the state.
+        assertEquals(2L, ctx.coordinator.lastWrittenOffset());
+        assertEquals(0L, ctx.coordinator.lastCommittedOffset());
+        assertEquals(List.of(
+            new MockCoordinatorShard.RecordAndMetadata(0, "record1"),
+            new MockCoordinatorShard.RecordAndMetadata(1, "record2")
+        ), ctx.coordinator.coordinator().fullRecords());
+
+        // Commit.
+        writer.commit(TP);
+        processor.poll();
+        assertTrue(write1.isDone());
     }
 
     private static <S extends CoordinatorShard<U>, U> ArgumentMatcher<CoordinatorPlayback<U>> coordinatorMatcher(
