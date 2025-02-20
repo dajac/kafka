@@ -4235,6 +4235,10 @@ $ bin/kafka-topics.sh --create --topic tieredTopic --bootstrap-server localhost:
   <p>Consumer groups can be downgraded using the opposite process. In this case, the group is converted from <code>Consumer</code> to <code>Classic</code> when the last
     consumer using the new consumer rebalance protocol leaves the group.</p>
 
+  <p>The conversion from a classic group to a consumer and vice versa is an atomic operation. This is ensured by batching all the records within a single batch written
+    to the <code>__consumer_offsets</code> topic. For large groups, the default <code>max.message.bytes</code> may be to small to accommodate large groups. We recommend
+    to increase it for <code>__consumer_offsets</code> topic if necessary.</p>
+
   <h4 class="anchor-heading"><a id="consumer_rebalance_protocol_limitations" class="anchor-link"></a><a href="#consumer_rebalance_protocol_limitations">Limitations</a></h4>
 
   <p>While the new consumer rebalance protocol works for most use cases, it is still important to be aware of the following limitations:</p>
