@@ -354,8 +354,8 @@ confirm_or_fail(f"Going to check in artifacts to svn under {SVN_DEV_URL}/{rc_tag
 svn.commit_artifacts(rc_tag, artifacts_dir, work_dir)
 
 confirm_or_fail("Going to build and upload mvn artifacts based on these settings:\n" + textfiles.read(global_gradle_props) + '\nOK?')
-cmd("Building and uploading archives", "./gradlew publish -PscalaVersion=2.13", cwd=kafka_dir, env=jdk17_env, shell=True)
-cmd("Building and uploading archives", "mvn deploy -Pgpg-signing", cwd=os.path.join(kafka_dir, "streams/quickstart"), env=jdk17_env, shell=True)
+cmd("Building and uploading archives", "./gradlew publish -PscalaVersion=2.13", cwd=kafka_dir, env=jdk21_env, shell=True)
+cmd("Building and uploading archives", "mvn deploy -Pgpg-signing", cwd=os.path.join(kafka_dir, "streams/quickstart"), env=jdk21_env, shell=True)
 
 # TODO: Many of these suggested validation steps could be automated
 # and would help pre-validate a lot of the stuff voters test
