@@ -2135,6 +2135,9 @@ public class GroupMetadataManager {
         final long currentTimeMs = time.milliseconds();
         final List<CoordinatorRecord> records = new ArrayList<>();
 
+        // TODO We need to create the group here, including converting empty a classic group
+        // to a consumer group. Then we can delegate the call to the consumer group instance.
+        
         // Get or create the consumer group.
         boolean createIfNotExists = memberEpoch == 0;
         final ConsumerGroup group = getOrMaybeCreateConsumerGroup(groupId, createIfNotExists, records);
