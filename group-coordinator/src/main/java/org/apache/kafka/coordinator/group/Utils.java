@@ -312,7 +312,7 @@ public class Utils {
      * @param regex The regular expression to validate.
      * @throws InvalidRegularExpression if the regular expression is invalid.
      */
-    static void throwIfRegularExpressionIsInvalid(
+    public static void throwIfRegularExpressionIsInvalid(
         String regex
     ) throws InvalidRegularExpression {
         try {

@@ -272,14 +272,14 @@ import static org.apache.kafka.coordinator.group.streams.StreamsGroupMember.hasA
  *    handling as well as during the initial loading of the records from the partitions.
  */
 public class GroupMetadataManager {
-    private static final int METADATA_REFRESH_INTERVAL_MS = Integer.MAX_VALUE;
+    public static final int METADATA_REFRESH_INTERVAL_MS = Integer.MAX_VALUE;
 
-    private static class UpdateSubscriptionMetadataResult {
-        private final int groupEpoch;
-        private final Map<String, TopicMetadata> subscriptionMetadata;
-        private final SubscriptionType subscriptionType;
+    public static class UpdateSubscriptionMetadataResult {
+        public final int groupEpoch;
+        public final Map<String, TopicMetadata> subscriptionMetadata;
+        public final SubscriptionType subscriptionType;
 
-        UpdateSubscriptionMetadataResult(
+        public UpdateSubscriptionMetadataResult(
             int groupEpoch,
             Map<String, TopicMetadata> subscriptionMetadata,
             SubscriptionType subscriptionType
@@ -407,7 +407,7 @@ public class GroupMetadataManager {
      * The minimum amount of time between two consecutive refreshes of
      * the regular expressions within a single group.
      */
-    private static final long REGEX_BATCH_REFRESH_INTERVAL_MS = 10_000L;
+    public static final long REGEX_BATCH_REFRESH_INTERVAL_MS = 10_000L;
 
     /**
      * The log context.
