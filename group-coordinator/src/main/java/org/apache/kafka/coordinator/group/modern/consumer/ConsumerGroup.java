@@ -19,6 +19,7 @@ package org.apache.kafka.coordinator.group.modern.consumer;
 import com.google.re2j.Pattern;
 import com.google.re2j.PatternSyntaxException;
 import org.apache.kafka.clients.consumer.internals.ConsumerProtocol;
+import org.apache.kafka.common.KafkaException;
 import org.apache.kafka.common.Uuid;
 import org.apache.kafka.common.errors.ApiException;
 import org.apache.kafka.common.errors.FencedInstanceIdException;
@@ -26,7 +27,9 @@ import org.apache.kafka.common.errors.FencedMemberEpochException;
 import org.apache.kafka.common.errors.GroupIdNotFoundException;
 import org.apache.kafka.common.errors.GroupMaxSizeReachedException;
 import org.apache.kafka.common.errors.IllegalGenerationException;
+import org.apache.kafka.common.errors.InconsistentGroupProtocolException;
 import org.apache.kafka.common.errors.InvalidRegularExpression;
+import org.apache.kafka.common.errors.RebalanceInProgressException;
 import org.apache.kafka.common.errors.StaleMemberEpochException;
 import org.apache.kafka.common.errors.UnknownMemberIdException;
 import org.apache.kafka.common.errors.UnknownServerException;
@@ -38,6 +41,14 @@ import org.apache.kafka.common.message.ConsumerGroupHeartbeatRequestData;
 import org.apache.kafka.common.message.ConsumerGroupHeartbeatResponseData;
 import org.apache.kafka.common.message.ConsumerProtocolAssignment;
 import org.apache.kafka.common.message.ConsumerProtocolSubscription;
+import org.apache.kafka.common.message.HeartbeatRequestData;
+import org.apache.kafka.common.message.HeartbeatResponseData;
+import org.apache.kafka.common.message.JoinGroupRequestData;
+import org.apache.kafka.common.message.JoinGroupResponseData;
+import org.apache.kafka.common.message.LeaveGroupRequestData;
+import org.apache.kafka.common.message.LeaveGroupResponseData;
+import org.apache.kafka.common.message.SyncGroupRequestData;
+import org.apache.kafka.common.message.SyncGroupResponseData;
 import org.apache.kafka.common.protocol.Errors;
 import org.apache.kafka.common.protocol.types.SchemaException;
 import org.apache.kafka.common.requests.ConsumerGroupHeartbeatResponse;
@@ -49,7 +60,7 @@ import org.apache.kafka.coordinator.common.runtime.CoordinatorExecutor;
 import org.apache.kafka.coordinator.common.runtime.CoordinatorRecord;
 import org.apache.kafka.coordinator.common.runtime.CoordinatorResult;
 import org.apache.kafka.coordinator.common.runtime.CoordinatorTimer;
-import org.apache.kafka.coordinator.group.GroupConfigManager;
+import org.apache.kafka.coordinator.group.GroupConfig;
 import org.apache.kafka.coordinator.group.GroupCoordinatorConfig;
 import org.apache.kafka.coordinator.group.GroupCoordinatorRecordHelpers;
 import org.apache.kafka.coordinator.group.GroupMetadataManager;
@@ -60,6 +71,7 @@ import org.apache.kafka.coordinator.group.api.assignor.MemberAssignment;
 import org.apache.kafka.coordinator.group.api.assignor.PartitionAssignorException;
 import org.apache.kafka.coordinator.group.api.assignor.SubscriptionType;
 import org.apache.kafka.coordinator.group.classic.ClassicGroup;
+import org.apache.kafka.coordinator.group.classic.ClassicGroupMember;
 import org.apache.kafka.coordinator.group.generated.ConsumerGroupMemberMetadataValue;
 import org.apache.kafka.coordinator.group.metrics.GroupCoordinatorMetricsShard;
 import org.apache.kafka.coordinator.group.modern.Assignment;
@@ -94,6 +106,7 @@ import java.util.Map;
 import java.util.Objects;
 import java.util.Optional;
 import java.util.Set;
+import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.TimeUnit;
 import java.util.function.BiFunction;
 import java.util.stream.Collectors;
@@ -101,6 +114,7 @@ import java.util.stream.IntStream;
 
 import static org.apache.kafka.common.acl.AclOperation.DESCRIBE;
 import static org.apache.kafka.common.requests.ConsumerGroupHeartbeatRequest.LEAVE_GROUP_STATIC_MEMBER_EPOCH;
+import static org.apache.kafka.common.requests.JoinGroupRequest.UNKNOWN_MEMBER_ID;
 import static org.apache.kafka.common.resource.PatternType.LITERAL;
 import static org.apache.kafka.common.resource.ResourceType.TOPIC;
 import static org.apache.kafka.coordinator.group.GroupCoordinatorRecordHelpers.newConsumerGroupCurrentAssignmentRecord;
@@ -111,13 +125,16 @@ import static org.apache.kafka.coordinator.group.GroupCoordinatorRecordHelpers.n
 import static org.apache.kafka.coordinator.group.GroupCoordinatorRecordHelpers.newConsumerGroupRegularExpressionTombstone;
 import static org.apache.kafka.coordinator.group.GroupCoordinatorRecordHelpers.newConsumerGroupSubscriptionMetadataRecord;
 import static org.apache.kafka.coordinator.group.GroupCoordinatorRecordHelpers.newConsumerGroupTargetAssignmentTombstoneRecord;
+import static org.apache.kafka.coordinator.group.GroupMetadataManager.EMPTY_RESULT;
 import static org.apache.kafka.coordinator.group.GroupMetadataManager.METADATA_REFRESH_INTERVAL_MS;
 import static org.apache.kafka.coordinator.group.GroupMetadataManager.REGEX_BATCH_REFRESH_INTERVAL_MS;
 import static org.apache.kafka.coordinator.group.Utils.assignmentToString;
 import static org.apache.kafka.coordinator.group.Utils.ofSentinel;
 import static org.apache.kafka.coordinator.group.Utils.throwIfRegularExpressionIsInvalid;
+import static org.apache.kafka.coordinator.group.Utils.toConsumerProtocolAssignment;
 import static org.apache.kafka.coordinator.group.Utils.toOptional;
 import static org.apache.kafka.coordinator.group.Utils.toTopicPartitionMap;
+import static org.apache.kafka.coordinator.group.Utils.toTopicPartitions;
 import static org.apache.kafka.coordinator.group.api.assignor.SubscriptionType.HETEROGENEOUS;
 import static org.apache.kafka.coordinator.group.api.assignor.SubscriptionType.HOMOGENEOUS;
 import static org.apache.kafka.coordinator.group.classic.ClassicGroupMember.EMPTY_ASSIGNMENT;
@@ -1199,81 +1216,6 @@ public class ConsumerGroup extends ModernGroup<ConsumerGroupMember> {
             )
         );
         return describedGroup;
-    }
-
-    /**
-     * Create a new consumer group according to the given classic group.
-     *
-     * @param snapshotRegistry  The SnapshotRegistry.
-     * @param metrics           The GroupCoordinatorMetricsShard.
-     * @param classicGroup      The converted classic group.
-     * @param topicsImage       The TopicsImage for topic id and topic name conversion.
-     * @return  The created ConsumerGroup.
-     *
-     * @throws SchemaException if any member's subscription or assignment cannot be deserialized.
-     * @throws UnsupportedVersionException if userData from a custom assignor would be lost.
-     */
-    public static ConsumerGroup fromClassicGroup(
-        SnapshotRegistry snapshotRegistry,
-        GroupCoordinatorMetricsShard metrics,
-        ClassicGroup classicGroup,
-        TopicsImage topicsImage
-    ) {
-        String groupId = classicGroup.groupId();
-        ConsumerGroup consumerGroup = new ConsumerGroup(snapshotRegistry, groupId, metrics);
-        consumerGroup.setGroupEpoch(classicGroup.generationId());
-        consumerGroup.setTargetAssignmentEpoch(classicGroup.generationId());
-
-        classicGroup.allMembers().forEach(classicGroupMember -> {
-            // The assigned partition can be empty if the member just joined and has never synced.
-            // We should accept the empty assignment.
-            Map<Uuid, Set<Integer>> assignedPartitions;
-            if (Arrays.equals(classicGroupMember.assignment(), EMPTY_ASSIGNMENT)) {
-                assignedPartitions = Map.of();
-            } else {
-                ConsumerProtocolAssignment assignment = ConsumerProtocol.deserializeConsumerProtocolAssignment(
-                    ByteBuffer.wrap(classicGroupMember.assignment())
-                );
-                if (assignment.userData() != null && assignment.userData().hasRemaining()) {
-                    throw new UnsupportedVersionException("userData from a custom assignor would be lost");
-                }
-                assignedPartitions = toTopicPartitionMap(assignment, topicsImage);
-            }
-
-            // Every member is guaranteed to have metadata set when it joins,
-            // so we don't check for empty subscription here.
-            ConsumerProtocolSubscription subscription = ConsumerProtocol.deserializeConsumerProtocolSubscription(
-                ByteBuffer.wrap(classicGroupMember.metadata(classicGroup.protocolName().get()))
-            );
-
-            // The target assignment and the assigned partitions of each member are set based on the last
-            // assignment of the classic group. All the members are put in the Stable state. If the classic
-            // group was in Preparing Rebalance or Completing Rebalance states, the classic members are
-            // asked to rejoin the group to re-trigger a rebalance or collect their assignments.
-            ConsumerGroupMember newMember = new ConsumerGroupMember.Builder(classicGroupMember.memberId())
-                .setMemberEpoch(classicGroup.generationId())
-                .setState(MemberState.STABLE)
-                .setPreviousMemberEpoch(classicGroup.generationId())
-                .setInstanceId(classicGroupMember.groupInstanceId().orElse(null))
-                .setRackId(toOptional(subscription.rackId()).orElse(null))
-                .setRebalanceTimeoutMs(classicGroupMember.rebalanceTimeoutMs())
-                .setClientId(classicGroupMember.clientId())
-                .setClientHost(classicGroupMember.clientHost())
-                .setSubscribedTopicNames(subscription.topics())
-                .setAssignedPartitions(assignedPartitions)
-                .setClassicMemberMetadata(
-                    new ConsumerGroupMemberMetadataValue.ClassicMemberMetadata()
-                        .setSessionTimeoutMs(classicGroupMember.sessionTimeoutMs())
-                        .setSupportedProtocols(ConsumerGroupMember.classicProtocolListFromJoinRequestProtocolCollection(
-                            classicGroupMember.supportedProtocols()
-                        ))
-                )
-                .build();
-            consumerGroup.updateTargetAssignment(newMember.memberId(), new Assignment(assignedPartitions));
-            consumerGroup.updateMember(newMember);
-        });
-
-        return consumerGroup;
     }
 
     /**
@@ -2368,6 +2310,304 @@ public class ConsumerGroup extends ModernGroup<ConsumerGroupMember> {
     }
 
     /**
+     * Schedules (or reschedules) the session timeout for the member.
+     *
+     * @param groupId       The group id.
+     * @param memberId      The member id.
+     */
+    private void scheduleConsumerGroupSessionTimeout(
+        String groupId,
+        String memberId
+    ) {
+        scheduleConsumerGroupSessionTimeout(groupId, memberId, consumerGroupSessionTimeoutMs(groupId));
+    }
+
+    /**
+     * Schedules (or reschedules) the session timeout for the member.
+     *
+     * @param groupId           The group id.
+     * @param memberId          The member id.
+     * @param sessionTimeoutMs  The session timeout.
+     */
+    private void scheduleConsumerGroupSessionTimeout(
+        String groupId,
+        String memberId,
+        int sessionTimeoutMs
+    ) {
+        timer.schedule(
+            groupSessionTimeoutKey(groupId, memberId),
+            sessionTimeoutMs,
+            TimeUnit.MILLISECONDS,
+            true,
+            () -> consumerGroupFenceMemberOperation(groupId, memberId, "the member session expired")
+        );
+    }
+
+    public static String groupSessionTimeoutKey(String groupId, String memberId) {
+        return "session-timeout-" + groupId + "-" + memberId;
+    }
+
+    public static String groupRebalanceTimeoutKey(String groupId, String memberId) {
+        return "rebalance-timeout-" + groupId + "-" + memberId;
+    }
+
+    /**
+     * Fences a member from a consumer group. Returns an empty CoordinatorResult
+     * if the group or the member doesn't exist.
+     *
+     * @param groupId   The group id.
+     * @param memberId  The member id.
+     * @param reason    The reason for fencing the member.
+     *
+     * @return The CoordinatorResult to be applied.
+     */
+    private <T> CoordinatorResult<T, CoordinatorRecord> consumerGroupFenceMemberOperation(
+        String groupId,
+        String memberId,
+        String reason
+    ) {
+        try {
+            // FIXME
+            ConsumerGroup group = consumerGroup(groupId);
+            ConsumerGroupMember member = group.getOrMaybeCreateMember(memberId, false);
+            log.info("[GroupId {}] Member {} fenced from the group because {}.",
+                groupId, memberId, reason);
+
+            return consumerGroupFenceMember(group, member, null);
+        } catch (GroupIdNotFoundException ex) {
+            log.debug("[GroupId {}] Could not fence {} because the group does not exist.",
+                groupId, memberId);
+        } catch (UnknownMemberIdException ex) {
+            log.debug("[GroupId {}] Could not fence {} because the member does not exist.",
+                groupId, memberId);
+        }
+
+        return new CoordinatorResult<>(List.of());
+    }
+
+    /**
+     * Get the heartbeat interval of the provided consumer group.
+     */
+    private int consumerGroupHeartbeatIntervalMs(String groupId) {
+        // FIXME
+        Optional<GroupConfig> groupConfig = groupConfigManager.groupConfig(groupId);
+        return groupConfig.map(GroupConfig::consumerHeartbeatIntervalMs)
+                          .orElse(config.consumerGroupHeartbeatIntervalMs());
+    }
+
+    /**
+     * Get the session timeout of the provided consumer group.
+     */
+    private int consumerGroupSessionTimeoutMs(String groupId) {
+        // FIXME
+        Optional<GroupConfig> groupConfig = groupConfigManager.groupConfig(groupId);
+        return groupConfig.map(GroupConfig::consumerSessionTimeoutMs)
+                          .orElse(config.consumerGroupSessionTimeoutMs());
+    }
+
+    /**
+     * Handles the case when a static member decides to leave the group.
+     * The member is not actually fenced from the group, and instead it's
+     * member epoch is updated to -2 to reflect that a member using the given
+     * instance id decided to leave the group and would be back within session
+     * timeout.
+     *
+     * @param group     The group.
+     * @param member    The static member in the group for the instance id.
+     *
+     * @return A CoordinatorResult with a single record signifying that the static member is leaving.
+     */
+    private CoordinatorResult<ConsumerGroupHeartbeatResponseData, CoordinatorRecord> consumerGroupStaticMemberGroupLeave(
+        ConsumerGroup group,
+        ConsumerGroupMember member
+    ) {
+        // We will write a member epoch of -2 for this departing static member.
+        ConsumerGroupMember leavingStaticMember = new ConsumerGroupMember.Builder(member)
+            .setMemberEpoch(LEAVE_GROUP_STATIC_MEMBER_EPOCH)
+            .setPartitionsPendingRevocation(Map.of())
+            .build();
+
+        return new CoordinatorResult<>(
+            List.of(newConsumerGroupCurrentAssignmentRecord(group.groupId(), leavingStaticMember)),
+            new ConsumerGroupHeartbeatResponseData()
+                .setMemberId(member.memberId())
+                .setMemberEpoch(LEAVE_GROUP_STATIC_MEMBER_EPOCH)
+        );
+    }
+
+    /**
+     * Validates if the received classic member protocols are supported by the group.
+     *
+     * @param group         The ConsumerGroup.
+     * @param memberId      The joining member id.
+     * @param protocolType  The joining member protocol type.
+     * @param protocols     The joining member protocol collection.
+     */
+    private void throwIfClassicProtocolIsNotSupported(
+        ConsumerGroup group,
+        String memberId,
+        String protocolType,
+        JoinGroupRequestData.JoinGroupRequestProtocolCollection protocols
+    ) {
+        if (!group.supportsClassicProtocols(protocolType, ClassicGroupMember.plainProtocolSet(protocols))) {
+            throw Errors.INCONSISTENT_GROUP_PROTOCOL.exception("Member " + memberId + "'s protocols are not supported.");
+        }
+    }
+
+    /**
+     * Deserialize the subscription in JoinGroupRequestProtocolCollection.
+     * All the protocols have the same subscription, so the method picks a random one.
+     *
+     * @param protocols The JoinGroupRequestProtocolCollection.
+     * @return The ConsumerProtocolSubscription.
+     */
+    private static ConsumerProtocolSubscription deserializeSubscription(
+        JoinGroupRequestData.JoinGroupRequestProtocolCollection protocols
+    ) {
+        try {
+            return ConsumerProtocol.deserializeConsumerProtocolSubscription(
+                ByteBuffer.wrap(protocols.iterator().next().metadata())
+            );
+        } catch (SchemaException e) {
+            throw new IllegalStateException("Malformed embedded consumer protocol in subscription deserialization.");
+        }
+    }
+
+    /**
+     * Validates whether the group id is eligible for an online downgrade if an existing
+     * static member is replaced by another new one uses the classic protocol.
+     *
+     * @param replacedMember    The replaced member.
+     *
+     * @return A boolean indicating whether it's valid to online downgrade the consumer group.
+     */
+    private boolean validateOnlineDowngradeWithReplacedMember(
+        ConsumerGroupMember replacedMember
+    ) {
+        if (!allMembersUseClassicProtocolExcept(replacedMember)) {
+            return false;
+        } else if (!config.consumerGroupMigrationPolicy().isDowngradeEnabled()) {
+            log.info("Cannot downgrade consumer group {} to classic group because the online downgrade is disabled.",
+                groupId());
+            return false;
+        } else if (numMembers() > config.classicGroupMaxSize()) {
+            log.info("Cannot downgrade consumer group {} to classic group because its group size is greater than classic group max size.",
+                groupId());
+            return false;
+        }
+        return true;
+    }
+
+    /**
+     * Creates a ClassicGroup corresponding to the given ConsumerGroup.
+     *
+     * @param consumerGroup     The converted ConsumerGroup.
+     * @param leavingMembers    The leaving member(s) that triggered the downgrade validation.
+     * @param joiningMember     The newly joined member if the downgrade is triggered by static member replacement.
+     *                          When not null, must have an instanceId that matches an existing member.
+     * @param records           The record list to which the conversion records are added.
+     */
+    private void convertToClassicGroup(
+        ConsumerGroup consumerGroup,
+        Set<ConsumerGroupMember> leavingMembers,
+        ConsumerGroupMember joiningMember,
+        List<CoordinatorRecord> records
+    ) {
+        if (joiningMember == null) {
+            consumerGroup.createGroupTombstoneRecords(records);
+        } else {
+            // We've already generated the records to replace replacedMember with joiningMember,
+            // so we need to tombstone joiningMember instead.
+            ConsumerGroupMember replacedMember = consumerGroup.staticMember(joiningMember.instanceId());
+            if (replacedMember == null) {
+                throw new IllegalArgumentException("joiningMember must be a static member when not null.");
+            }
+            consumerGroup.createGroupTombstoneRecordsWithReplacedMember(records, replacedMember.memberId(), joiningMember.memberId());
+        }
+
+        ClassicGroup classicGroup;
+        try {
+            classicGroup = ClassicGroup.fromConsumerGroup(
+                consumerGroup,
+                leavingMembers,
+                joiningMember,
+                logContext,
+                time,
+                metadataImage
+            );
+        } catch (SchemaException e) {
+            log.warn("Cannot downgrade the consumer group " + consumerGroup.groupId() + ": fail to parse " +
+                "the Consumer Protocol " + ConsumerProtocol.PROTOCOL_TYPE + ".", e);
+
+            throw new GroupIdNotFoundException(String.format("Cannot downgrade the classic group %s: %s.",
+                consumerGroup.groupId(), e.getMessage()));
+        }
+        classicGroup.createClassicGroupRecords(records);
+
+        // Directly update the states instead of replaying the records because
+        // the classicGroup reference is needed for triggering the rebalance.
+        removeGroup(consumerGroup.groupId()); // FIXME
+        groups.put(consumerGroup.groupId(), classicGroup);
+
+        classicGroup.allMembers().forEach(member -> rescheduleClassicGroupMemberHeartbeat(classicGroup, member));
+
+        // If the downgrade is triggered by a member leaving the group, a rebalance should be triggered.
+        if (joiningMember == null) {
+            // FIXME
+            prepareRebalance(classicGroup, String.format("Downgrade group %s from consumer to classic.", classicGroup.groupId()));
+        }
+
+        log.info("[GroupId {}] Converted the consumer group to a classic group.", consumerGroup.groupId());
+    }
+
+    /**
+     * Complete and schedule next heartbeat.
+     *
+     * @param group    The group.
+     * @param member   The member.
+     */
+    public void rescheduleClassicGroupMemberHeartbeat(
+        ClassicGroup group,
+        ClassicGroupMember member
+    ) {
+        rescheduleClassicGroupMemberHeartbeat(group, member, member.sessionTimeoutMs());
+    }
+
+    /**
+     * Cancels the join timeout of the member.
+     *
+     * @param groupId       The group id.
+     * @param memberId      The member id.
+     */
+    private void cancelConsumerGroupJoinTimeout(
+        String groupId,
+        String memberId
+    ) {
+        timer.cancel(consumerGroupJoinKey(groupId, memberId));
+    }
+
+    /**
+     * Schedules a sync timeout for the member.
+     *
+     * @param groupId               The group id.
+     * @param memberId              The member id.
+     * @param rebalanceTimeoutMs    The rebalance timeout.
+     */
+    private void scheduleConsumerGroupSyncTimeout(
+        String groupId,
+        String memberId,
+        int rebalanceTimeoutMs
+    ) {
+        timer.schedule(
+            consumerGroupSyncKey(groupId, memberId),
+            rebalanceTimeoutMs,
+            TimeUnit.MILLISECONDS,
+            true,
+            () -> consumerGroupFenceMemberOperation(groupId, memberId, "the member failed to sync within timeout")
+        );
+    }
+
+    /**
      * Handles a regular heartbeat from a consumer group member. It mainly consists of
      * three parts:
      * 1) The member is created or updated. The group epoch is bumped if the member
@@ -2393,7 +2633,7 @@ public class ConsumerGroup extends ModernGroup<ConsumerGroupMember> {
      * @return A Result containing the ConsumerGroupHeartbeat response and
      *         a list of records to update the state machine.
      */
-    private CoordinatorResult<ConsumerGroupHeartbeatResponseData, CoordinatorRecord> consumerGroupHeartbeat(
+    public CoordinatorResult<ConsumerGroupHeartbeatResponseData, CoordinatorRecord> consumerGroupHeartbeat(
         AuthorizableRequestContext context,
         String groupId,
         String memberId,
@@ -2544,4 +2784,498 @@ public class ConsumerGroup extends ModernGroup<ConsumerGroupMember> {
         return new CoordinatorResult<>(records, response);
     }
 
+    /**
+     * Handles leave request from a consumer group member.
+     * @param memberId      The member id from the request.
+     * @param memberEpoch   The member epoch from the request.
+     *
+     * @return A Result containing the ConsumerGroupHeartbeat response and
+     *         a list of records to update the state machine.
+     */
+    public CoordinatorResult<ConsumerGroupHeartbeatResponseData, CoordinatorRecord> consumerGroupLeave(
+        String instanceId,
+        String memberId,
+        int memberEpoch
+    ) throws ApiException {
+        ConsumerGroupHeartbeatResponseData response = new ConsumerGroupHeartbeatResponseData()
+            .setMemberId(memberId)
+            .setMemberEpoch(memberEpoch);
+
+        if (instanceId == null) {
+            ConsumerGroupMember member = getOrMaybeCreateMember(memberId, false);
+            log.info("[GroupId {}] Member {} left the consumer group.", groupId, memberId);
+            return consumerGroupFenceMember(member, response);
+        } else {
+            ConsumerGroupMember member = staticMember(instanceId);
+            throwIfStaticMemberIsUnknown(member, instanceId);
+            throwIfInstanceIdIsFenced(member, groupId, memberId, instanceId);
+            if (memberEpoch == LEAVE_GROUP_STATIC_MEMBER_EPOCH) {
+                log.info("[GroupId {}] Static member {} with instance id {} temporarily left the consumer group.",
+                    groupId(), memberId, instanceId);
+                return consumerGroupStaticMemberGroupLeave(member);
+            } else {
+                log.info("[GroupId {}] Static member {} with instance id {} left the consumer group.",
+                    groupId(), memberId, instanceId);
+                return consumerGroupFenceMember(member, response);
+            }
+        }
+    }
+
+    /**
+     * Handle a JoinGroupRequest to a ConsumerGroup.
+     *
+     * @param context        The request context.
+     * @param request        The actual JoinGroup request.
+     * @param responseFuture The join group response future.
+     *
+     * @return The result that contains records to append if the join group phase completes.
+     */
+    public CoordinatorResult<Void, CoordinatorRecord> classicGroupJoinToConsumerGroup(
+        AuthorizableRequestContext context,
+        JoinGroupRequestData request,
+        CompletableFuture<JoinGroupResponseData> responseFuture
+    ) throws ApiException {
+        final long currentTimeMs = time.milliseconds();
+        final List<CoordinatorRecord> records = new ArrayList<>();
+        final String groupId = request.groupId();
+        final String instanceId = request.groupInstanceId();
+        final int sessionTimeoutMs = request.sessionTimeoutMs();
+        final JoinGroupRequestData.JoinGroupRequestProtocolCollection protocols = request.protocols();
+
+        String memberId = request.memberId();
+        final boolean isUnknownMember = memberId.equals(UNKNOWN_MEMBER_ID);
+        if (isUnknownMember) memberId = Uuid.randomUuid().toString();
+
+        throwIfConsumerGroupIsFull(memberId);
+        throwIfClassicProtocolIsNotSupported(memberId, request.protocolType(), protocols);
+
+        if (JoinGroupRequest.requiresKnownMemberId(request, context.requestVersion())) {
+            // A dynamic member requiring a member id joins the group. Send back a response to call for another
+            // join group request with allocated member id.
+            responseFuture.complete(new JoinGroupResponseData()
+                .setMemberId(memberId)
+                .setErrorCode(Errors.MEMBER_ID_REQUIRED.code())
+            );
+            log.info("[GroupId {}] Dynamic member with unknown member id joins the consumer group. " +
+                "Created a new member id {} and requesting the member to rejoin with this id.", groupId, memberId);
+            return EMPTY_RESULT;
+        }
+
+        // Get or create the member.
+        final ConsumerGroupMember member;
+        if (instanceId == null) {
+            member = getOrMaybeSubscribeDynamicConsumerGroupMember(
+                memberId,
+                -1,
+                List.of(),
+                true,
+                true
+            );
+        } else {
+            member = getOrMaybeSubscribeStaticConsumerGroupMember(
+                memberId,
+                -1,
+                instanceId,
+                List.of(),
+                isUnknownMember,
+                true,
+                records
+            );
+        }
+
+        int groupEpoch = groupEpoch();
+        Map<String, TopicMetadata> subscriptionMetadata = subscriptionMetadata();
+        SubscriptionType subscriptionType = subscriptionType();
+        final ConsumerProtocolSubscription subscription = deserializeSubscription(protocols);
+
+        // 1. Create or update the member. If the member is new or has changed, a ConsumerGroupMemberMetadataValue
+        // record is written to the __consumer_offsets partition to persist the change. If the subscriptions have
+        // changed, the subscription metadata is updated and persisted by writing a ConsumerGroupPartitionMetadataValue
+        // record to the __consumer_offsets partition. Finally, the group epoch is bumped if the subscriptions have
+        // changed, and persisted by writing a ConsumerGroupMetadataValue record to the partition.
+        ConsumerGroupMember updatedMember = new ConsumerGroupMember.Builder(member)
+            .maybeUpdateInstanceId(Optional.ofNullable(instanceId))
+            .maybeUpdateRackId(Utils.toOptional(subscription.rackId()))
+            .maybeUpdateRebalanceTimeoutMs(ofSentinel(request.rebalanceTimeoutMs()))
+            .maybeUpdateServerAssignorName(Optional.empty())
+            .maybeUpdateSubscribedTopicNames(Optional.ofNullable(subscription.topics()))
+            .setClientId(context.clientId())
+            .setClientHost(context.clientAddress().toString())
+            .setClassicMemberMetadata(
+                new ConsumerGroupMemberMetadataValue.ClassicMemberMetadata()
+                    .setSessionTimeoutMs(sessionTimeoutMs)
+                    .setSupportedProtocols(ConsumerGroupMember.classicProtocolListFromJoinRequestProtocolCollection(protocols)))
+            .build();
+
+        boolean bumpGroupEpoch = hasMemberSubscriptionChanged(
+            groupId,
+            member,
+            updatedMember,
+            records
+        );
+
+        if (bumpGroupEpoch || hasMetadataExpired(currentTimeMs)) {
+            // The subscription metadata is updated in two cases:
+            // 1) The member has updated its subscriptions;
+            // 2) The refresh deadline has been reached.
+            GroupMetadataManager.UpdateSubscriptionMetadataResult result = updateSubscriptionMetadata(
+                bumpGroupEpoch,
+                member,
+                updatedMember,
+                records
+            );
+
+            groupEpoch = result.groupEpoch;
+            subscriptionMetadata = result.subscriptionMetadata;
+            subscriptionType = result.subscriptionType;
+        }
+
+        // 2. Update the target assignment if the group epoch is larger than the target assignment epoch. The delta between
+        // the existing and the new target assignment is persisted to the partition.
+        final int targetAssignmentEpoch;
+        final Assignment targetAssignment;
+
+        if (groupEpoch > assignmentEpoch()) {
+            targetAssignment = updateTargetAssignment(
+                groupEpoch,
+                member,
+                updatedMember,
+                subscriptionMetadata,
+                subscriptionType,
+                records
+            );
+            targetAssignmentEpoch = groupEpoch;
+        } else {
+            targetAssignmentEpoch = assignmentEpoch();
+            targetAssignment = targetAssignment(updatedMember.memberId(), updatedMember.instanceId());
+
+        }
+
+        // 3. Reconcile the member's assignment with the target assignment if the member is not
+        // fully reconciled yet.
+        updatedMember = maybeReconcile(
+            groupId,
+            updatedMember,
+            this::currentPartitionEpoch,
+            targetAssignmentEpoch,
+            targetAssignment,
+            toTopicPartitions(subscription.ownedPartitions(), metadataImage.topics()), // FIXME
+            records
+        );
+
+        // 4. Maybe downgrade the consumer group if the last static member using the
+        // consumer protocol is replaced by the joining static member.
+        ConsumerGroupMember existingStaticMemberOrNull = staticMember(request.groupInstanceId());
+        boolean downgrade = existingStaticMemberOrNull != null &&
+            validateOnlineDowngradeWithReplacedMember(existingStaticMemberOrNull);
+        if (downgrade) {
+            convertToClassicGroup(
+                Set.of(),
+                updatedMember,
+                records
+            );
+        }
+
+        final JoinGroupResponseData response = new JoinGroupResponseData()
+            .setMemberId(updatedMember.memberId())
+            .setGenerationId(updatedMember.memberEpoch())
+            .setProtocolType(ConsumerProtocol.PROTOCOL_TYPE)
+            .setProtocolName(updatedMember.supportedClassicProtocols().get().iterator().next().name());
+
+        CompletableFuture<Void> appendFuture = new CompletableFuture<>();
+        appendFuture.whenComplete((__, t) -> {
+            if (t == null) {
+                cancelConsumerGroupJoinTimeout(groupId, response.memberId());
+                if (!downgrade) {
+                    // If the group is still a consumer group, schedule the session
+                    // timeout for the joining member and the sync timeout to ensure
+                    // that the member send sync request within the rebalance timeout.
+                    scheduleConsumerGroupSessionTimeout(groupId, response.memberId(), sessionTimeoutMs);
+                    scheduleConsumerGroupSyncTimeout(groupId, response.memberId(), request.rebalanceTimeoutMs());
+                }
+                responseFuture.complete(response);
+            }
+        });
+
+        // If the joining member triggers a valid downgrade, the soft states will be directly
+        // updated in the conversion method, so the records don't need to be replayed.
+        // If the joining member doesn't trigger a valid downgrade, the group is still a
+        // consumer group. We still rely on replaying records to update the soft states.
+        return new CoordinatorResult<>(records, null, appendFuture, !downgrade);
+    }
+
+    /**
+     * Validates that (1) the instance id exists and is mapped to the member id
+     * if the group instance id is provided; and (2) the member id exists in the group.
+     *
+     * @param memberId          The member id.
+     * @param instanceId        The instance id.
+     *
+     * @return The ConsumerGroupMember.
+     */
+    private ConsumerGroupMember validateConsumerGroupMember(
+        String memberId,
+        String instanceId
+    ) throws UnknownMemberIdException, FencedInstanceIdException {
+        ConsumerGroupMember member;
+        if (instanceId == null) {
+            member = getOrMaybeCreateMember(memberId, false);
+        } else {
+            member = staticMember(instanceId);
+            if (member == null) {
+                throw new UnknownMemberIdException(
+                    String.format("Member with instance id %s is not a member of group %s.", instanceId, groupId())
+                );
+            }
+            throwIfInstanceIdIsFenced(member, groupId(), memberId, instanceId);
+        }
+        return member;
+    }
+
+    /**
+     * Validates if the consumer group member uses the classic protocol.
+     *
+     * @param member The ConsumerGroupMember.
+     */
+    private void throwIfMemberDoesNotUseClassicProtocol(ConsumerGroupMember member) {
+        if (!member.useClassicProtocol()) {
+            throw new UnknownMemberIdException(
+                String.format("Member %s does not use the classic protocol.", member.memberId())
+            );
+        }
+    }
+
+    /**
+     * Validates if the generation id from the request matches the member epoch.
+     *
+     * @param memberId              The member id.
+     * @param memberEpoch           The member epoch.
+     * @param requestGenerationId   The generation id from the request.
+     */
+    private void throwIfGenerationIdUnmatched(
+        String memberId,
+        int memberEpoch,
+        int requestGenerationId
+    ) {
+        if (memberEpoch != requestGenerationId) {
+            throw Errors.ILLEGAL_GENERATION.exception(
+                String.format("The request generation id %s is not equal to the member epoch %d of member %s.",
+                    requestGenerationId, memberEpoch, memberId)
+            );
+        }
+    }
+
+    /**
+     * Validates if the protocol type and the protocol name from the request matches those of the consumer group.
+     *
+     * @param member                The ConsumerGroupMember.
+     * @param requestProtocolType   The protocol type from the request.
+     * @param requestProtocolName   The protocol name from the request.
+     */
+    private void throwIfClassicProtocolUnmatched(
+        ConsumerGroupMember member,
+        String requestProtocolType,
+        String requestProtocolName
+    ) {
+        String protocolName = member.supportedClassicProtocols().get().iterator().next().name();
+        if (requestProtocolType != null && !ConsumerProtocol.PROTOCOL_TYPE.equals(requestProtocolType)) {
+            throw Errors.INCONSISTENT_GROUP_PROTOCOL.exception(
+                String.format("The protocol type %s from member %s request is not equal to the group protocol type %s.",
+                    requestProtocolType, member.memberId(), ConsumerProtocol.PROTOCOL_TYPE)
+            );
+        } else if (requestProtocolName != null && !protocolName.equals(requestProtocolName)) {
+            throw Errors.INCONSISTENT_GROUP_PROTOCOL.exception(
+                String.format("The protocol name %s from member %s request is not equal to the protocol name %s returned in the join response.",
+                    requestProtocolName, member.memberId(), protocolName)
+            );
+        }
+    }
+
+    /**
+     * Validates if a new rebalance has been triggered and the member should rejoin to catch up.
+     *
+     * @param member    The ConsumerGroupMember.
+     */
+    private void throwIfRebalanceInProgress(
+        ConsumerGroupMember member
+    ) {
+        // If the group epoch is greater than the member epoch, there is a new rebalance triggered and the member
+        // needs to rejoin to catch up. However, if the member is in UNREVOKED_PARTITIONS state, it means the
+        // member has already rejoined, so it needs to first finish revoking the partitions and the reconciliation,
+        // and then the next rejoin will be triggered automatically if needed.
+        if (groupEpoch() > member.memberEpoch() && !member.state().equals(MemberState.UNREVOKED_PARTITIONS)) {
+            scheduleConsumerGroupJoinTimeoutIfAbsent(groupId(), member.memberId(), member.rebalanceTimeoutMs());
+            throw Errors.REBALANCE_IN_PROGRESS.exception(
+                String.format("A new rebalance is triggered in group %s and member %s should rejoin to catch up.",
+                    group.groupId(), member.memberId())
+            );
+        }
+    }
+
+    /**
+     * Serializes the member's assigned partitions with ConsumerProtocol.
+     *
+     * @param member The ConsumerGroupMember.
+     * @return The serialized assigned partitions.
+     */
+    private byte[] prepareAssignment(ConsumerGroupMember member) {
+        try {
+            return ConsumerProtocol.serializeAssignment(
+                toConsumerProtocolAssignment(
+                    member.assignedPartitions(),
+                    metadataImage.topics()
+                ),
+                ConsumerProtocol.deserializeVersion(
+                    ByteBuffer.wrap(member.classicMemberMetadata().get().supportedProtocols().iterator().next().metadata())
+                )
+            ).array();
+        } catch (SchemaException e) {
+            throw new IllegalStateException("Malformed embedded consumer protocol in version deserialization.");
+        }
+    }
+
+    /**
+     * Handle a SyncGroupRequest to a ConsumerGroup.
+     *
+     * @param context        The request context.
+     * @param request        The actual SyncGroup request.
+     * @param responseFuture The sync group response future.
+     *
+     * @return The result that contains the appendFuture to return the response.
+     */
+    public CoordinatorResult<Void, CoordinatorRecord> classicGroupSyncToConsumerGroup(
+        AuthorizableRequestContext context,
+        SyncGroupRequestData request,
+        CompletableFuture<SyncGroupResponseData> responseFuture
+    ) throws UnknownMemberIdException, FencedInstanceIdException, IllegalGenerationException,
+        InconsistentGroupProtocolException, RebalanceInProgressException, IllegalStateException {
+        String groupId = request.groupId();
+        String memberId = request.memberId();
+        String instanceId = request.groupInstanceId();
+        ConsumerGroupMember member = validateConsumerGroupMember(memberId, instanceId);
+
+        throwIfMemberDoesNotUseClassicProtocol(member);
+        throwIfGenerationIdUnmatched(member.memberId(), member.memberEpoch(), request.generationId());
+        throwIfClassicProtocolUnmatched(member, request.protocolType(), request.protocolName());
+        throwIfRebalanceInProgress(member);
+
+        CompletableFuture<Void> appendFuture = new CompletableFuture<>();
+        appendFuture.whenComplete((__, t) -> {
+            if (t == null) {
+                // FIXME
+                cancelConsumerGroupSyncTimeout(groupId, memberId);
+                scheduleConsumerGroupSessionTimeout(groupId, memberId, member.classicProtocolSessionTimeout().get());
+
+                responseFuture.complete(new SyncGroupResponseData()
+                    .setProtocolType(request.protocolType())
+                    .setProtocolName(request.protocolName())
+                    .setAssignment(prepareAssignment(member)));
+            }
+        });
+
+        return new CoordinatorResult<>(List.of(), appendFuture, false);
+    }
+
+    /**
+     * Handle a classic group HeartbeatRequest to a consumer group. A response with
+     * REBALANCE_IN_PROGRESS is returned if 1) the member epoch is smaller than the
+     * group epoch, 2) the member is in UNREVOKED_PARTITIONS, or 3) the member is in
+     * UNRELEASED_PARTITIONS and all its partitions pending assignment are free.
+     *
+     * @param context        The request context.
+     * @param request        The actual Heartbeat request.
+     *
+     * @return The coordinator result that contains the heartbeat response.
+     */
+    public CoordinatorResult<HeartbeatResponseData, CoordinatorRecord> classicGroupHeartbeatToConsumerGroup(
+        AuthorizableRequestContext context,
+        HeartbeatRequestData request
+    ) throws UnknownMemberIdException, FencedInstanceIdException, IllegalGenerationException {
+        String groupId = request.groupId();
+        String memberId = request.memberId();
+        String instanceId = request.groupInstanceId();
+        ConsumerGroupMember member = validateConsumerGroupMember(group, memberId, instanceId);
+
+        throwIfMemberDoesNotUseClassicProtocol(member);
+        throwIfGenerationIdUnmatched(memberId, member.memberEpoch(), request.generationId());
+
+        scheduleConsumerGroupSessionTimeout(groupId, memberId, member.classicProtocolSessionTimeout().get());
+
+        Errors error = Errors.NONE;
+        // The member should rejoin if any of the following conditions is met.
+        // 1) The group epoch is bumped so the member need to rejoin to catch up.
+        // 2) The member needs to revoke some partitions and rejoin to reconcile with the new epoch.
+        // 3) The member's partitions pending assignment are free, so it can rejoin to get the complete assignment.
+        if (member.memberEpoch() < group.groupEpoch() ||
+            member.state() == MemberState.UNREVOKED_PARTITIONS ||
+            (member.state() == MemberState.UNRELEASED_PARTITIONS && !group.waitingOnUnreleasedPartition(member))) {
+            error = Errors.REBALANCE_IN_PROGRESS;
+            scheduleConsumerGroupJoinTimeoutIfAbsent(groupId, memberId, member.rebalanceTimeoutMs());
+        }
+
+        return new CoordinatorResult<>(
+            List.of(),
+            new HeartbeatResponseData().setErrorCode(error.code())
+        );
+    }
+
+    /**
+     * Handle a classic LeaveGroupRequest to a ConsumerGroup.
+     *
+     * @param request        The actual LeaveGroup request.
+     *
+     * @return The LeaveGroup response and the records to append.
+     */
+    private CoordinatorResult<LeaveGroupResponseData, CoordinatorRecord> classicGroupLeaveToConsumerGroup(
+        LeaveGroupRequestData request
+    ) throws UnknownMemberIdException {
+        String groupId = group.groupId();
+        List<LeaveGroupResponseData.MemberResponse> memberResponses = new ArrayList<>();
+        Set<ConsumerGroupMember> validLeaveGroupMembers = new HashSet<>();
+
+        for (LeaveGroupRequestData.MemberIdentity memberIdentity : request.members()) {
+            String reason = memberIdentity.reason() != null ? memberIdentity.reason() : "not provided";
+
+            try {
+                ConsumerGroupMember member;
+
+                if (memberIdentity.groupInstanceId() == null) {
+                    member = group.getOrMaybeCreateMember(memberIdentity.memberId(), false);
+
+                    log.info("[GroupId {}] Dynamic member {} has left group " +
+                            "through explicit `LeaveGroup` request; client reason: {}",
+                        groupId, memberIdentity.memberId(), reason);
+                } else {
+                    member = group.staticMember(memberIdentity.groupInstanceId());
+                    throwIfStaticMemberIsUnknown(member, memberIdentity.groupInstanceId());
+                    // The LeaveGroup API allows administrative removal of members by GroupInstanceId
+                    // in which case we expect the MemberId to be undefined.
+                    if (!UNKNOWN_MEMBER_ID.equals(memberIdentity.memberId())) {
+                        throwIfInstanceIdIsFenced(member, groupId, memberIdentity.memberId(), memberIdentity.groupInstanceId());
+                    }
+
+                    log.info("[GroupId {}] Static member {} with instance id {} has left group " +
+                            "through explicit `LeaveGroup` request; client reason: {}",
+                        groupId, memberIdentity.memberId(), memberIdentity.groupInstanceId(), reason);
+                }
+
+                memberResponses.add(
+                    new LeaveGroupResponseData.MemberResponse()
+                        .setMemberId(memberIdentity.memberId())
+                        .setGroupInstanceId(memberIdentity.groupInstanceId())
+                );
+
+                validLeaveGroupMembers.add(member);
+            } catch (KafkaException e) {
+                memberResponses.add(
+                    new LeaveGroupResponseData.MemberResponse()
+                        .setMemberId(memberIdentity.memberId())
+                        .setGroupInstanceId(memberIdentity.groupInstanceId())
+                        .setErrorCode(Errors.forException(e).code())
+                );
+            }
+        }
+
+        return consumerGroupFenceMembers(group, validLeaveGroupMembers, new LeaveGroupResponseData().setMembers(memberResponses));
+    }
 }
