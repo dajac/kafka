@@ -17,6 +17,7 @@
 package org.apache.kafka.tools.consumer;
 
 import org.apache.kafka.clients.consumer.Consumer;
+import org.apache.kafka.clients.consumer.ConsumerConfig;
 import org.apache.kafka.clients.consumer.ConsumerRecord;
 import org.apache.kafka.clients.consumer.KafkaConsumer;
 import org.apache.kafka.common.MessageFormatter;
@@ -161,7 +162,8 @@ public class ConsoleConsumer {
                 if (opts.partitionArg().isPresent()) {
                     seek(topic.get(), opts.partitionArg().getAsInt(), opts.offsetArg());
                 } else {
-                    consumer.subscribe(List.of(topic.get()));
+                    consumer.subscribe(List.of(topic.get()),
+                        new DynamicDelayRebalanceListener(opts.consumerProps().getProperty(ConsumerConfig.CLIENT_ID_CONFIG)));
                 }
             } else {
                 opts.includedTopicsArg().ifPresent(topics -> consumer.subscribe(Pattern.compile(topics)));
@@ -194,7 +196,7 @@ public class ConsoleConsumer {
         ConsumerRecord<byte[], byte[]> receive() {
             long startTimeMs = time.milliseconds();
             while (!recordIter.hasNext()) {
-                recordIter = consumer.poll(Duration.ofMillis(timeoutMs)).iterator();
+                recordIter = consumer.poll(Duration.ofMillis(0)).iterator();
                 if (!recordIter.hasNext() && (time.milliseconds() - startTimeMs > timeoutMs)) {
                     throw new TimeoutException();
                 }

@@ -1,0 +1,11 @@
+#!/bin/bash
+
+bin/kafka-console-consumer.sh \
+    --bootstrap-server localhost:9092 \
+    --topic events \
+    --group group \
+    --consumer-property client.id=consumer-2 \
+    --consumer-property group.protocol=classic \
+    --consumer-property partition.assignment.strategy=org.apache.kafka.clients.consumer.CooperativeStickyAssignor \
+    --property print.partition=true \
+    --property print.offset=true
