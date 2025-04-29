@@ -46,3 +46,8 @@ bin/kafka-console-consumer.sh \
 watch -n 1 bin/kafka-consumer-groups.sh --bootstrap-server localhost:9092 --group group --describe
 
 watch -n 1 bin/kafka-consumer-groups.sh --bootstrap-server localhost:9092 --group group --describe --members --verbose
+
+# Fault
+
+echo "0" > /tmp/consumer-1/rebalance_delay
+echo "60" > /tmp/consumer-1/rebalance_delay
