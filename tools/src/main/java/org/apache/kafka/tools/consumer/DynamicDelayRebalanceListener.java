@@ -58,12 +58,12 @@ public class DynamicDelayRebalanceListener implements ConsumerRebalanceListener 
 
     @Override
     public void onPartitionsRevoked(Collection<TopicPartition> partitions) {
-        //maybeDelay();
+        maybeDelay();
     }
 
     @Override
     public void onPartitionsAssigned(Collection<TopicPartition> partitions) {
-        maybeDelay();
+        //maybeDelay();
     }
 }
 
