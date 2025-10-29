@@ -799,7 +799,7 @@ public class CommitRequestManager implements RequestManager, MemberStateListener
                             "failed with unknown member ID. " + error.message()));
                         return;
                     } else if (error == Errors.STALE_MEMBER_EPOCH) {
-                        log.error("OffsetCommit failed for member {} with stale member epoch error. Last epoch sent: {}",
+                        log.debug("OffsetCommit failed for member {} with stale member epoch error. Last epoch sent: {}",
                             memberInfo.memberId,
                             lastEpochSentOnCommit.isPresent() ? lastEpochSentOnCommit.get() : "undefined");
                         future.completeExceptionally(error.exception());
