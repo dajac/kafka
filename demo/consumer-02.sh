@@ -6,5 +6,5 @@ bin/kafka-console-consumer.sh \
     --group group \
     --command-property client.id=consumer-2 \
     --command-property group.protocol=consumer \
-    --property print.partition=true \
-    --property print.offset=true
+    --formatter-property print.partition=true \
+    --formatter-property print.offset=true
