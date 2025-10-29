@@ -7,5 +7,6 @@ while true; do
 done | bin/kafka-console-producer.sh \
   --bootstrap-server localhost:9092 \
   --topic events \
-  --property parse.key=true \
-  --property key.separator=,
+  --reader-property parse.key=true \
+  --reader-property key.separator=, \
+  > /dev/null 2>&1
