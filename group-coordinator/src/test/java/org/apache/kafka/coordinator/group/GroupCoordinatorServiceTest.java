@@ -3174,7 +3174,7 @@ public class GroupCoordinatorServiceTest {
 
         // Mock the write operations.
         when(runtime.scheduleWriteAllOperation(
-            ArgumentMatchers.eq("on-partition-deleted"),
+            ArgumentMatchers.eq("on-topics-deleted"),
             ArgumentMatchers.eq(Duration.ofMillis(5000)),
             ArgumentMatchers.any()
         )).thenReturn(Arrays.asList(
@@ -3198,7 +3198,7 @@ public class GroupCoordinatorServiceTest {
 
         // Verify both operations were scheduled.
         verify(runtime, times(1)).scheduleWriteAllOperation(
-            ArgumentMatchers.eq("on-partition-deleted"),
+            ArgumentMatchers.eq("on-topics-deleted"),
             ArgumentMatchers.eq(Duration.ofMillis(5000)),
             ArgumentMatchers.any()
         );
@@ -3229,7 +3229,7 @@ public class GroupCoordinatorServiceTest {
 
         // Verify that no write operations were scheduled for partition deletion.
         verify(runtime, times(0)).scheduleWriteAllOperation(
-            ArgumentMatchers.eq("on-partition-deleted"),
+            ArgumentMatchers.eq("on-topics-deleted"),
             ArgumentMatchers.eq(Duration.ofMillis(5000)),
             ArgumentMatchers.any()
         );
@@ -3262,7 +3262,7 @@ public class GroupCoordinatorServiceTest {
 
         // Mock the write operations - offset deletion succeeds, share group cleanup fails.
         when(runtime.scheduleWriteAllOperation(
-            ArgumentMatchers.eq("on-partition-deleted"),
+            ArgumentMatchers.eq("on-topics-deleted"),
             ArgumentMatchers.eq(Duration.ofMillis(5000)),
             ArgumentMatchers.any()
         )).thenReturn(List.of(
