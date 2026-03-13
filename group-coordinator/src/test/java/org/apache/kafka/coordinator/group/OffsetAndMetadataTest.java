@@ -181,6 +181,7 @@ public class OffsetAndMetadataTest {
                 OptionalLong.empty(),
                 Uuid.ZERO_UUID
             ), OffsetAndMetadata.fromRequest(
+                Uuid.ZERO_UUID,
                 partition,
                 time.milliseconds()
             )
@@ -199,6 +200,7 @@ public class OffsetAndMetadataTest {
                 OptionalLong.empty(),
                 Uuid.ZERO_UUID
             ), OffsetAndMetadata.fromRequest(
+                Uuid.ZERO_UUID,
                 partition,
                 time.milliseconds()
             )

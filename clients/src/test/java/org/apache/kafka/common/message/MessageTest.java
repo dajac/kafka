@@ -455,10 +455,10 @@ public final class MessageTest {
         testMessageRoundTrip(version, response, response);
     }
 
-    @Test
-    public void testTxnOffsetCommitRequestVersions() throws Exception {
+    @ParameterizedTest
+    @ApiKeyVersionsSource(apiKey = ApiKeys.TXN_OFFSET_COMMIT)
+    public void testTxnOffsetCommitRequestVersions(short version) throws Exception {
         String groupId = "groupId";
-        String topicName = "topic";
         String metadata = "metadata";
         String txnId = "transactionalId";
         int producerId = 25;
@@ -470,77 +470,87 @@ public final class MessageTest {
         int partition = 2;
         int offset = 100;
 
-        testAllMessageRoundTrips(new TxnOffsetCommitRequestData()
-                                     .setGroupId(groupId)
-                                     .setTransactionalId(txnId)
-                                     .setProducerId(producerId)
-                                     .setProducerEpoch(producerEpoch)
-                                     .setTopics(Collections.singletonList(
-                                         new TxnOffsetCommitRequestTopic()
-                                             .setName(topicName)
-                                             .setPartitions(Collections.singletonList(
-                                                 new TxnOffsetCommitRequestPartition()
-                                                     .setPartitionIndex(partition)
-                                                     .setCommittedMetadata(metadata)
-                                                     .setCommittedOffset(offset)
-                                             )))));
+        Uuid topicId = version >= 6 ? Uuid.randomUuid() : Uuid.ZERO_UUID;
+        String topicName = version < 6 ? "topic" : "";
 
-        Supplier<TxnOffsetCommitRequestData> request =
-            () -> new TxnOffsetCommitRequestData()
-                      .setGroupId(groupId)
-                      .setTransactionalId(txnId)
-                      .setProducerId(producerId)
-                      .setProducerEpoch(producerEpoch)
-                      .setGroupInstanceId(instanceId)
-                      .setMemberId(memberId)
-                      .setGenerationId(generationId)
-                      .setTopics(Collections.singletonList(
-                          new TxnOffsetCommitRequestTopic()
-                              .setName(topicName)
-                              .setPartitions(Collections.singletonList(
-                                  new TxnOffsetCommitRequestPartition()
-                                      .setPartitionIndex(partition)
-                                      .setCommittedLeaderEpoch(10)
-                                      .setCommittedMetadata(metadata)
-                                      .setCommittedOffset(offset)
-                              ))));
+        TxnOffsetCommitRequestData simpleRequest = new TxnOffsetCommitRequestData()
+            .setGroupId(groupId)
+            .setTransactionalId(txnId)
+            .setProducerId(producerId)
+            .setProducerEpoch(producerEpoch)
+            .setTopics(Collections.singletonList(
+                new TxnOffsetCommitRequestTopic()
+                    .setName(topicName)
+                    .setTopicId(topicId)
+                    .setPartitions(Collections.singletonList(
+                        new TxnOffsetCommitRequestPartition()
+                            .setPartitionIndex(partition)
+                            .setCommittedMetadata(metadata)
+                            .setCommittedOffset(offset)
+                    ))));
 
-        for (short version : ApiKeys.TXN_OFFSET_COMMIT.allVersions()) {
-            TxnOffsetCommitRequestData requestData = request.get();
-            if (version < 2) {
-                requestData.topics().get(0).partitions().get(0).setCommittedLeaderEpoch(-1);
-            }
+        testMessageRoundTrip(version, simpleRequest, simpleRequest);
 
-            if (version < 3) {
-                final short finalVersion = version;
-                assertThrows(UnsupportedVersionException.class, () -> testEquivalentMessageRoundTrip(finalVersion, requestData));
-                requestData.setGroupInstanceId(null);
-                assertThrows(UnsupportedVersionException.class, () -> testEquivalentMessageRoundTrip(finalVersion, requestData));
-                requestData.setMemberId("");
-                assertThrows(UnsupportedVersionException.class, () -> testEquivalentMessageRoundTrip(finalVersion, requestData));
-                requestData.setGenerationId(-1);
-            }
+        TxnOffsetCommitRequestData requestData = new TxnOffsetCommitRequestData()
+            .setGroupId(groupId)
+            .setTransactionalId(txnId)
+            .setProducerId(producerId)
+            .setProducerEpoch(producerEpoch)
+            .setGroupInstanceId(instanceId)
+            .setMemberId(memberId)
+            .setGenerationId(generationId)
+            .setTopics(Collections.singletonList(
+                new TxnOffsetCommitRequestTopic()
+                    .setName(topicName)
+                    .setTopicId(topicId)
+                    .setPartitions(Collections.singletonList(
+                        new TxnOffsetCommitRequestPartition()
+                            .setPartitionIndex(partition)
+                            .setCommittedLeaderEpoch(10)
+                            .setCommittedMetadata(metadata)
+                            .setCommittedOffset(offset)
+                    ))));
 
+        if (version < 2) {
+            requestData.topics().get(0).partitions().get(0).setCommittedLeaderEpoch(-1);
+        }
+
+        if (version < 3) {
+            assertThrows(UnsupportedVersionException.class, () -> testEquivalentMessageRoundTrip(version, requestData));
+            requestData.setGroupInstanceId(null);
+            assertThrows(UnsupportedVersionException.class, () -> testEquivalentMessageRoundTrip(version, requestData));
+            requestData.setMemberId("");
+            assertThrows(UnsupportedVersionException.class, () -> testEquivalentMessageRoundTrip(version, requestData));
+            requestData.setGenerationId(-1);
+        }
+
+        // Only test round trips within the same topic ID scheme to avoid name/id mismatch.
+        if (version < 6) {
+            testAllMessageRoundTripsBetweenVersions(version, (short) 6, requestData, requestData);
+        } else {
             testAllMessageRoundTripsFromVersion(version, requestData);
         }
     }
 
-    @Test
-    public void testTxnOffsetCommitResponseVersions() throws Exception {
-        testAllMessageRoundTrips(
-            new TxnOffsetCommitResponseData()
-                .setTopics(
-                   singletonList(
-                       new TxnOffsetCommitResponseTopic()
-                           .setName("topic")
-                           .setPartitions(singletonList(
-                               new TxnOffsetCommitResponsePartition()
-                                   .setPartitionIndex(1)
-                                   .setErrorCode(Errors.UNKNOWN_MEMBER_ID.code())
-                           ))
-                   )
-               )
-               .setThrottleTimeMs(20));
+    @ParameterizedTest
+    @ApiKeyVersionsSource(apiKey = ApiKeys.TXN_OFFSET_COMMIT)
+    public void testTxnOffsetCommitResponseVersions(short version) throws Exception {
+        Uuid topicId = version >= 6 ? Uuid.randomUuid() : Uuid.ZERO_UUID;
+        String topicName = version < 6 ? "topic" : "";
+
+        TxnOffsetCommitResponseData response = new TxnOffsetCommitResponseData()
+            .setTopics(singletonList(
+                new TxnOffsetCommitResponseTopic()
+                    .setName(topicName)
+                    .setTopicId(topicId)
+                    .setPartitions(singletonList(
+                        new TxnOffsetCommitResponsePartition()
+                            .setPartitionIndex(1)
+                            .setErrorCode(Errors.UNKNOWN_MEMBER_ID.code())
+                    ))))
+            .setThrottleTimeMs(version >= 1 ? 20 : 0);
+
+        testMessageRoundTrip(version, response, response);
     }
 
     @ParameterizedTest

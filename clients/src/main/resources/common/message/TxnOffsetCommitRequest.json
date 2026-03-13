@@ -30,7 +30,10 @@
   // transaction V2 (KIP_890 part 2) is enabled, the TxnOffsetCommit request will also include the function for a
   // AddOffsetsToTxn call. If V2 is disabled, the client can't use TxnOffsetCommit request version higher than 4 within
   // a transaction.
-  "validVersions": "0-5",
+  //
+  // Version 6 adds topic ID support (replacing topic names), and supports GROUP_ID_NOT_FOUND and STALE_MEMBER_EPOCH
+  // error codes.
+  "validVersions": "0-6",
   "flexibleVersions": "3+",
   "fields": [
     { "name": "TransactionalId", "type": "string", "versions": "0+", "entityType": "transactionalId",
@@ -50,8 +53,10 @@
       "about": "The unique identifier of the consumer instance provided by end user." },
     { "name": "Topics", "type" : "[]TxnOffsetCommitRequestTopic", "versions": "0+",
       "about": "Each topic that we want to commit offsets for.", "fields": [
-      { "name": "Name", "type": "string", "versions": "0+", "entityType": "topicName",
+      { "name": "Name", "type": "string", "versions": "0-5", "ignorable": true, "entityType": "topicName",
         "about": "The topic name." },
+      { "name": "TopicId", "type": "uuid", "versions": "6+", "ignorable": true,
+        "about": "The unique topic ID." },
       { "name": "Partitions", "type": "[]TxnOffsetCommitRequestPartition", "versions": "0+",
         "about": "The partitions inside the topic that we want to commit offsets for.", "fields": [
         { "name": "PartitionIndex", "type": "int32", "versions": "0+",

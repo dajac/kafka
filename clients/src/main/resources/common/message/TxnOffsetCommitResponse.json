@@ -26,15 +26,20 @@
   // Version 4 adds support for new error code TRANSACTION_ABORTABLE (KIP-890).
   //
   // Version 5 is the same with version 3 (KIP-890).
-  "validVersions": "0-5",
+  //
+  // Version 6 adds topic ID support (replacing topic names), and supports GROUP_ID_NOT_FOUND, STALE_MEMBER_EPOCH,
+  // and UNKNOWN_TOPIC_ID error codes.
+  "validVersions": "0-6",
   "flexibleVersions": "3+",
   "fields": [
     { "name": "ThrottleTimeMs", "type": "int32", "versions": "0+",
       "about": "The duration in milliseconds for which the request was throttled due to a quota violation, or zero if the request did not violate any quota." },
     { "name": "Topics", "type": "[]TxnOffsetCommitResponseTopic", "versions": "0+",
       "about": "The responses for each topic.", "fields": [
-      { "name": "Name", "type": "string", "versions": "0+", "entityType": "topicName",
+      { "name": "Name", "type": "string", "versions": "0-5", "ignorable": true, "entityType": "topicName",
         "about": "The topic name." },
+      { "name": "TopicId", "type": "uuid", "versions": "6+", "ignorable": true,
+        "about": "The unique topic ID." },
       { "name": "Partitions", "type": "[]TxnOffsetCommitResponsePartition", "versions": "0+",
         "about": "The responses for each partition in the topic.", "fields": [
         { "name": "PartitionIndex", "type": "int32", "versions": "0+",

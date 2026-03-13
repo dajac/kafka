@@ -521,6 +521,8 @@ public class OffsetMetadataManager {
                 // facility. In this case, a so-called simple group is created and the request
                 // is accepted.
                 group = groupMetadataManager.getOrMaybeCreateClassicGroup(request.groupId(), true);
+            } else if (context.requestVersion() >= 6) {
+                throw ex;
             } else {
                 throw Errors.ILLEGAL_GENERATION.exception();
             }
@@ -535,6 +537,9 @@ public class OffsetMetadataManager {
                 context.requestVersion()
             );
         } catch (StaleMemberEpochException ex) {
+            if (context.requestVersion() >= 6) {
+                throw ex;
+            }
             throw Errors.ILLEGAL_GENERATION.exception();
         }
     }
@@ -689,7 +694,9 @@ public class OffsetMetadataManager {
         final long currentTimeMs = time.milliseconds();
 
         request.topics().forEach(topic -> {
-            final TxnOffsetCommitResponseTopic topicResponse = new TxnOffsetCommitResponseTopic().setName(topic.name());
+            final TxnOffsetCommitResponseTopic topicResponse = new TxnOffsetCommitResponseTopic()
+                .setName(topic.name())
+                .setTopicId(topic.topicId());
             response.topics().add(topicResponse);
 
             topic.partitions().forEach(partition -> {
@@ -702,15 +709,18 @@ public class OffsetMetadataManager {
                     try {
                         validator.validate(
                             topic.name(),
-                            org.apache.kafka.common.Uuid.ZERO_UUID,
+                            topic.topicId(),
                             partition.partitionIndex()
                         );
                     } catch (StaleMemberEpochException ex) {
+                        if (context.requestVersion() >= 6) {
+                            throw ex;
+                        }
                         throw Errors.ILLEGAL_GENERATION.exception();
                     }
 
-                    log.debug("[GroupId {}] Committing transactional offsets {} for partition {}-{} from member {} with leader epoch {}.",
-                        request.groupId(), partition.committedOffset(), topic.name(), partition.partitionIndex(),
+                    log.debug("[GroupId {}] Committing transactional offsets {} for partition {}-{}-{} from member {} with leader epoch {}.",
+                        request.groupId(), partition.committedOffset(), topic.topicId(), topic.name(), partition.partitionIndex(),
                         request.memberId(), partition.committedLeaderEpoch());
 
                     topicResponse.partitions().add(new TxnOffsetCommitResponsePartition()
@@ -718,6 +728,7 @@ public class OffsetMetadataManager {
                         .setErrorCode(Errors.NONE.code()));
 
                     final OffsetAndMetadata offsetAndMetadata = OffsetAndMetadata.fromRequest(
+                        topic.topicId(),
                         partition,
                         currentTimeMs
                     );

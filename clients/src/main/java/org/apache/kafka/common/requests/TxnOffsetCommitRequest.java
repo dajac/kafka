@@ -17,6 +17,7 @@
 package org.apache.kafka.common.requests;
 
 import org.apache.kafka.common.TopicPartition;
+import org.apache.kafka.common.Uuid;
 import org.apache.kafka.common.errors.UnsupportedVersionException;
 import org.apache.kafka.common.message.TxnOffsetCommitRequestData;
 import org.apache.kafka.common.message.TxnOffsetCommitRequestData.TxnOffsetCommitRequestPartition;
@@ -30,6 +31,7 @@ import org.apache.kafka.common.protocol.Readable;
 import org.apache.kafka.common.record.internal.RecordBatch;
 
 import java.util.ArrayList;
+import java.util.Collections;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
@@ -41,6 +43,10 @@ public class TxnOffsetCommitRequest extends AbstractRequest {
     public static final short LAST_STABLE_VERSION_BEFORE_TRANSACTION_V2 = 4;
 
     private final TxnOffsetCommitRequestData data;
+
+    public static boolean useTopicIds(short version) {
+        return version >= 6;
+    }
 
     public static class Builder extends AbstractRequest.Builder<TxnOffsetCommitRequest> {
 
@@ -58,6 +64,7 @@ public class TxnOffsetCommitRequest extends AbstractRequest {
                 producerId,
                 producerEpoch,
                 pendingTxnOffsetCommits,
+                Collections.emptyMap(),
                 JoinGroupRequest.UNKNOWN_MEMBER_ID,
                 JoinGroupRequest.UNKNOWN_GENERATION_ID,
                 Optional.empty(),
@@ -69,6 +76,7 @@ public class TxnOffsetCommitRequest extends AbstractRequest {
                        final long producerId,
                        final short producerEpoch,
                        final Map<TopicPartition, CommittedOffset> pendingTxnOffsetCommits,
+                       final Map<String, Uuid> topicIds,
                        final String memberId,
                        final int generationId,
                        final Optional<String> groupInstanceId,
@@ -80,7 +88,7 @@ public class TxnOffsetCommitRequest extends AbstractRequest {
                     .setGroupId(consumerGroupId)
                     .setProducerId(producerId)
                     .setProducerEpoch(producerEpoch)
-                    .setTopics(getTopics(pendingTxnOffsetCommits))
+                    .setTopics(getTopics(pendingTxnOffsetCommits, topicIds))
                     .setMemberId(memberId)
                     .setGenerationId(generationId)
                     .setGroupInstanceId(groupInstanceId.orElse(null));
@@ -101,7 +109,16 @@ public class TxnOffsetCommitRequest extends AbstractRequest {
             if (!isTransactionV2Enabled) {
                 version = (short) Math.min(version, LAST_STABLE_VERSION_BEFORE_TRANSACTION_V2);
             }
+            if (version >= 6 && !hasTopicIds()) {
+                version = 5;
+            }
             return new TxnOffsetCommitRequest(data, version);
+        }
+
+        private boolean hasTopicIds() {
+            return data.topics().stream().allMatch(
+                topic -> topic.topicId() != null && !Uuid.ZERO_UUID.equals(topic.topicId())
+            );
         }
 
         private boolean groupMetadataSet() {
@@ -136,7 +153,10 @@ public class TxnOffsetCommitRequest extends AbstractRequest {
         return offsetMap;
     }
 
-    static List<TxnOffsetCommitRequestTopic> getTopics(Map<TopicPartition, CommittedOffset> pendingTxnOffsetCommits) {
+    static List<TxnOffsetCommitRequestTopic> getTopics(
+        Map<TopicPartition, CommittedOffset> pendingTxnOffsetCommits,
+        Map<String, Uuid> topicIds
+    ) {
         Map<String, List<TxnOffsetCommitRequestPartition>> topicPartitionMap = new HashMap<>();
         for (Map.Entry<TopicPartition, CommittedOffset> entry : pendingTxnOffsetCommits.entrySet()) {
             TopicPartition topicPartition = entry.getKey();
@@ -155,6 +175,7 @@ public class TxnOffsetCommitRequest extends AbstractRequest {
         return topicPartitionMap.entrySet().stream()
                    .map(entry -> new TxnOffsetCommitRequestTopic()
                                      .setName(entry.getKey())
+                                     .setTopicId(topicIds.getOrDefault(entry.getKey(), Uuid.ZERO_UUID))
                                      .setPartitions(entry.getValue()))
                    .collect(Collectors.toList());
     }
@@ -176,6 +197,7 @@ public class TxnOffsetCommitRequest extends AbstractRequest {
             }
             responseTopicData.add(new TxnOffsetCommitResponseTopic()
                                       .setName(entry.name())
+                                      .setTopicId(entry.topicId())
                                       .setPartitions(responsePartitions)
             );
         }
@@ -204,7 +226,8 @@ public class TxnOffsetCommitRequest extends AbstractRequest {
         TxnOffsetCommitResponseData response = new TxnOffsetCommitResponseData();
         request.topics().forEach(topic -> {
             TxnOffsetCommitResponseData.TxnOffsetCommitResponseTopic responseTopic = new TxnOffsetCommitResponseData.TxnOffsetCommitResponseTopic()
-                .setName(topic.name());
+                .setName(topic.name())
+                .setTopicId(topic.topicId());
             response.topics().add(responseTopic);
 
             topic.partitions().forEach(partition ->

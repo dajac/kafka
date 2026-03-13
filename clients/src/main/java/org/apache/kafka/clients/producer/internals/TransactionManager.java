@@ -28,6 +28,7 @@ import org.apache.kafka.clients.producer.ProducerRecord;
 import org.apache.kafka.common.KafkaException;
 import org.apache.kafka.common.Node;
 import org.apache.kafka.common.TopicPartition;
+import org.apache.kafka.common.Uuid;
 import org.apache.kafka.common.errors.AuthenticationException;
 import org.apache.kafka.common.errors.ClusterAuthorizationException;
 import org.apache.kafka.common.errors.GroupAuthorizationException;
@@ -75,6 +76,7 @@ import org.apache.kafka.common.utils.ProducerIdAndEpoch;
 import org.slf4j.Logger;
 
 import java.util.ArrayList;
+import java.util.Collections;
 import java.util.Comparator;
 import java.util.HashMap;
 import java.util.HashSet;
@@ -146,6 +148,7 @@ public class TransactionManager {
     private volatile long latestFinalizedFeaturesEpoch = -1;
     private volatile boolean isTransactionV2Enabled = false;
     private final boolean enable2PC;
+    private volatile ProducerMetadata metadata;
     private volatile ProducerIdAndEpoch preparedTxnState = ProducerIdAndEpoch.NONE;
 
     private enum State {
@@ -230,6 +233,16 @@ public class TransactionManager {
                               final long retryBackoffMs,
                               final ApiVersions apiVersions,
                               final boolean enable2PC) {
+        this(logContext, transactionalId, transactionTimeoutMs, retryBackoffMs, apiVersions, enable2PC, null);
+    }
+
+    public TransactionManager(final LogContext logContext,
+                              final String transactionalId,
+                              final int transactionTimeoutMs,
+                              final long retryBackoffMs,
+                              final ApiVersions apiVersions,
+                              final boolean enable2PC,
+                              final ProducerMetadata metadata) {
         this.producerIdAndEpoch = ProducerIdAndEpoch.NONE;
         this.transactionalId = transactionalId;
         this.log = logContext.logger(TransactionManager.class);
@@ -247,6 +260,11 @@ public class TransactionManager {
         this.txnPartitionMap = new TxnPartitionMap(logContext);
         this.apiVersions = apiVersions;
         this.enable2PC = enable2PC;
+        this.metadata = metadata;
+    }
+
+    public void setMetadata(ProducerMetadata metadata) {
+        this.metadata = metadata;
     }
 
     /**
@@ -1248,12 +1266,15 @@ public class TransactionManager {
             pendingTxnOffsetCommits.put(entry.getKey(), committedOffset);
         }
 
+        Map<String, Uuid> topicIds = metadata != null ? metadata.topicIds() : Collections.emptyMap();
+
         final TxnOffsetCommitRequest.Builder builder =
             new TxnOffsetCommitRequest.Builder(transactionalId,
                 groupMetadata.groupId(),
                 producerIdAndEpoch.producerId,
                 producerIdAndEpoch.epoch,
                 pendingTxnOffsetCommits,
+                topicIds,
                 groupMetadata.memberId(),
                 groupMetadata.generationId(),
                 groupMetadata.groupInstanceId(),
@@ -1939,10 +1960,14 @@ public class TransactionManager {
                     abortableError(error.exception());
                     break;
                 } else if (error == Errors.UNKNOWN_MEMBER_ID
-                        || error == Errors.ILLEGAL_GENERATION) {
+                        || error == Errors.ILLEGAL_GENERATION
+                        || error == Errors.STALE_MEMBER_EPOCH
+                        || error == Errors.GROUP_ID_NOT_FOUND) {
                     abortableError(new CommitFailedException("Transaction offset Commit failed " +
                         "due to consumer group metadata mismatch: " + error.exception().getMessage()));
                     break;
+                } else if (error == Errors.UNKNOWN_TOPIC_ID) {
+                    continue;
                 } else if (error == Errors.INVALID_PRODUCER_EPOCH
                         || error == Errors.PRODUCER_FENCED) {
                     // We could still receive INVALID_PRODUCER_EPOCH from old versioned transaction coordinator,

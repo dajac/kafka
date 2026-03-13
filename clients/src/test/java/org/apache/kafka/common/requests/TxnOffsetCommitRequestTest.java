@@ -81,6 +81,7 @@ public class TxnOffsetCommitRequestTest extends OffsetCommitRequestTest {
             producerId,
             producerEpoch,
             OFFSETS,
+            Collections.emptyMap(),
             memberId,
             generationId,
             Optional.of(groupInstanceId),
@@ -124,7 +125,7 @@ public class TxnOffsetCommitRequestTest extends OffsetCommitRequestTest {
                 request = builderWithGroupMetadata.build(version);
             }
             assertEquals(OFFSETS, request.offsets());
-            assertEquals(expectedTopics, TxnOffsetCommitRequest.getTopics(request.offsets()));
+            assertEquals(expectedTopics, TxnOffsetCommitRequest.getTopics(request.offsets(), Collections.emptyMap()));
 
             TxnOffsetCommitResponse response =
                 request.getErrorResponse(throttleTimeMs, Errors.NOT_COORDINATOR.exception());
