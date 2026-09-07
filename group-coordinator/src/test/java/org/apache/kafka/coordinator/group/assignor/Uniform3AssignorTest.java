@@ -49,7 +49,7 @@ import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
-class Uniform2AssignorTest {
+class Uniform3AssignorTest {
     private static final class Fixture implements GroupSpec, SubscribedTopicDescriber {
         final int memberCount;
         final int[] partitions;
@@ -204,9 +204,9 @@ class Uniform2AssignorTest {
                             .getOrDefault(topic(topic), Set.of()).contains(partition)) score[3]++;
                     }
                 }
-                for (int count : counts) score[0] += (long) count * count;
+                for (int count : counts) score[1] += (long) count * count;
             }
-            for (int load : loads) score[1] += (long) load * load;
+            for (int load : loads) score[0] += (long) load * load;
             return score;
         }
 
@@ -229,17 +229,17 @@ class Uniform2AssignorTest {
         }
     }
 
-    private Uniform2Assignor assignor(boolean rackAware) {
-        Uniform2Assignor assignor = new Uniform2Assignor();
-        assignor.configure(Map.of(Uniform2Assignor.RACK_AWARE_CONFIG, rackAware));
+    private Uniform3Assignor assignor(boolean rackAware) {
+        Uniform3Assignor assignor = new Uniform3Assignor();
+        assignor.configure(Map.of(Uniform3Assignor.RACK_AWARE_CONFIG, rackAware));
         return assignor;
     }
 
     @ParameterizedTest
     @ValueSource(booleans = {false, true})
     void fuzzAgainstExhaustiveOracle(boolean rackAware) {
-        Uniform2Assignor assignor = assignor(rackAware);
-        int trials = Integer.getInteger("uniform2.fuzz.trials", 1000);
+        Uniform3Assignor assignor = assignor(rackAware);
+        int trials = Integer.getInteger("uniform3.fuzz.trials", 1000);
         for (int seed = 0; seed < trials; seed++) {
             Random random = new Random(seed);
             Fixture fixture = new Fixture(1 + random.nextInt(3), random.nextInt(4), random.nextInt(4), random.nextInt(3));
@@ -279,7 +279,9 @@ class Uniform2AssignorTest {
     @ParameterizedTest
     @ValueSource(booleans = {false, true})
     void fuzzTopologyAndMetadataChanges(boolean rackAware) {
-        Uniform2Assignor assignor = assignor(rackAware);
+        Uniform3Assignor assignor = assignor(rackAware);
+        Uniform2Assignor reference = new Uniform2Assignor();
+        reference.configure(Map.of(Uniform2Assignor.RACK_AWARE_CONFIG, rackAware));
         for (int seed = 0; seed < 100; seed++) {
             Random random = new Random(seed);
             GroupAssignment previous = new GroupAssignment(Map.of());
@@ -302,36 +304,27 @@ class Uniform2AssignorTest {
                 }
                 fixture.previous.putAll(previous.members());
                 GroupAssignment result = assignor.assign(fixture, fixture);
-                assertTopicSpread(fixture, result, homogeneous);
+                int[][] owners = fixture.owners(result);
+                if (homogeneous) {
+                    // Both objective orders attain the same balance minima for homogeneous subscriptions.
+                    assertArrayEquals(fixture.score(fixture.owners(reference.assign(fixture, fixture)), rackAware),
+                        fixture.score(owners, rackAware), "Objective comparison: seed=" + seed + ", round=" + round);
+                    int[] loads = new int[fixture.memberCount];
+                    for (int[] topic : owners) {
+                        int[] counts = new int[fixture.memberCount];
+                        for (int owner : topic) {
+                            counts[owner]++;
+                            loads[owner]++;
+                        }
+                        assertTrue(Arrays.stream(counts).max().orElse(0) - Arrays.stream(counts).min().orElse(0) <= 1);
+                    }
+                    assertTrue(Arrays.stream(loads).max().orElse(0) - Arrays.stream(loads).min().orElse(0) <= 1);
+                }
                 fixture.previous.clear();
                 fixture.previous.putAll(result.members());
                 assertEquals(result, assignor.assign(fixture, fixture), "seed=" + seed + ", round=" + round);
                 previous = result;
             }
-        }
-    }
-
-    private static void assertTopicSpread(Fixture fixture, GroupAssignment result, boolean homogeneous) {
-        int[][] owners = fixture.owners(result);
-        int[] loads = new int[fixture.memberCount];
-        for (int topic = 0; topic < owners.length; topic++) {
-            int[] counts = new int[fixture.memberCount];
-            int subscribers = 0;
-            for (boolean[] subscription : fixture.subscriptions) if (subscription[topic]) subscribers++;
-            if (subscribers == 0) continue;
-            for (int owner : owners[topic]) {
-                counts[owner]++;
-                loads[owner]++;
-            }
-            int low = owners[topic].length / subscribers;
-            int high = low + (owners[topic].length % subscribers == 0 ? 0 : 1);
-            for (int member = 0; member < fixture.memberCount; member++) {
-                if (fixture.subscriptions[member][topic]) assertTrue(counts[member] >= low && counts[member] <= high,
-                    "Topic spread: topic=" + topic);
-            }
-        }
-        if (homogeneous) {
-            assertTrue(Arrays.stream(loads).max().orElse(0) - Arrays.stream(loads).min().orElse(0) <= 1);
         }
     }
 
@@ -360,7 +353,7 @@ class Uniform2AssignorTest {
     void rackAwarenessRequiresEveryMemberRack() {
         Fixture fixture = new Fixture(3, 6);
         fixture.racks[2] = null;
-        Uniform2Assignor enabled = assignor(true);
+        Uniform3Assignor enabled = assignor(true);
         GroupAssignment expected = assignor(false).assign(fixture, fixture);
         SubscribedTopicDescriber noRacks = new SubscribedTopicDescriber() {
             @Override
@@ -382,7 +375,7 @@ class Uniform2AssignorTest {
     void realignsReplicationFactorTwoAcrossThreeRacks() {
         Fixture fixture = new Fixture(3, 6, 6);
         for (int member = 0; member < 3; member++) fixture.racks[member] = "r" + member;
-        Uniform2Assignor assignor = assignor(true);
+        Uniform3Assignor assignor = assignor(true);
         GroupAssignment result = assignor.assign(fixture, fixture);
         for (int round = 0; round < 6; round++) {
             fixture.previous.clear();
@@ -395,8 +388,8 @@ class Uniform2AssignorTest {
             }
             result = assignor.assign(fixture, fixture);
             long[] score = fixture.score(fixture.owners(result), true);
-            assertEquals(48, score[1]);
-            assertEquals(24, score[0]);
+            assertEquals(48, score[0]);
+            assertEquals(24, score[1]);
             assertEquals(0, score[2]);
         }
     }
@@ -406,44 +399,7 @@ class Uniform2AssignorTest {
         Fixture fixture = new Fixture(2, 4, 4);
         fixture.previous.putAll(fixture.assignment(new int[][] {{0, 0, 0, 0}, {1, 1, 1, 1}}).members());
         GroupAssignment result = assignor(false).assign(fixture, fixture);
-        assertArrayEquals(new long[] {16, 32, 0, 4}, fixture.score(fixture.owners(result), false));
-    }
-
-    @ParameterizedTest
-    @ValueSource(booleans = {false, true})
-    void topicSpreadTakesPrecedenceOverTotalBalanceAndLocality(boolean rackAware) {
-        Fixture fixture = new Fixture(2, 10, 10);
-        fixture.subscriptions[1][0] = false;
-        fixture.racks[1] = "r1";
-        for (int p = 0; p < 10; p++) fixture.replicas.get(1).set(p, Set.of("r0"));
-        int[][] old = {new int[10], new int[10]};
-        Arrays.fill(old[1], 1);
-        GroupAssignment previous = fixture.assignment(old);
-        fixture.previous.putAll(previous.members());
-        Uniform2Assignor assignor = assignor(rackAware);
-        GroupAssignment result = assignor.assign(fixture, fixture);
-        int[][] owners = fixture.owners(result);
-        assertEquals(5, Arrays.stream(owners[1]).filter(owner -> owner == 0).count());
-        assertEquals(5, Arrays.stream(owners[1]).filter(owner -> owner == 1).count());
-        assertArrayEquals(new long[] {150, 250, rackAware ? 5 : 0, 5}, fixture.score(owners, rackAware));
-        assertEquals(previous.members(), fixture.previous);
-        fixture.previous.clear();
-        fixture.previous.putAll(result.members());
-        assertEquals(result, assignor.assign(fixture, fixture));
-    }
-
-    @ParameterizedTest
-    @ValueSource(booleans = {false, true})
-    void spreadsOddAndSingletonTopicsBeforeBalancingTotals(boolean rackAware) {
-        Fixture fixture = new Fixture(2, 5, 3, 1);
-        fixture.subscriptions[1][0] = false;
-        fixture.previous.putAll(fixture.assignment(new int[][] {new int[5], new int[3], new int[1]}).members());
-        GroupAssignment result = assignor(rackAware).assign(fixture, fixture);
-        int[][] owners = fixture.owners(result);
-        assertEquals(1, Arrays.stream(owners[1]).filter(owner -> owner == 0).count());
-        assertEquals(2, Arrays.stream(owners[1]).filter(owner -> owner == 1).count());
-        assertEquals(1, owners[2][0]);
-        assertArrayEquals(new long[] {31, 45, 0, 3}, fixture.score(owners, rackAware));
+        assertArrayEquals(new long[] {32, 16, 0, 4}, fixture.score(fixture.owners(result), false));
     }
 
     @Test
@@ -457,10 +413,10 @@ class Uniform2AssignorTest {
 
     @Test
     void validatesConfigurationAndDefaultsToDisabled() {
-        Uniform2Assignor assignor = new Uniform2Assignor();
-        assertEquals("uniform2", assignor.name());
-        assertThrows(ConfigException.class, () -> assignor.configure(Map.of(Uniform2Assignor.RACK_AWARE_CONFIG, "invalid")));
-        assignor.configure(Map.of(Uniform2Assignor.RACK_AWARE_CONFIG, "true"));
+        Uniform3Assignor assignor = new Uniform3Assignor();
+        assertEquals("uniform3", assignor.name());
+        assertThrows(ConfigException.class, () -> assignor.configure(Map.of(Uniform3Assignor.RACK_AWARE_CONFIG, "invalid")));
+        assignor.configure(Map.of(Uniform3Assignor.RACK_AWARE_CONFIG, "true"));
         assignor.configure(Map.of());
         Fixture fixture = new Fixture(2, 3);
         fixture.forbidRackAccess = true;

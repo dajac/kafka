@@ -108,6 +108,7 @@ import org.apache.kafka.coordinator.group.api.streams.assignor.MemberAssignment;
 import org.apache.kafka.coordinator.group.api.streams.assignor.TaskAssignor;
 import org.apache.kafka.coordinator.group.api.streams.assignor.TaskAssignorException;
 import org.apache.kafka.coordinator.group.assignor.Uniform2Assignor;
+import org.apache.kafka.coordinator.group.assignor.Uniform3Assignor;
 import org.apache.kafka.coordinator.group.classic.ClassicGroup;
 import org.apache.kafka.coordinator.group.classic.ClassicGroupMember;
 import org.apache.kafka.coordinator.group.classic.ClassicGroupState;
@@ -1596,6 +1597,78 @@ public class GroupMetadataManagerTest {
         GroupMetadataManagerTestContext context = uniform2RackContext(true, null, image, topicId);
         ConsumerGroupHeartbeatRequestData request = new ConsumerGroupHeartbeatRequestData()
             .setGroupId("uniform2-racks").setMemberId("member").setMemberEpoch(10);
+        context.consumerGroupHeartbeat(request);
+        MetadataDelta delta = new MetadataDelta.Builder().setImage(image).build();
+        delta.replay(new RegisterBrokerRecord().setBrokerId(0).setRack("new-rack"));
+        context.groupMetadataManager.onMetadataUpdate(new KRaftCoordinatorMetadataDelta(delta),
+            new KRaftCoordinatorMetadataImage(delta.apply(MetadataProvenance.EMPTY)));
+        assertTrue(context.groupMetadataManager.topicHashCache().containsKey("foo"));
+        assertEquals(10, context.consumerGroupHeartbeat(request).response().memberEpoch());
+    }
+
+    private GroupMetadataManagerTestContext uniform3RackContext(boolean enabled, String rack, MetadataImage image, Uuid topicId) {
+        return new GroupMetadataManagerTestContext.Builder()
+            .withConfig(GroupCoordinatorConfig.CONSUMER_GROUP_ASSIGNORS_CONFIG, List.of("uniform3"))
+            .withConfig(Uniform3Assignor.RACK_AWARE_CONFIG, enabled)
+            .withConfig(GroupCoordinatorConfig.CONSUMER_GROUP_ASSIGNOR_OFFLOAD_ENABLE_CONFIG, false)
+            .withMetadataImage(new KRaftCoordinatorMetadataImage(image))
+            .withConsumerGroup(new ConsumerGroupBuilder("uniform3-racks", 10)
+                .withMember(new ConsumerGroupMember.Builder("member")
+                    .setState(MemberState.STABLE)
+                    .setMemberEpoch(10)
+                    .setPreviousMemberEpoch(9)
+                    .setRackId(rack)
+                    .setClientId(DEFAULT_CLIENT_ID)
+                    .setClientHost(DEFAULT_CLIENT_ADDRESS.toString())
+                    .setSubscribedTopicNames(List.of("foo"))
+                    .setServerAssignorName("uniform3")
+                    .setAssignedPartitions(toAssignmentWithEpochs(mkAssignment(mkTopicAssignment(topicId, 0)), 10))
+                    .build())
+                .withAssignment("member", mkAssignment(mkTopicAssignment(topicId, 0)))
+                .withAssignmentEpoch(10)
+                .withMetadataHash(computeGroupHash(Map.of("foo", computeTopicHash("foo", new KRaftCoordinatorMetadataImage(image))))))
+            .build();
+    }
+
+    @ParameterizedTest
+    @ValueSource(booleans = {false, true})
+    public void testUniform3MemberRackChangeTriggersAssignment(boolean enabled) {
+        Uuid topicId = Uuid.randomUuid();
+        MetadataImage image = new MetadataImageBuilder().addTopic(topicId, "foo", 1).addRacks().build();
+        GroupMetadataManagerTestContext context = uniform3RackContext(enabled, "rack0", image, topicId);
+        ConsumerGroupHeartbeatRequestData request = new ConsumerGroupHeartbeatRequestData()
+            .setGroupId("uniform3-racks").setMemberId("member").setMemberEpoch(10);
+        context.consumerGroupHeartbeat(request);
+        CoordinatorResult<ConsumerGroupHeartbeatResponseData, CoordinatorRecord> result =
+            context.consumerGroupHeartbeat(request.setRackId("rack1"));
+        assertEquals(enabled ? 11 : 10, result.response().memberEpoch());
+    }
+
+    @ParameterizedTest
+    @ValueSource(booleans = {false, true})
+    public void testUniform3BrokerRackChangeInvalidatesMetadata(boolean enabled) {
+        Uuid topicId = Uuid.randomUuid();
+        MetadataImage image = new MetadataImageBuilder().addTopic(topicId, "foo", 1).addRacks().build();
+        GroupMetadataManagerTestContext context = uniform3RackContext(enabled, "rack0", image, topicId);
+        ConsumerGroupHeartbeatRequestData request = new ConsumerGroupHeartbeatRequestData()
+            .setGroupId("uniform3-racks").setMemberId("member").setMemberEpoch(10);
+        context.consumerGroupHeartbeat(request);
+        assertTrue(context.groupMetadataManager.topicHashCache().containsKey("foo"));
+        MetadataDelta delta = new MetadataDelta.Builder().setImage(image).build();
+        delta.replay(new RegisterBrokerRecord().setBrokerId(0).setRack("new-rack"));
+        context.groupMetadataManager.onMetadataUpdate(new KRaftCoordinatorMetadataDelta(delta),
+            new KRaftCoordinatorMetadataImage(delta.apply(MetadataProvenance.EMPTY)));
+        assertEquals(!enabled, context.groupMetadataManager.topicHashCache().containsKey("foo"));
+        assertEquals(enabled ? 11 : 10, context.consumerGroupHeartbeat(request).response().memberEpoch());
+    }
+
+    @Test
+    public void testUniform3BrokerRackChangeWithMissingMemberRack() {
+        Uuid topicId = Uuid.randomUuid();
+        MetadataImage image = new MetadataImageBuilder().addTopic(topicId, "foo", 1).addRacks().build();
+        GroupMetadataManagerTestContext context = uniform3RackContext(true, null, image, topicId);
+        ConsumerGroupHeartbeatRequestData request = new ConsumerGroupHeartbeatRequestData()
+            .setGroupId("uniform3-racks").setMemberId("member").setMemberEpoch(10);
         context.consumerGroupHeartbeat(request);
         MetadataDelta delta = new MetadataDelta.Builder().setImage(image).build();
         delta.replay(new RegisterBrokerRecord().setBrokerId(0).setRack("new-rack"));

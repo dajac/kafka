@@ -42,8 +42,9 @@ import static org.apache.kafka.coordinator.group.assignor.Uniform2AssignmentGrap
 
 /**
  * An experimental uniform assignor with one convex-flow algorithm for all subscriptions.
- * Objectives, in order, are minimum sum of squared member loads, minimum sum of squared
- * per-topic member loads, minimum remote partitions, and minimum partition movements.
+ * Every topic is spread within floor/ceiling counts over its subscribers. Within those
+ * bounds, objectives are minimum sum of squared member loads, minimum remote partitions,
+ * and minimum partition movements.
  * Squared loads express balance even when subscriptions make equal loads impossible.
  * Stickiness is exact among assignments attaining the preceding objectives.
  *
@@ -55,7 +56,7 @@ public class Uniform2Assignor implements ConsumerGroupPartitionAssignor, Configu
     public static final String NAME = "uniform2";
     public static final String RACK_AWARE_CONFIG = "group.consumer.uniform2.rack.aware.enable";
     public static final String RACK_AWARE_DOC = "Enable rack-aware assignment for uniform2 when every member has a nonempty rack. " +
-        "Rack locality is optimized after total and per-topic balance and before stickiness.";
+        "Rack locality is optimized after per-topic and total balance and before stickiness.";
 
     private volatile boolean rackAware = false;
 
@@ -186,10 +187,7 @@ public class Uniform2Assignor implements ConsumerGroupPartitionAssignor, Configu
                 assignment.add(new HashMap<>());
             }
             for (Topic topic : topics.values()) addTopic(topic);
-            if (!balancedBounds(total)) {
-                graph.optimize(TOTAL);
-                graph.optimize(TOPIC);
-            }
+            if (!balancedBounds(total)) graph.optimize(TOTAL);
             if (racks != null) optimizeRacks(total);
             if (needsMovementOptimization()) graph.minimizeMovement();
             return materialize();
@@ -282,12 +280,21 @@ public class Uniform2Assignor implements ConsumerGroupPartitionAssignor, Configu
         }
 
         /**
-         * A cheap certificate for the absolute lower bounds of both balance objectives.
-         * This works for any subscriptions; if the greedy remainder placement cannot
-         * certify equal loads, the general optimizer finds the constrained optimum.
+         * Topic floor/ceiling bounds are mandatory and jointly feasible: every topic
+         * distributes only to its own subscribers. Seed those counts, then certify
+         * whether total loads also attain their absolute lower bound. If not, the
+         * optimizer balances total loads subject to the fixed topic bounds.
          */
         private boolean balancedBounds(int total) {
             seedBalancedCounts();
+            for (Topic topic : topics.values()) {
+                int low = topic.owners.length / topic.subscriberCount;
+                int high = low + (topic.owners.length % topic.subscriberCount == 0 ? 0 : 1);
+                for (int edge : topic.counts) {
+                    graph.lower[edge] = low;
+                    graph.upper[edge] = high;
+                }
+            }
             int minimum = total / members.size();
             int maximum = minimum + (total % members.size() == 0 ? 0 : 1);
             for (int edge : totals) {
@@ -296,14 +303,6 @@ public class Uniform2Assignor implements ConsumerGroupPartitionAssignor, Configu
             for (int edge : totals) {
                 graph.lower[edge] = minimum;
                 graph.upper[edge] = maximum;
-            }
-            for (Topic topic : topics.values()) {
-                int low = topic.owners.length / topic.subscriberCount;
-                int high = low + (topic.owners.length % topic.subscriberCount == 0 ? 0 : 1);
-                for (int edge : topic.counts) {
-                    graph.lower[edge] = low;
-                    graph.upper[edge] = high;
-                }
             }
             return true;
         }

@@ -53,8 +53,8 @@ before submission. No wire protocol or persisted record schema is added.
 
 The algorithm minimizes the following tuple lexicographically:
 
-1. Sum of squared total partition counts over members.
-2. Sum of squared partition counts over all topic/member subscriptions.
+1. Sum of squared partition counts over all topic/member subscriptions.
+2. Sum of squared total partition counts over members.
 3. Number of partitions assigned outside their replica-rack sets (when enabled).
 4. Number of previously assigned partitions changing owner.
 
@@ -62,12 +62,15 @@ Coverage, unique ownership, and subscription eligibility are hard constraints.
 Only topics subscribed to by at least one current member are assigned. Missing
 subscribed topic metadata raises `PartitionAssignorException`.
 
+Every topic is constrained to give each subscriber either the floor or ceiling of
+its partition count divided by its subscriber count. These independent bounds
+always attain the minimum topic cost; the solver optimizes total load within them.
 Balance is measured among eligible members. For homogeneous subscriptions, both
 total counts and each topic's counts differ by at most one. For heterogeneous
 subscriptions, these objectives can conflict. For example, if member A can read
 X and Y, member B can only read Y, and both topics have ten partitions, total
 balance requires A to own X and B to own Y. Even Y distribution would instead
-produce total loads of 15 and 5. The stated priority chooses total balance.
+produce total loads of 15 and 5. The assignor therefore splits Y 5/5 and accepts total loads of 15/5.
 Similarly, unavoidable remote reads do not justify violating balance.
 
 Minimum movement is exact *among assignments with optimal preceding objectives*.
@@ -92,9 +95,10 @@ Two cheap certificates avoid solving balance unnecessarily:
 - Reuse a complete previous assignment if it already attains both absolute balance
   lower bounds and, when enabled, has no known remote partitions.
 - Seed floor quotas for every topic and distribute remainder quotas by total load.
-  If the resulting total counts also attain their absolute lower bound, retain
-  the full floor/ceiling ranges as the optimal face. Otherwise optimize the
-  actual constrained balance objectives.
+  Always retain the full topic floor/ceiling ranges as hard bounds. If the seeded
+  total counts also attain their absolute lower bound, constrain totals to their
+  floor/ceiling ranges. Otherwise minimize total squared loads within the topic
+  bounds.
 
 The general balance solver uses integral convex cost scaling. Marginal costs for
 squared loads are `2 * count + 1`; an edge represents an entire count range.
@@ -147,6 +151,11 @@ configuration, avoiding shared mutable configuration between coordinators.
 
 ## Correctness verification
 
+The topic-first revision passed 782 coordinator/assignor tests on JDK 25, including
+200,000 exhaustive-oracle cases for uniform2 and 2,400 topology-change rounds.
+Module Checkstyle and Spotless checks passed. The uniform3 exhaustive suite also
+ran with 200,000 cases against its separate total-first oracle.
+
 `Uniform2AssignorTest` includes a seeded exhaustive oracle, independent of the
 flow implementation. It enumerates every eligible assignment for small random
 groups and compares the entire objective tuple, including minimum movement.
@@ -155,10 +164,12 @@ stability. Default: 1,000 seeds for each rack mode.
 
 Topology fuzzing repeatedly changes member count, subscriptions, topic counts,
 partition counts, member racks, and RF=2 replica-rack sets. It checks coverage,
-unique ownership, eligibility, fixed points, and both homogeneous balance bounds.
+unique ownership, eligibility, fixed points, and per-topic floor/ceiling bounds
+for both subscription types. Homogeneous groups also check total floor/ceiling bounds.
 Default: 100 seeds x 12 changes x two rack modes (2,400 rounds).
 
-Focused cases cover concentrated old assignments, RF=2 realignment, incomplete
+Focused cases include conflicting topic/total/locality objectives and unequal topic
+sizes including singletons. They also cover concentrated old assignments, RF=2 realignment, incomplete
 rack metadata, missing topics, configuration parsing, and the coordinator's
 member-rack and broker-rack refresh triggers.
 
@@ -180,6 +191,11 @@ allprojects {
 
 Pass it with `./gradlew -I /path/to/fuzz.gradle ...`. The development validation
 uses 100,000 seeds per rack mode (200,000 exhaustive cases).
+
+> Performance results below were measured before the topic-first change. They
+> describe the earlier total-first implementation and have not been rerun for
+> the current objective order. References to unchanged objectives in those
+> historical optimization notes concern that earlier implementation.
 
 ## Initial performance measurements
 

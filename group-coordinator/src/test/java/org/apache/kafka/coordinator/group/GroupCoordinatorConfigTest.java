@@ -34,6 +34,7 @@ import org.apache.kafka.coordinator.group.api.streams.assignor.TopologyDescriber
 import org.apache.kafka.coordinator.group.assignor.RangeAssignor;
 import org.apache.kafka.coordinator.group.assignor.SimpleAssignor;
 import org.apache.kafka.coordinator.group.assignor.Uniform2Assignor;
+import org.apache.kafka.coordinator.group.assignor.Uniform3Assignor;
 import org.apache.kafka.coordinator.group.assignor.UniformAssignor;
 import org.apache.kafka.coordinator.group.streams.AssignmentRefiner;
 import org.apache.kafka.coordinator.group.streams.MemberTaskOffsets;
@@ -167,6 +168,27 @@ public class GroupCoordinatorConfigTest {
             GroupCoordinatorConfig.CONSUMER_GROUP_ASSIGNORS_CONFIG, List.of(Uniform2Assignor.class.getName())))
             .consumerGroupAssignors().get(0));
         assertThrows(ConfigException.class, () -> createConfig(Map.of(Uniform2Assignor.RACK_AWARE_CONFIG, "invalid")));
+    }
+
+    @Test
+    public void testUniform3IsOptInAndHasIndependentConfiguration() {
+        assertEquals(List.of("uniform", "range"), GroupCoordinatorConfig.CONSUMER_GROUP_ASSIGNORS_DEFAULT);
+        GroupCoordinatorConfig enabled = createConfig(Map.of(
+            GroupCoordinatorConfig.CONSUMER_GROUP_ASSIGNORS_CONFIG, List.of("uniform3"),
+            Uniform3Assignor.RACK_AWARE_CONFIG, true));
+        GroupCoordinatorConfig disabled = createConfig(Map.of(
+            GroupCoordinatorConfig.CONSUMER_GROUP_ASSIGNORS_CONFIG, List.of("uniform3")));
+        ConsumerGroupPartitionAssignor first = enabled.consumerGroupAssignors().get(0);
+        ConsumerGroupPartitionAssignor second = disabled.consumerGroupAssignors().get(0);
+        assertInstanceOf(Uniform3Assignor.class, first);
+        assertInstanceOf(Uniform3Assignor.class, second);
+        assertNotSame(first, second);
+        assertEquals(true, ((Uniform3Assignor) first).rackAwareEnabled());
+        assertEquals(false, ((Uniform3Assignor) second).rackAwareEnabled());
+        assertInstanceOf(Uniform3Assignor.class, createConfig(Map.of(
+            GroupCoordinatorConfig.CONSUMER_GROUP_ASSIGNORS_CONFIG, List.of(Uniform3Assignor.class.getName())))
+            .consumerGroupAssignors().get(0));
+        assertThrows(ConfigException.class, () -> createConfig(Map.of(Uniform3Assignor.RACK_AWARE_CONFIG, "invalid")));
     }
 
     @Test

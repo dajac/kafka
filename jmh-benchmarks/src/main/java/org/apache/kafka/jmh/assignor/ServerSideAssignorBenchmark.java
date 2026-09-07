@@ -27,6 +27,7 @@ import org.apache.kafka.coordinator.group.api.assignor.SubscribedTopicDescriber;
 import org.apache.kafka.coordinator.group.api.assignor.SubscriptionType;
 import org.apache.kafka.coordinator.group.assignor.RangeAssignor;
 import org.apache.kafka.coordinator.group.assignor.Uniform2Assignor;
+import org.apache.kafka.coordinator.group.assignor.Uniform3Assignor;
 import org.apache.kafka.coordinator.group.assignor.UniformAssignor;
 import org.apache.kafka.coordinator.group.modern.Assignment;
 import org.apache.kafka.coordinator.group.modern.GroupSpecImpl;
@@ -76,7 +77,8 @@ public class ServerSideAssignorBenchmark {
     public enum AssignorType {
         RANGE(new RangeAssignor()),
         UNIFORM(new UniformAssignor()),
-        UNIFORM2(new Uniform2Assignor());
+        UNIFORM2(new Uniform2Assignor()),
+        UNIFORM3(new Uniform3Assignor());
 
         private final PartitionAssignor assignor;
 
@@ -94,7 +96,7 @@ public class ServerSideAssignorBenchmark {
      * for the first time (full), or incrementally when a rebalance is triggered.
      */
     public enum AssignmentType {
-        FULL, INCREMENTAL
+        FULL, INCREMENTAL, RACK_CHANGE
     }
 
     @Param({"100", "500", "1000", "5000", "10000"})
@@ -112,7 +114,7 @@ public class ServerSideAssignorBenchmark {
     @Param({"HOMOGENEOUS", "HETEROGENEOUS"})
     private SubscriptionType subscriptionType;
 
-    @Param({"RANGE", "UNIFORM", "UNIFORM2"})
+    @Param({"RANGE", "UNIFORM", "UNIFORM2", "UNIFORM3"})
     private AssignorType assignorType;
 
     @Param({"FULL", "INCREMENTAL"})
@@ -151,12 +153,18 @@ public class ServerSideAssignorBenchmark {
             partitionAssignor = uniform2;
         }
 
+        if (assignorType == AssignorType.UNIFORM3) {
+            Uniform3Assignor uniform3 = new Uniform3Assignor();
+            uniform3.configure(Map.of(Uniform3Assignor.RACK_AWARE_CONFIG, isRackAware));
+            partitionAssignor = uniform3;
+        }
+
         setupTopics();
 
         Map<String, ConsumerGroupMember> members = createMembers();
         this.groupSpec = AssignorBenchmarkUtils.createConsumerGroupSpec(members, subscriptionType, topicResolver);
 
-        if (assignmentType == AssignmentType.INCREMENTAL) {
+        if (assignmentType != AssignmentType.FULL) {
             simulateIncrementalRebalance();
         }
     }
@@ -244,7 +252,14 @@ public class ServerSideAssignorBenchmark {
     }
 
     private void simulateIncrementalRebalance() {
-        GroupAssignment initialAssignment = partitionAssignor.assign(groupSpec, subscribedTopicDescriber);
+        PartitionAssignor initialAssignor = partitionAssignor;
+        if (assignorType == AssignorType.UNIFORM2 || assignorType == AssignorType.UNIFORM3) {
+            // Compare both algorithms against identical previous ownership.
+            Uniform2Assignor seed = new Uniform2Assignor();
+            seed.configure(Map.of(Uniform2Assignor.RACK_AWARE_CONFIG, isRackAware));
+            initialAssignor = seed;
+        }
+        GroupAssignment initialAssignment = initialAssignor.assign(groupSpec, subscribedTopicDescriber);
         Map<String, MemberAssignment> members = initialAssignment.members();
 
         Map<Uuid, Map<Integer, String>> invertedTargetAssignment = AssignorBenchmarkUtils.computeInvertedTargetAssignment(initialAssignment);
@@ -258,11 +273,18 @@ public class ServerSideAssignorBenchmark {
             );
 
             updatedMemberSpec.put(memberId, new MemberSubscriptionAndAssignmentImpl(
-                groupSpec.memberSubscription(memberId).rackId(),
+                assignmentType == AssignmentType.RACK_CHANGE ?
+                    groupSpec.memberSubscription(memberId).rackId().map(rack -> "rack" + (Integer.parseInt(rack.substring(4)) + 1) % NUMBER_OF_RACKS) :
+                    groupSpec.memberSubscription(memberId).rackId(),
                 Optional.empty(),
                 groupSpec.memberSubscription(memberId).subscribedTopicIds(),
                 new Assignment(Map.copyOf(memberAssignment.partitions()))
             ));
+        }
+
+        if (assignmentType == AssignmentType.RACK_CHANGE) {
+            groupSpec = new GroupSpecImpl(updatedMemberSpec, subscriptionType, invertedTargetAssignment);
+            return;
         }
 
         Set<Uuid> subscribedTopicIdsForNewMember;
