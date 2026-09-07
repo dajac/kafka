@@ -95,6 +95,7 @@ import org.apache.kafka.coordinator.group.api.assignor.SubscriptionType;
 import org.apache.kafka.coordinator.group.api.streams.assignor.TaskAssignor;
 import org.apache.kafka.coordinator.group.api.streams.assignor.TaskAssignorException;
 import org.apache.kafka.coordinator.group.assignor.SimpleAssignor;
+import org.apache.kafka.coordinator.group.assignor.Uniform2Assignor;
 import org.apache.kafka.coordinator.group.classic.ClassicGroup;
 import org.apache.kafka.coordinator.group.classic.ClassicGroupMember;
 import org.apache.kafka.coordinator.group.classic.ClassicGroupState;
@@ -497,6 +498,8 @@ public class GroupMetadataManager {
      */
     private final ConsumerGroupPartitionAssignor defaultConsumerGroupAssignor;
 
+    private final boolean rackAwareUniform2Enabled;
+
     /**
      * The classic and consumer groups keyed by their name.
      */
@@ -598,6 +601,8 @@ public class GroupMetadataManager {
             .stream()
             .collect(Collectors.toMap(ConsumerGroupPartitionAssignor::name, Function.identity()));
         this.defaultConsumerGroupAssignor = config.consumerGroupAssignors().get(0);
+        this.rackAwareUniform2Enabled = consumerGroupAssignors.values().stream()
+            .anyMatch(assignor -> assignor instanceof Uniform2Assignor uniform2 && uniform2.rackAwareEnabled());
         this.groups = new TimelineHashMap<>(snapshotRegistry, 0);
         this.groupsByTopics = new TimelineHashMap<>(snapshotRegistry, 0);
         this.shareGroupStatePartitionMetadata = new TimelineHashMap<>(snapshotRegistry, 0);
@@ -2656,7 +2661,9 @@ public class GroupMetadataManager {
             // assignment must be recomputed with the new assignor.
             subscribedTopicNamesChanged ||
             updateRegularExpressionStatus == UpdateRegularExpressionStatus.REGEX_UPDATED_AND_RESOLVED ||
-            preferredServerAssignorChanged;
+            preferredServerAssignorChanged ||
+            (rackAwareUniform2Enabled && !Objects.equals(member.rackId(), updatedMember.rackId()) &&
+                usesRackAwareUniform2(group.computePreferredServerAssignor(member, updatedMember)));
 
         if (bumpGroupEpoch || group.hasMetadataExpired(currentTimeMs)) {
             // The subscription metadata is updated in two cases:
@@ -3616,6 +3623,12 @@ public class GroupMetadataManager {
         String currentPreferredAssignor = group.preferredServerAssignor().orElse(defaultAssignorName);
         String newPreferredAssignor = group.computePreferredServerAssignor(member, updatedMember).orElse(defaultAssignorName);
         return !currentPreferredAssignor.equals(newPreferredAssignor);
+    }
+
+    private boolean usesRackAwareUniform2(Optional<String> preferredAssignor) {
+        ConsumerGroupPartitionAssignor assignor = consumerGroupAssignors.get(
+            preferredAssignor.orElse(defaultConsumerGroupAssignor.name()));
+        return assignor instanceof Uniform2Assignor uniform2 && uniform2.rackAwareEnabled();
     }
 
     private static boolean isNotEmpty(String value) {
@@ -6710,6 +6723,18 @@ public class GroupMetadataManager {
      */
     public void onMetadataUpdate(CoordinatorMetadataDelta delta, CoordinatorMetadataImage newImage) {
         metadataImage = newImage;
+
+        // Broker rack changes are not topic deltas. Only opt-in groups with complete
+        // member racks need to invalidate their cached metadata in this case.
+        if (rackAwareUniform2Enabled && delta.hasChangedBrokerRacks()) {
+            groups.forEach((__, group) -> {
+                if (group instanceof ConsumerGroup consumer && usesRackAwareUniform2(consumer.preferredServerAssignor()) &&
+                    consumer.members().values().stream().allMatch(member -> isNotEmpty(member.rackId()))) {
+                    consumer.subscribedTopicNames().keySet().forEach(topicHashCache::remove);
+                    consumer.requestMetadataRefresh();
+                }
+            });
+        }
 
         // Initialize the last version if it was not yet.
         if (lastMetadataImageWithNewTopics == -1L) {

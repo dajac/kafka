@@ -18,9 +18,11 @@ package org.apache.kafka.coordinator.common.runtime;
 
 import org.apache.kafka.common.Uuid;
 import org.apache.kafka.image.MetadataDelta;
+import org.apache.kafka.metadata.BrokerRegistration;
 
 import java.util.Collection;
 import java.util.Objects;
+import java.util.Optional;
 import java.util.Set;
 
 /**
@@ -56,6 +58,17 @@ public class KRaftCoordinatorMetadataDelta implements CoordinatorMetadataDelta {
             return Set.of();
         }
         return metadataDelta.topicsDelta().deletedTopicIds();
+    }
+
+    @Override
+    public boolean hasChangedBrokerRacks() {
+        if (metadataDelta.clusterDelta() == null) return false;
+        return metadataDelta.clusterDelta().changedBrokers().entrySet().stream().anyMatch(entry -> {
+            Optional<String> previous = Optional.ofNullable(metadataDelta.image().cluster().broker(entry.getKey()))
+                .flatMap(BrokerRegistration::rack);
+            Optional<String> current = entry.getValue().flatMap(BrokerRegistration::rack);
+            return !previous.equals(current);
+        });
     }
 
     @Override

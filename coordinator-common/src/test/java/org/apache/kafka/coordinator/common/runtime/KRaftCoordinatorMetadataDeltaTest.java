@@ -18,8 +18,10 @@ package org.apache.kafka.coordinator.common.runtime;
 
 import org.apache.kafka.common.Uuid;
 import org.apache.kafka.common.metadata.PartitionChangeRecord;
+import org.apache.kafka.common.metadata.RegisterBrokerRecord;
 import org.apache.kafka.common.metadata.RemoveTopicRecord;
 import org.apache.kafka.common.metadata.TopicRecord;
+import org.apache.kafka.common.metadata.UnregisterBrokerRecord;
 import org.apache.kafka.image.MetadataDelta;
 import org.apache.kafka.image.MetadataImage;
 import org.apache.kafka.image.MetadataProvenance;
@@ -36,6 +38,25 @@ import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 public class KRaftCoordinatorMetadataDeltaTest {
+
+    @Test
+    public void testBrokerRackChanges() {
+        MetadataImage image = new MetadataImageBuilder().addRacks().build();
+        MetadataDelta delta = new MetadataDelta.Builder().setImage(image).build();
+        assertEquals(false, new KRaftCoordinatorMetadataDelta(delta).hasChangedBrokerRacks());
+        delta.replay(new RegisterBrokerRecord().setBrokerId(0).setRack("rack0"));
+        assertEquals(false, new KRaftCoordinatorMetadataDelta(delta).hasChangedBrokerRacks());
+        delta.replay(new RegisterBrokerRecord().setBrokerId(0).setRack("other"));
+        assertTrue(new KRaftCoordinatorMetadataDelta(delta).hasChangedBrokerRacks());
+        delta = new MetadataDelta.Builder().setImage(image).build();
+        delta.replay(new UnregisterBrokerRecord().setBrokerId(0));
+        assertTrue(new KRaftCoordinatorMetadataDelta(delta).hasChangedBrokerRacks());
+        delta = new MetadataDelta.Builder().setImage(image).build();
+        delta.replay(new RegisterBrokerRecord().setBrokerId(10).setRack(null));
+        assertEquals(false, new KRaftCoordinatorMetadataDelta(delta).hasChangedBrokerRacks());
+        delta.replay(new RegisterBrokerRecord().setBrokerId(10).setRack("rack10"));
+        assertTrue(new KRaftCoordinatorMetadataDelta(delta).hasChangedBrokerRacks());
+    }
 
     @Test
     public void testKRaftCoordinatorDeltaWithNulls() {

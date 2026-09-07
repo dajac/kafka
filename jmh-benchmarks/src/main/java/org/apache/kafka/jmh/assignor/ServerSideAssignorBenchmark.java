@@ -18,6 +18,7 @@ package org.apache.kafka.jmh.assignor;
 
 import org.apache.kafka.common.Uuid;
 import org.apache.kafka.coordinator.common.runtime.CoordinatorMetadataImage;
+import org.apache.kafka.coordinator.common.runtime.KRaftCoordinatorMetadataImage;
 import org.apache.kafka.coordinator.group.api.assignor.GroupAssignment;
 import org.apache.kafka.coordinator.group.api.assignor.GroupSpec;
 import org.apache.kafka.coordinator.group.api.assignor.MemberAssignment;
@@ -25,6 +26,7 @@ import org.apache.kafka.coordinator.group.api.assignor.PartitionAssignor;
 import org.apache.kafka.coordinator.group.api.assignor.SubscribedTopicDescriber;
 import org.apache.kafka.coordinator.group.api.assignor.SubscriptionType;
 import org.apache.kafka.coordinator.group.assignor.RangeAssignor;
+import org.apache.kafka.coordinator.group.assignor.Uniform2Assignor;
 import org.apache.kafka.coordinator.group.assignor.UniformAssignor;
 import org.apache.kafka.coordinator.group.modern.Assignment;
 import org.apache.kafka.coordinator.group.modern.GroupSpecImpl;
@@ -33,6 +35,9 @@ import org.apache.kafka.coordinator.group.modern.MemberSubscriptionAndAssignment
 import org.apache.kafka.coordinator.group.modern.SubscribedTopicDescriberImpl;
 import org.apache.kafka.coordinator.group.modern.TopicIds;
 import org.apache.kafka.coordinator.group.modern.consumer.ConsumerGroupMember;
+import org.apache.kafka.image.MetadataDelta;
+import org.apache.kafka.image.MetadataImage;
+import org.apache.kafka.image.MetadataProvenance;
 
 import org.openjdk.jmh.annotations.Benchmark;
 import org.openjdk.jmh.annotations.BenchmarkMode;
@@ -48,6 +53,7 @@ import org.openjdk.jmh.annotations.State;
 import org.openjdk.jmh.annotations.Threads;
 import org.openjdk.jmh.annotations.Warmup;
 
+import java.util.Arrays;
 import java.util.HashMap;
 import java.util.HashSet;
 import java.util.List;
@@ -69,7 +75,8 @@ public class ServerSideAssignorBenchmark {
 
     public enum AssignorType {
         RANGE(new RangeAssignor()),
-        UNIFORM(new UniformAssignor());
+        UNIFORM(new UniformAssignor()),
+        UNIFORM2(new Uniform2Assignor());
 
         private final PartitionAssignor assignor;
 
@@ -105,11 +112,18 @@ public class ServerSideAssignorBenchmark {
     @Param({"HOMOGENEOUS", "HETEROGENEOUS"})
     private SubscriptionType subscriptionType;
 
-    @Param({"RANGE", "UNIFORM"})
+    @Param({"RANGE", "UNIFORM", "UNIFORM2"})
     private AssignorType assignorType;
 
     @Param({"FULL", "INCREMENTAL"})
     private AssignmentType assignmentType;
+
+    public enum TopicSizeDistribution {
+        EQUAL, MIXED
+    }
+
+    @Param({"EQUAL"})
+    private TopicSizeDistribution topicSizeDistribution;
 
     private PartitionAssignor partitionAssignor;
 
@@ -131,6 +145,11 @@ public class ServerSideAssignorBenchmark {
     @Setup(Level.Trial)
     public void setup() {
         partitionAssignor = assignorType.assignor();
+        if (assignorType == AssignorType.UNIFORM2) {
+            Uniform2Assignor uniform2 = new Uniform2Assignor();
+            uniform2.configure(Map.of(Uniform2Assignor.RACK_AWARE_CONFIG, isRackAware));
+            partitionAssignor = uniform2;
+        }
 
         setupTopics();
 
@@ -147,10 +166,50 @@ public class ServerSideAssignorBenchmark {
 
         int partitionsPerTopic = (memberCount * partitionsToMemberRatio) / topicCount;
 
-        metadataImage = AssignorBenchmarkUtils.createMetadataImage(allTopicNames, partitionsPerTopic);
+        MetadataDelta delta = new MetadataDelta.Builder().setImage(MetadataImage.EMPTY).build();
+        int[] counts = new int[topicCount];
+        Arrays.fill(counts, partitionsPerTopic);
+        if (topicSizeDistribution == TopicSizeDistribution.MIXED) {
+            // Keep the same partition budget, with 80% singletons and differently sized
+            // larger topics. Interleave them so each heterogeneous bucket sees both.
+            if (topicCount < 5 || memberCount * partitionsToMemberRatio < topicCount) {
+                throw new IllegalArgumentException("MIXED requires at least five topics and one partition per topic");
+            }
+            Arrays.fill(counts, 1);
+            int remaining = memberCount * partitionsToMemberRatio - topicCount;
+            int weightSum = 0;
+            for (int i = 4; i < topicCount; i += 5) weightSum += 1 + (i / 5) % 4;
+            int allocated = 0;
+            for (int i = 4; i < topicCount; i += 5) {
+                int extra = (int) ((long) remaining * (1 + (i / 5) % 4) / weightSum);
+                counts[i] += extra;
+                allocated += extra;
+            }
+            counts[topicCount - 1 - (topicCount % 5)] += remaining - allocated;
+        }
+        for (int i = 0; i < topicCount; i++) {
+            // Stable IDs make topic traversal identical in paired benchmark runs.
+            AssignorBenchmarkUtils.addTopic(delta, new Uuid(0, i + 1), allTopicNames.get(i), counts[i]);
+        }
+        metadataImage = new KRaftCoordinatorMetadataImage(delta.apply(MetadataProvenance.EMPTY));
         topicResolver = new TopicIds.CachedTopicResolver(metadataImage);
 
-        subscribedTopicDescriber = new SubscribedTopicDescriberImpl(metadataImage);
+        SubscribedTopicDescriber metadata = new SubscribedTopicDescriberImpl(metadataImage);
+        // RF=2 across three racks exercises partial locality. The metadata helper above
+        // does not register broker racks, so member rack IDs alone would not test locality.
+        List<Set<String>> replicaRacks = List.of(
+            Set.of("rack0", "rack1"), Set.of("rack1", "rack2"), Set.of("rack2", "rack0"));
+        subscribedTopicDescriber = new SubscribedTopicDescriber() {
+            @Override
+            public int numPartitions(Uuid topicId) {
+                return metadata.numPartitions(topicId);
+            }
+
+            @Override
+            public Set<String> racksForPartition(Uuid topicId, int partition) {
+                return isRackAware ? replicaRacks.get(partition % NUMBER_OF_RACKS) : Set.of();
+            }
+        };
     }
 
     private Map<String, ConsumerGroupMember> createMembers() {
@@ -231,8 +290,8 @@ public class ServerSideAssignorBenchmark {
     @Benchmark
     @Threads(1)
     @OutputTimeUnit(TimeUnit.MILLISECONDS)
-    public void doAssignment() {
+    public GroupAssignment doAssignment() {
         topicResolver.clear();
-        partitionAssignor.assign(groupSpec, subscribedTopicDescriber);
+        return partitionAssignor.assign(groupSpec, subscribedTopicDescriber);
     }
 }

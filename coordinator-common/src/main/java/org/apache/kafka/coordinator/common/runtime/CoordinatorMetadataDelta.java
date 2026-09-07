@@ -36,6 +36,14 @@ public interface CoordinatorMetadataDelta {
     Set<Uuid> deletedTopicIds();
 
     /**
+     * Whether broker registration changes can alter replica-rack sets without changing
+     * topic metadata. Providers exposing broker racks should override this method.
+     */
+    default boolean hasChangedBrokerRacks() {
+        return false;
+    }
+
+    /**
      * Returns the previous image of the coordinator metadata.
      * This image is a snapshot of the metadata before the delta occurred.
      */

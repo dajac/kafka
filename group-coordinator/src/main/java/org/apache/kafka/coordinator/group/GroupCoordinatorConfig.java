@@ -30,6 +30,7 @@ import org.apache.kafka.coordinator.group.api.streams.StreamsGroupTopologyDescri
 import org.apache.kafka.coordinator.group.api.streams.assignor.TaskAssignor;
 import org.apache.kafka.coordinator.group.assignor.RangeAssignor;
 import org.apache.kafka.coordinator.group.assignor.SimpleAssignor;
+import org.apache.kafka.coordinator.group.assignor.Uniform2Assignor;
 import org.apache.kafka.coordinator.group.assignor.UniformAssignor;
 import org.apache.kafka.coordinator.group.streams.AssignmentRefiner;
 import org.apache.kafka.coordinator.group.streams.NoOpAssignmentRefiner;
@@ -220,17 +221,15 @@ public class GroupCoordinatorConfig {
 
     private static final List<ConsumerGroupPartitionAssignor> CONSUMER_GROUP_BUILTIN_ASSIGNORS = List.of(
         new UniformAssignor(),
-        new RangeAssignor()
+        new RangeAssignor(),
+        new Uniform2Assignor()
     );
     public static final String CONSUMER_GROUP_ASSIGNORS_CONFIG = "group.consumer.assignors";
     public static final String CONSUMER_GROUP_ASSIGNORS_DOC = "The server side assignors as a list of either names for builtin assignors or full class names for customer assignors. " +
         "The first one in the list is considered as the default assignor to be used in the case where the consumer does not specify an assignor. " +
         "Changing the default assignor does not trigger a rebalance for existing groups; the new default takes effect on the next rebalance. " +
         "The supported builtin assignors are: " + CONSUMER_GROUP_BUILTIN_ASSIGNORS.stream().map(ConsumerGroupPartitionAssignor::name).collect(Collectors.joining(", ")) + ".";
-    public static final List<String> CONSUMER_GROUP_ASSIGNORS_DEFAULT = CONSUMER_GROUP_BUILTIN_ASSIGNORS
-        .stream()
-        .map(ConsumerGroupPartitionAssignor::name)
-        .toList();
+    public static final List<String> CONSUMER_GROUP_ASSIGNORS_DEFAULT = List.of(UniformAssignor.NAME, RangeAssignor.NAME);
 
     public static final String CONSUMER_GROUP_MIGRATION_POLICY_CONFIG = "group.consumer.migration.policy";
     public static final String CONSUMER_GROUP_MIGRATION_POLICY_DEFAULT = ConsumerGroupMigrationPolicy.BIDIRECTIONAL.toString();
@@ -491,6 +490,7 @@ public class GroupCoordinatorConfig {
         .define(CONSUMER_GROUP_MIN_HEARTBEAT_INTERVAL_MS_CONFIG, INT, CONSUMER_GROUP_MIN_HEARTBEAT_INTERVAL_MS_DEFAULT, atLeast(1), MEDIUM, CONSUMER_GROUP_MIN_HEARTBEAT_INTERVAL_MS_DOC)
         .define(CONSUMER_GROUP_MAX_HEARTBEAT_INTERVAL_MS_CONFIG, INT, CONSUMER_GROUP_MAX_HEARTBEAT_INTERVAL_MS_DEFAULT, atLeast(1), MEDIUM, CONSUMER_GROUP_MAX_HEARTBEAT_INTERVAL_MS_DOC)
         .define(CONSUMER_GROUP_MAX_SIZE_CONFIG, INT, CONSUMER_GROUP_MAX_SIZE_DEFAULT, atLeast(1), MEDIUM, CONSUMER_GROUP_MAX_SIZE_DOC)
+        .define(Uniform2Assignor.RACK_AWARE_CONFIG, BOOLEAN, false, MEDIUM, Uniform2Assignor.RACK_AWARE_DOC)
         .define(CONSUMER_GROUP_ASSIGNORS_CONFIG, LIST, CONSUMER_GROUP_ASSIGNORS_DEFAULT, ConfigDef.ValidList.anyNonDuplicateValues(false, false), MEDIUM, CONSUMER_GROUP_ASSIGNORS_DOC)
         .define(CONSUMER_GROUP_MIGRATION_POLICY_CONFIG, STRING, CONSUMER_GROUP_MIGRATION_POLICY_DEFAULT, ConfigDef.CaseInsensitiveValidString.in(Utils.enumOptions(ConsumerGroupMigrationPolicy.class)), MEDIUM, CONSUMER_GROUP_MIGRATION_POLICY_DOC)
         .define(CONSUMER_GROUP_ASSIGNMENT_INTERVAL_MS_CONFIG, INT, CONSUMER_GROUP_ASSIGNMENT_INTERVAL_MS_DEFAULT, atLeast(0), MEDIUM, CONSUMER_GROUP_ASSIGNMENT_INTERVAL_MS_DOC)
@@ -901,6 +901,8 @@ public class GroupCoordinatorConfig {
             // or a fully qualified class name of a custom assignor
             for (String configuredAssignor : config.getList(GroupCoordinatorConfig.CONSUMER_GROUP_ASSIGNORS_CONFIG)) {
                 ConsumerGroupPartitionAssignor assignor = builtInAssignors.get(configuredAssignor);
+                // Configurable built-ins must not share configuration between coordinators.
+                if (assignor instanceof Uniform2Assignor) assignor = new Uniform2Assignor();
                 if (assignor == null) {
                     try {
                         assignor = Utils.newInstance(configuredAssignor, ConsumerGroupPartitionAssignor.class);

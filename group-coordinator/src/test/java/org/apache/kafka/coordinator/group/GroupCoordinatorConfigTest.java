@@ -33,6 +33,7 @@ import org.apache.kafka.coordinator.group.api.streams.assignor.TaskAssignor;
 import org.apache.kafka.coordinator.group.api.streams.assignor.TopologyDescriber;
 import org.apache.kafka.coordinator.group.assignor.RangeAssignor;
 import org.apache.kafka.coordinator.group.assignor.SimpleAssignor;
+import org.apache.kafka.coordinator.group.assignor.Uniform2Assignor;
 import org.apache.kafka.coordinator.group.assignor.UniformAssignor;
 import org.apache.kafka.coordinator.group.streams.AssignmentRefiner;
 import org.apache.kafka.coordinator.group.streams.MemberTaskOffsets;
@@ -145,6 +146,27 @@ public class GroupCoordinatorConfigTest {
             "org.apache.kafka.coordinator.group.assignor.RangeAssignor",
             RangeAssignor.class.getName()
         );
+    }
+
+    @Test
+    public void testUniform2IsOptInAndHasIndependentConfiguration() {
+        assertEquals(List.of("uniform", "range"), GroupCoordinatorConfig.CONSUMER_GROUP_ASSIGNORS_DEFAULT);
+        GroupCoordinatorConfig enabled = createConfig(Map.of(
+            GroupCoordinatorConfig.CONSUMER_GROUP_ASSIGNORS_CONFIG, List.of("uniform2"),
+            Uniform2Assignor.RACK_AWARE_CONFIG, true));
+        GroupCoordinatorConfig disabled = createConfig(Map.of(
+            GroupCoordinatorConfig.CONSUMER_GROUP_ASSIGNORS_CONFIG, List.of("uniform2")));
+        ConsumerGroupPartitionAssignor first = enabled.consumerGroupAssignors().get(0);
+        ConsumerGroupPartitionAssignor second = disabled.consumerGroupAssignors().get(0);
+        assertInstanceOf(Uniform2Assignor.class, first);
+        assertInstanceOf(Uniform2Assignor.class, second);
+        assertNotSame(first, second);
+        assertEquals(true, ((Uniform2Assignor) first).rackAwareEnabled());
+        assertEquals(false, ((Uniform2Assignor) second).rackAwareEnabled());
+        assertInstanceOf(Uniform2Assignor.class, createConfig(Map.of(
+            GroupCoordinatorConfig.CONSUMER_GROUP_ASSIGNORS_CONFIG, List.of(Uniform2Assignor.class.getName())))
+            .consumerGroupAssignors().get(0));
+        assertThrows(ConfigException.class, () -> createConfig(Map.of(Uniform2Assignor.RACK_AWARE_CONFIG, "invalid")));
     }
 
     @Test
