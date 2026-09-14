@@ -33,6 +33,7 @@ import org.apache.kafka.coordinator.group.api.streams.assignor.TaskAssignor;
 import org.apache.kafka.coordinator.group.api.streams.assignor.TopologyDescriber;
 import org.apache.kafka.coordinator.group.assignor.RangeAssignor;
 import org.apache.kafka.coordinator.group.assignor.SimpleAssignor;
+import org.apache.kafka.coordinator.group.assignor.Uniform2Assignor;
 import org.apache.kafka.coordinator.group.assignor.UniformAssignor;
 import org.apache.kafka.coordinator.group.streams.AssignmentRefiner;
 import org.apache.kafka.coordinator.group.streams.MemberTaskOffsets;
@@ -53,11 +54,13 @@ import java.util.SortedMap;
 import java.util.concurrent.CompletableFuture;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertInstanceOf;
 import static org.junit.jupiter.api.Assertions.assertNotNull;
 import static org.junit.jupiter.api.Assertions.assertNotSame;
 import static org.junit.jupiter.api.Assertions.assertNull;
 import static org.junit.jupiter.api.Assertions.assertThrows;
+import static org.junit.jupiter.api.Assertions.assertTrue;
 
 public class GroupCoordinatorConfigTest {
 
@@ -134,6 +137,36 @@ public class GroupCoordinatorConfigTest {
     }
 
     @Test
+    public void testUniform2AssignorIsNotEnabledByDefault() {
+        assertEquals(List.of("uniform", "range"), GroupCoordinatorConfig.CONSUMER_GROUP_ASSIGNORS_DEFAULT);
+        List<ConsumerGroupPartitionAssignor> assignors = createConfig(new HashMap<>()).consumerGroupAssignors();
+        assertEquals(2, assignors.size());
+        assertInstanceOf(UniformAssignor.class, assignors.get(0));
+        assertInstanceOf(RangeAssignor.class, assignors.get(1));
+    }
+
+    @Test
+    public void testUniform2AssignorConfiguration() {
+        Map<String, Object> configs = new HashMap<>();
+        configs.put(GroupCoordinatorConfig.CONSUMER_GROUP_ASSIGNORS_CONFIG, "uniform2");
+        GroupCoordinatorConfig config = createConfig(configs);
+        assertFalse(config.consumerGroupUniform2AssignorRackAwareEnable());
+        List<ConsumerGroupPartitionAssignor> assignors = config.consumerGroupAssignors();
+        assertEquals(1, assignors.size());
+        Uniform2Assignor assignor = assertInstanceOf(Uniform2Assignor.class, assignors.get(0));
+        assertFalse(assignor.rackAwareEnabled());
+
+        // Built-in assignors are instantiated and configured per configuration.
+        configs.put(GroupCoordinatorConfig.CONSUMER_GROUP_UNIFORM2_ASSIGNOR_RACK_AWARE_ENABLE_CONFIG, true);
+        config = createConfig(configs);
+        assertTrue(config.consumerGroupUniform2AssignorRackAwareEnable());
+        Uniform2Assignor rackAwareAssignor = assertInstanceOf(Uniform2Assignor.class, config.consumerGroupAssignors().get(0));
+        assertTrue(rackAwareAssignor.rackAwareEnabled());
+        assertNotSame(assignor, rackAwareAssignor);
+        assertFalse(assignor.rackAwareEnabled());
+    }
+
+    @Test
     public void testConsumerGroupAssignorFullClassNames() {
         // The full class name of the assignors is part of our public api. Hence,
         // we should ensure that they are not changed by mistake.
@@ -144,6 +177,10 @@ public class GroupCoordinatorConfigTest {
         assertEquals(
             "org.apache.kafka.coordinator.group.assignor.RangeAssignor",
             RangeAssignor.class.getName()
+        );
+        assertEquals(
+            "org.apache.kafka.coordinator.group.assignor.Uniform2Assignor",
+            Uniform2Assignor.class.getName()
         );
     }
 
