@@ -23,7 +23,10 @@ import org.apache.kafka.coordinator.group.modern.Assignment;
 import org.apache.kafka.coordinator.group.modern.MemberSubscriptionAndAssignmentImpl;
 
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.params.ParameterizedTest;
+import org.junit.jupiter.params.provider.ValueSource;
 
+import java.util.HashSet;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
@@ -31,6 +34,7 @@ import java.util.Set;
 import java.util.TreeMap;
 
 import static org.apache.kafka.coordinator.group.assignor.TopicIndex.NONE;
+import static org.apache.kafka.coordinator.group.assignor.Uniform2TestUtils.maxBitsetBits;
 import static org.apache.kafka.coordinator.group.assignor.Uniform2TestUtils.member;
 import static org.apache.kafka.coordinator.group.assignor.Uniform2TestUtils.spec;
 import static org.junit.jupiter.api.Assertions.assertArrayEquals;
@@ -237,8 +241,9 @@ public class Uniform2GroupModelTest {
         }
     }
 
-    @Test
-    public void testBackedTopics() {
+    @ParameterizedTest(name = "bitsets={0}")
+    @ValueSource(booleans = {false, true})
+    public void testBackedTopics(boolean bitsets) {
         // With four members, T1 has 5 / 4 = 1 base partition, T2 has 4 / 4 = 1 and T3 has 1 / 4 = 0.
         Map<String, MemberSubscriptionAndAssignmentImpl> members = new TreeMap<>();
         // A holds more than the base partitions of both T1 and T2.
@@ -249,7 +254,8 @@ public class Uniform2GroupModelTest {
         members.put("C", member(Set.of(T1, T2, T3), new Assignment(Map.of(T3, Set.of(0)))));
         members.put("D", member(Set.of(T1, T2, T3), Assignment.EMPTY));
 
-        Uniform2GroupModel model = model(members, describer(5, 4, 1), false);
+        Uniform2GroupModel model = new Uniform2GroupModel(spec(members), describer(5, 4, 1), false, maxBitsetBits(bitsets));
+        assertEquals(bitsets, model.usesBitsets);
 
         assertTrue(model.isBacked(0, 0));
         assertTrue(model.isBacked(0, 1));
@@ -269,6 +275,40 @@ public class Uniform2GroupModelTest {
         assertEquals(0, model.backedCount(3));
         assertArrayEquals(new int[]{0, 2, 3, 4, 4}, model.backedStart);
         assertArrayEquals(new int[]{0, 1, 1, 2}, model.backedTopics);
+    }
+
+    @ParameterizedTest(name = "bitsets={0}")
+    @ValueSource(booleans = {false, true})
+    public void testBackedTopicsBeyondOneWordOfTheBitset(boolean bitsets) {
+        // Thirty topics with 4 partitions each for three members: base 1, so a member holding two
+        // partitions of a topic is backed for it. The 90 member and topic pairs are more than a
+        // word of the bitset holds: with the topic first and three members, topic 21 of A is pair
+        // 63, the last of the first word, and topic 21 of B is pair 64, the first of the second.
+        TestMetadataImageBuilder builder = new TestMetadataImageBuilder();
+        Uuid[] topicIds = new Uuid[30];
+        Set<Uuid> topics = new HashSet<>();
+        for (int t = 0; t < 30; t++) {
+            topicIds[t] = new Uuid(1L, 1L + t);
+            builder.addTopic(topicIds[t], "topic-" + t, 4, 3, 1);
+            topics.add(topicIds[t]);
+        }
+        Map<String, MemberSubscriptionAndAssignmentImpl> members = new TreeMap<>();
+        members.put("A", member(topics, new Assignment(Map.of(topicIds[0], Set.of(0, 1), topicIds[21], Set.of(0, 1)))));
+        members.put("B", member(topics, new Assignment(Map.of(topicIds[20], Set.of(0, 1), topicIds[21], Set.of(2, 3)))));
+        // C holds a single partition of topic 22, its base, so it is only backed for topic 29.
+        members.put("C", member(topics, new Assignment(Map.of(topicIds[22], Set.of(0), topicIds[29], Set.of(0, 1)))));
+        Uniform2GroupModel model = new Uniform2GroupModel(spec(members), builder.buildDescriber(), false, maxBitsetBits(bitsets));
+        assertEquals(bitsets, model.usesBitsets);
+        assertEquals(30, model.topicCount);
+
+        Set<Integer> backed = Set.of(0, 21, 100 + 20, 100 + 21, 200 + 29);
+        for (int m = 0; m < model.memberCount; m++) {
+            for (int t = 0; t < model.topicCount; t++) {
+                assertEquals(backed.contains(m * 100 + t), model.isBacked(m, t), "member " + m + " topic " + t);
+            }
+        }
+        assertArrayEquals(new int[] {0, 2, 4, 5}, model.backedStart);
+        assertArrayEquals(new int[] {0, 21, 20, 21, 29}, model.backedTopics);
     }
 
     @Test

@@ -49,13 +49,14 @@ final class Uniform2GroupModel {
 
     /**
      * The largest number of members times topics for which the relations between members and
-     * topics that the phases look up constantly are kept as bitsets, see
-     * {@link Uniform2ExtraPartitions#has}: 16 million bits, 2 MB. Below it, a bitset is cheap to
-     * allocate and clear for every assignment and answers in constant time, where a binary
-     * search in the sorted topics of a member costs a dozen comparisons in a group with many
-     * topics. Above it, a bitset would stop fitting the fast caches of a core, and its allocation
-     * and clearing would weigh on every assignment: with 10,000 members and 10,000 topics it
-     * would take 12.5 MB, while the sorted arrays only hold the pairs actually related.
+     * topics that the phases look up constantly are kept as bitsets, see {@link #isBacked} and
+     * {@link Uniform2ExtraPartitions#has}: 16 million bits, 2 MB per bitset. Below it, a bitset
+     * is cheap to allocate and clear for every assignment and answers in constant time, where a
+     * binary search in the sorted topics of a member costs a dozen comparisons in a group with
+     * many topics. Above it, a bitset would stop fitting the fast caches of a core, and its
+     * allocation and clearing would weigh on every assignment: with 10,000 members and 10,000
+     * topics each would take 12.5 MB, while the sorted arrays only hold the pairs actually
+     * related.
      */
     static final long MAX_BITSET_BITS = 1L << 24;
 
@@ -108,6 +109,11 @@ final class Uniform2GroupModel {
     final int[] backedStart;
     /** Per member, the topics of which it currently holds more than the base partitions, ascending. */
     final int[] backedTopics;
+    /**
+     * Per member and topic, whether the member currently holds more than the base partitions of
+     * the topic, indexed by {@link #bitIndex}, or null when the group is too large for a bitset.
+     */
+    private final long[] backedBits;
 
     /** The number of cohorts: groups of members with the same subscription, and rack when in use. */
     final int cohortCount;
@@ -211,6 +217,7 @@ final class Uniform2GroupModel {
         Backed backed = backed();
         backedStart = backed.start;
         backedTopics = backed.topics;
+        backedBits = backed.bits;
     }
 
     /**
@@ -225,6 +232,10 @@ final class Uniform2GroupModel {
      *         partitions, so that an extra partition of the topic lets it keep one of them.
      */
     boolean isBacked(int member, int topic) {
+        if (backedBits != null) {
+            int bit = bitIndex(member, topic);
+            return (backedBits[bit >>> 6] & (1L << bit)) != 0;
+        }
         return Arrays.binarySearch(backedTopics, backedStart[member], backedStart[member + 1], topic) >= 0;
     }
 
@@ -416,10 +427,11 @@ final class Uniform2GroupModel {
         return new CohortIndex(baseLoad, size, topicCohortStart, topicCohorts, rackSubscribers);
     }
 
-    private record Backed(int[] start, int[] topics) { }
+    private record Backed(int[] start, int[] topics, long[] bits) { }
 
     /**
-     * Indexes, per member, the topics of which it holds more than the base partitions.
+     * Indexes, per member, the topics of which it holds more than the base partitions, and sets
+     * their bits when the group uses bitsets.
      */
     private Backed backed() {
         int[] start = new int[memberCount + 1];
@@ -434,15 +446,21 @@ final class Uniform2GroupModel {
             start[m + 1] += start[m];
         }
         int[] topics = new int[start[memberCount]];
+        long[] bits = usesBitsets ? newBitset() : null;
         int[] fill = Arrays.copyOf(start, memberCount);
         for (int t = 0; t < topicCount; t++) {
             for (int i = holderStart[t]; i < holderStart[t + 1]; i++) {
                 if (holderValidCount[i] > basePartitionCount[t]) {
-                    topics[fill[holderMember[i]]++] = t;
+                    int m = holderMember[i];
+                    topics[fill[m]++] = t;
+                    if (bits != null) {
+                        int bit = bitIndex(m, t);
+                        bits[bit >>> 6] |= 1L << bit;
+                    }
                 }
             }
         }
-        return new Backed(start, topics);
+        return new Backed(start, topics, bits);
     }
 
     private record Racks(int count, int[] memberRack, long[][] partitionRacks, int[][] supply) {
