@@ -38,8 +38,10 @@ public class SubscribedTopicDescriberImpl implements SubscribedTopicDescriber {
     private final CoordinatorMetadataImage metadataImage;
 
     /**
-     * The topic looked up last. Assignors ask about the partitions of a topic one after the
-     * other, so remembering the last topic saves one lookup in the image per partition. The
+     * The topic whose racks were looked up last. Assignors ask for the racks of the partitions
+     * of a topic one after the other, so remembering the last topic saves one lookup in the
+     * image per partition. Only {@link #racksForPartition} uses it: {@link #numPartitions} is
+     * asked once per topic, so remembering it there would only cost an entry per topic. The
      * entry is immutable and replaced as a whole, so a stale read still gives a consistent answer.
      */
     private LastTopic lastTopic;
@@ -69,7 +71,7 @@ public class SubscribedTopicDescriberImpl implements SubscribedTopicDescriber {
      */
     @Override
     public int numPartitions(Uuid topicId) {
-        return topicMetadata(topicId).map(CoordinatorMetadataImage.TopicMetadata::partitionCount).orElse(-1);
+        return metadataImage.topicMetadata(topicId).map(CoordinatorMetadataImage.TopicMetadata::partitionCount).orElse(-1);
     }
 
     /**

@@ -190,17 +190,19 @@ public class SubscribedTopicMetadataTest {
         assertEquals(Set.of("rack0", "rack1", "rack2"), describer.racksForPartition(topicId, 4));
         assertEquals(Set.of("rack0", "rack1", "rack2", "rack3", "rack4"), describer.racksForPartition(topicId, 5));
         assertEquals(Set.of(), describer.racksForPartition(topicId, 6));
-        assertEquals(racksByPartition.size() + 1, describer.numPartitions(topicId));
         // The partitions of a topic asked one after the other cost a single lookup in the image.
         assertEquals(1, lookups.get());
+        // numPartitions is asked once per topic and does not use the remembered topic.
+        assertEquals(racksByPartition.size() + 1, describer.numPartitions(topicId));
+        assertEquals(2, lookups.get());
 
         assertEquals(Set.of("other-rack"), describer.racksForPartition(otherTopicId, 0));
-        assertEquals(2, lookups.get());
-        assertEquals(Set.of("rack0"), describer.racksForPartition(topicId, 1));
         assertEquals(3, lookups.get());
+        assertEquals(Set.of("rack0"), describer.racksForPartition(topicId, 1));
+        assertEquals(4, lookups.get());
         assertEquals(Set.of(), describer.racksForPartition(Uuid.randomUuid(), 0));
         assertEquals(-1, describer.numPartitions(Uuid.randomUuid()));
-        assertEquals(5, lookups.get());
+        assertEquals(6, lookups.get());
     }
 
     @Test
