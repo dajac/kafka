@@ -50,15 +50,15 @@ final class Uniform2GroupModel {
     /**
      * The largest number of members times topics for which the relations between members and
      * topics that the phases look up constantly are kept as bitsets, see {@link #isBacked} and
-     * {@link Uniform2ExtraPartitions#has}: 16 million bits, 2 MB per bitset. Below it, a bitset
+     * {@link Uniform2ExtraPartitions#has}: 4 million bits, 512 KB per bitset. Below it, a bitset
      * is cheap to allocate and clear for every assignment and answers in constant time, where a
      * binary search in the sorted topics of a member costs a dozen comparisons in a group with
-     * many topics. Above it, a bitset would stop fitting the fast caches of a core, and its
-     * allocation and clearing would weigh on every assignment: with 10,000 members and 10,000
-     * topics each would take 12.5 MB, while the sorted arrays only hold the pairs actually
-     * related.
+     * many topics. Above it, the bitsets would weigh on every assignment while buying little:
+     * such a group has many members, so each of them has few extra partitions and a short
+     * search, and with 10,000 members and 10,000 topics each bitset would take 12.5 MB, where
+     * the sorted arrays only hold the pairs actually related.
      */
-    static final long MAX_BITSET_BITS = 1L << 24;
+    static final long MAX_BITSET_BITS = 1L << 22;
 
     /** The number of members. */
     final int memberCount;

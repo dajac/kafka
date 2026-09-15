@@ -25,9 +25,9 @@ import java.util.Arrays;
  * the topics of which it gets an extra partition in ascending order. Whether a member gets an
  * extra partition of a topic is answered by a bitset over the members and topics when the group
  * is small enough for one, see {@link Uniform2GroupModel#MAX_BITSET_BITS}, and by a binary
- * search in the topics of the member otherwise. The per member count of free extra partitions, those not backed by a
- * current partition, is maintained too. When racks are in use, the number of extra partitions
- * per topic and rack is also maintained.
+ * search in the topics of the member otherwise. The per member count of free extra partitions,
+ * those not backed by a current partition, is maintained too. When racks are in use, the number
+ * of extra partitions per topic and rack is also maintained.
  */
 final class Uniform2ExtraPartitions {
     private final Uniform2GroupModel model;
