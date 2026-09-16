@@ -258,7 +258,8 @@ public class ConsumerAssignorBenchmark {
      * {@code b} owns the {@code b}-th share of the topics, the shares being consecutive ranges
      * of about the same size. With two members and two buckets, a joining member brings a
      * bucket nobody subscribed to before; from ten members on, every bucket keeps members
-     * through the events.
+     * through the events. Every member holds its own copy of the topics of its bucket, as
+     * members do in the coordinator, so the largest groups take gigabytes of heap.
      */
     private static final class GroupBuilder {
         /**
@@ -377,9 +378,9 @@ public class ConsumerAssignorBenchmark {
             var topicResolver = new TopicIds.CachedTopicResolver(image);
             var describer = new SubscribedTopicDescriberImpl(image);
 
-            var bucketTopics = new ArrayList<Set<String>>(bucketCount);
+            var bucketTopics = new ArrayList<List<String>>(bucketCount);
             for (int bucket = 0; bucket < bucketCount; bucket++) {
-                bucketTopics.add(new HashSet<>(topicsOfBucket(bucket, topicNames)));
+                bucketTopics.add(topicsOfBucket(bucket, topicNames));
             }
 
             var members = new HashMap<String, MemberSubscriptionAndAssignmentImpl>();
@@ -398,7 +399,7 @@ public class ConsumerAssignorBenchmark {
                 members.put(memberId, new MemberSubscriptionAndAssignmentImpl(
                     rack == Rack.NONE ? Optional.empty() : Optional.of(rackId(i)),
                     Optional.empty(),
-                    new TopicIds(bucketTopics.get(i % bucketCount), topicResolver),
+                    new TopicIds(new HashSet<>(bucketTopics.get(i % bucketCount)), topicResolver),
                     new Assignment(partitions)
                 ));
             }
