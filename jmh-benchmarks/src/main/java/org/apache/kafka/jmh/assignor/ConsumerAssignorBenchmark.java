@@ -221,7 +221,7 @@ public class ConsumerAssignorBenchmark {
         LEAVE_MANY,
 
         /**
-         * One topic in ten gained a partition.
+         * A tenth of the topics, rounded up, gained a partition.
          */
         PARTITIONS_ADDED
     }
@@ -243,8 +243,8 @@ public class ConsumerAssignorBenchmark {
      *
      * <p>The topics are named by {@link AssignorBenchmarkUtils#createTopicNames}, and the
      * partitions are split over them as the topology says, see {@link #partitionCounts}, the
-     * largest topics first. When partitions were added, one topic in the given number has one
-     * more partition than the split gives it.
+     * largest topics first. The topics with an added partition, taken at regular intervals over
+     * the topics, have one more partition than the split gives them.
      *
      * <p>The cluster has one broker per rack, and every partition has two replicas on adjacent
      * brokers, so that it is in two racks. Topic ids are drawn from a generator with a fixed
@@ -269,7 +269,7 @@ public class ConsumerAssignorBenchmark {
         private int topicCount = 0;
         private int partitionCount = 0;
         private Topology topology = Topology.EQUAL;
-        private int addedPartitionTopicStride = 0;
+        private int topicsWithAddedPartition = 0;
         private int rackCount = 1;
         private Subscription subscription = Subscription.HOMOGENEOUS;
         private Rack rack = Rack.NONE;
@@ -302,11 +302,11 @@ public class ConsumerAssignorBenchmark {
         }
 
         /**
-         * @param addedPartitionTopicStride One topic in this many gained a partition, or none
-         *                                  when zero.
+         * @param topicsWithAddedPartition  The number of topics which gained a partition, taken
+         *                                  at regular intervals over the topics.
          */
-        GroupBuilder withAddedPartitionTopicStride(int addedPartitionTopicStride) {
-            this.addedPartitionTopicStride = addedPartitionTopicStride;
+        GroupBuilder withTopicsWithAddedPartition(int topicsWithAddedPartition) {
+            this.topicsWithAddedPartition = topicsWithAddedPartition;
             return this;
         }
 
@@ -367,10 +367,8 @@ public class ConsumerAssignorBenchmark {
         Group build() {
             var topicNames = AssignorBenchmarkUtils.createTopicNames(topicCount);
             var partitionCounts = partitionCounts(topology, topicCount, partitionCount);
-            if (addedPartitionTopicStride > 0) {
-                for (int topic = 0; topic < topicCount; topic += addedPartitionTopicStride) {
-                    partitionCounts[topic]++;
-                }
+            for (int i = 0; i < topicsWithAddedPartition; i++) {
+                partitionCounts[(int) ((long) i * topicCount / topicsWithAddedPartition)]++;
             }
             var image = createImage(topicNames, partitionCounts);
             var topicResolver = new TopicIds.CachedTopicResolver(image);
@@ -529,7 +527,7 @@ public class ConsumerAssignorBenchmark {
     /**
      * The partitions added event adds a partition to one topic in this many.
      */
-    private static final int ADDED_PARTITIONS_TOPIC_STRIDE = 10;
+    private static final int ADDED_PARTITIONS_TOPIC_DIVISOR = 10;
 
     @Param({"2", "20", "1000", "5000", "10000"})
     private int memberCount;
@@ -583,7 +581,7 @@ public class ConsumerAssignorBenchmark {
 
         group = builder
             .withMemberCount(memberCount)
-            .withAddedPartitionTopicStride(event == Event.PARTITIONS_ADDED ? ADDED_PARTITIONS_TOPIC_STRIDE : 0)
+            .withTopicsWithAddedPartition(topicsWithAddedPartition())
             .withCurrentAssignment(previousAssignment)
             .build();
     }
@@ -599,8 +597,7 @@ public class ConsumerAssignorBenchmark {
      * @return The number of members of the group before the event.
      */
     private int previousMemberCount() {
-        // A tenth of the members, rounded up.
-        int manyMembers = (memberCount + MANY_MEMBERS_DIVISOR - 1) / MANY_MEMBERS_DIVISOR;
+        int manyMembers = divideRoundingUp(memberCount, MANY_MEMBERS_DIVISOR);
         return switch (event) {
             case JOIN_ONE -> memberCount - 1;
             case JOIN_MANY -> memberCount - manyMembers;
@@ -608,6 +605,20 @@ public class ConsumerAssignorBenchmark {
             case LEAVE_MANY -> memberCount + manyMembers;
             default -> memberCount;
         };
+    }
+
+    /**
+     * @return The number of topics which gained a partition before the event.
+     */
+    private int topicsWithAddedPartition() {
+        return event == Event.PARTITIONS_ADDED ? divideRoundingUp(topicCount, ADDED_PARTITIONS_TOPIC_DIVISOR) : 0;
+    }
+
+    /**
+     * @return The count divided by the divisor, rounded up.
+     */
+    private static int divideRoundingUp(int count, int divisor) {
+        return (count + divisor - 1) / divisor;
     }
 
     @Benchmark
