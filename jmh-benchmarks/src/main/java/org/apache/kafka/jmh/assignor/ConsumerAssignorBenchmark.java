@@ -180,8 +180,7 @@ public class ConsumerAssignorBenchmark {
         NONE,
 
         /**
-         * The members are spread over the racks of the brokers, member {@code i} being in rack
-         * {@code i mod 3}.
+         * The members are spread over the racks of the brokers.
          */
         PROVIDED
     }
@@ -244,17 +243,17 @@ public class ConsumerAssignorBenchmark {
      *
      * <p>The topics are named by {@link AssignorBenchmarkUtils#createTopicNames}, and the
      * partitions are split over them as the topology says, see {@link #partitionCounts}, the
-     * largest topics first. When partitions were added, one topic in
-     * {@link #ADDED_PARTITIONS_TOPIC_STRIDE} has one more partition than the split gives it.
+     * largest topics first. When partitions were added, one topic in the given number has one
+     * more partition than the split gives it.
      *
-     * <p>The cluster has {@link #BROKER_COUNT} brokers spread over {@link #RACK_COUNT} racks,
-     * and every partition has two replicas on adjacent brokers, so that it is in two of the
-     * three racks. Topic ids are drawn from a generator with a fixed seed, so that building the
-     * cluster again with more partitions keeps the ids, and the ids are spread like real ones.
+     * <p>The cluster has one broker per rack, and every partition has two replicas on adjacent
+     * brokers, so that it is in two racks. Topic ids are drawn from a generator with a fixed
+     * seed, so that building the cluster again with more partitions keeps the ids, and the ids
+     * are spread like real ones.
      *
-     * <p>Member {@code i} is called {@code member<i>}, and is in bucket {@code i mod bucketCount}
-     * for the heterogeneous subscriptions, so that members added at the end are spread over the
-     * buckets. The bucket count is fixed by the caller rather than derived from the member
+     * <p>Member {@code i} is called {@code member<i>}, is in rack {@code i mod rackCount} when
+     * the members have a rack, and is in bucket {@code i mod bucketCount} for the heterogeneous
+     * subscriptions, so that members added at the end are spread over the buckets. The bucket count is fixed by the caller rather than derived from the member
      * count, so that the topics of a bucket are the same in groups built with different member
      * counts. Bucket {@code b} owns the {@code b}-th share of the topics, the shares being
      * consecutive ranges of about the same size. With two members and two buckets, a joining
@@ -262,10 +261,16 @@ public class ConsumerAssignorBenchmark {
      * keeps members through the events.
      */
     private static final class GroupBuilder {
+        /**
+         * Topic ids are drawn from a generator with this seed.
+         */
+        private static final long TOPIC_ID_SEED = 42L;
+
         private int topicCount = 0;
         private int partitionCount = 0;
         private Topology topology = Topology.EQUAL;
-        private boolean partitionsAdded = false;
+        private int addedPartitionTopicStride = 0;
+        private int rackCount = 1;
         private Subscription subscription = Subscription.HOMOGENEOUS;
         private Rack rack = Rack.NONE;
         private int bucketCount = 1;
@@ -291,11 +296,19 @@ public class ConsumerAssignorBenchmark {
         }
 
         /**
-         * @param partitionsAdded   Whether one topic in {@link #ADDED_PARTITIONS_TOPIC_STRIDE}
-         *                          gained a partition.
+         * @param addedPartitionTopicStride One topic in this many gained a partition, or none
+         *                                  when zero.
          */
-        GroupBuilder withPartitionsAdded(boolean partitionsAdded) {
-            this.partitionsAdded = partitionsAdded;
+        GroupBuilder withAddedPartitionTopicStride(int addedPartitionTopicStride) {
+            this.addedPartitionTopicStride = addedPartitionTopicStride;
+            return this;
+        }
+
+        /**
+         * @param rackCount The number of racks of the brokers, and of the members having a rack.
+         */
+        GroupBuilder withRackCount(int rackCount) {
+            this.rackCount = rackCount;
             return this;
         }
 
@@ -332,8 +345,8 @@ public class ConsumerAssignorBenchmark {
         Group build() {
             List<String> topicNames = AssignorBenchmarkUtils.createTopicNames(topicCount);
             int[] partitionCounts = partitionCounts(topology, topicCount, partitionCount);
-            if (partitionsAdded) {
-                for (int topic = 0; topic < topicCount; topic += ADDED_PARTITIONS_TOPIC_STRIDE) {
+            if (addedPartitionTopicStride > 0) {
+                for (int topic = 0; topic < topicCount; topic += addedPartitionTopicStride) {
                     partitionCounts[topic]++;
                 }
             }
@@ -371,9 +384,9 @@ public class ConsumerAssignorBenchmark {
             return new Group(spec, topicResolver, new SubscribedTopicDescriberImpl(image));
         }
 
-        private static CoordinatorMetadataImage createImage(List<String> topicNames, int[] partitionCounts) {
+        private CoordinatorMetadataImage createImage(List<String> topicNames, int[] partitionCounts) {
             MetadataDelta delta = new MetadataDelta.Builder().setImage(MetadataImage.EMPTY).build();
-            for (int brokerId = 0; brokerId < BROKER_COUNT; brokerId++) {
+            for (int brokerId = 0; brokerId < rackCount; brokerId++) {
                 delta.replay(new RegisterBrokerRecord().setBrokerId(brokerId).setRack(rackId(brokerId)));
             }
             Random random = new Random(TOPIC_ID_SEED);
@@ -384,7 +397,7 @@ public class ConsumerAssignorBenchmark {
                     delta.replay(new PartitionRecord()
                         .setTopicId(topicId)
                         .setPartitionId(partition)
-                        .setReplicas(List.of(partition % BROKER_COUNT, (partition + 1) % BROKER_COUNT)));
+                        .setReplicas(List.of(partition % rackCount, (partition + 1) % rackCount)));
                 }
             }
             return new KRaftCoordinatorMetadataImage(delta.apply(MetadataProvenance.EMPTY));
@@ -419,8 +432,8 @@ public class ConsumerAssignorBenchmark {
         /**
          * @return The rack of the member or broker with the given index.
          */
-        private static String rackId(int index) {
-            return "rack" + (index % RACK_COUNT);
+        private String rackId(int index) {
+            return "rack" + (index % rackCount);
         }
 
     /**
@@ -477,11 +490,6 @@ public class ConsumerAssignorBenchmark {
     private static final int RACK_COUNT = 3;
 
     /**
-     * Two brokers per rack.
-     */
-    private static final int BROKER_COUNT = 2 * RACK_COUNT;
-
-    /**
      * The number of member buckets for the heterogeneous subscriptions, when the group has that
      * many members and topics.
      */
@@ -496,8 +504,6 @@ public class ConsumerAssignorBenchmark {
      * The partitions added event adds a partition to one topic in this many.
      */
     private static final int ADDED_PARTITIONS_TOPIC_STRIDE = 10;
-
-    private static final long TOPIC_ID_SEED = 42L;
 
     @Param({"2", "20", "1000", "5000", "10000"})
     private int memberCount;
@@ -539,6 +545,7 @@ public class ConsumerAssignorBenchmark {
             .withTopicCount(topicCount)
             .withPartitionCount(partitionCount)
             .withTopology(topology)
+            .withRackCount(RACK_COUNT)
             .withSubscription(subscription)
             .withRack(rack)
             .withBucketCount(Math.min(BUCKET_COUNT, Math.min(memberCount, topicCount)));
@@ -554,7 +561,7 @@ public class ConsumerAssignorBenchmark {
 
         Group group = builder
             .withMemberCount(memberCount)
-            .withPartitionsAdded(event == Event.PARTITIONS_ADDED)
+            .withAddedPartitionTopicStride(event == Event.PARTITIONS_ADDED ? ADDED_PARTITIONS_TOPIC_STRIDE : 0)
             .withCurrentAssignment(previousAssignment)
             .build();
         groupSpec = group.spec();
