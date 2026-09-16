@@ -253,12 +253,13 @@ public class ConsumerAssignorBenchmark {
      *
      * <p>Member {@code i} is called {@code member<i>}, is in rack {@code i mod rackCount} when
      * the members have a rack, and is in bucket {@code i mod bucketCount} for the heterogeneous
-     * subscriptions, so that members added at the end are spread over the buckets. The bucket count is fixed by the caller rather than derived from the member
-     * count, so that the topics of a bucket are the same in groups built with different member
-     * counts. Bucket {@code b} owns the {@code b}-th share of the topics, the shares being
-     * consecutive ranges of about the same size. With two members and two buckets, a joining
-     * member brings a bucket nobody subscribed to before; from ten members on, every bucket
-     * keeps members through the events.
+     * subscriptions, so that members added at the end are spread over the buckets. The bucket
+     * count is fixed by the caller rather than derived from the member count, so that the
+     * topics of a bucket are the same in groups built with different member counts. Bucket
+     * {@code b} owns the {@code b}-th share of the topics, the shares being consecutive ranges
+     * of about the same size. With two members and two buckets, a joining member brings a
+     * bucket nobody subscribed to before; from ten members on, every bucket keeps members
+     * through the events.
      */
     private static final class GroupBuilder {
         /**
@@ -402,6 +403,7 @@ public class ConsumerAssignorBenchmark {
                 subscription == Subscription.HOMOGENEOUS ? SubscriptionType.HOMOGENEOUS : SubscriptionType.HETEROGENEOUS,
                 AssignorBenchmarkUtils.computeInvertedTargetAssignment(new GroupAssignment(memberAssignments))
             );
+
             return new Group(spec, topicResolver, describer);
         }
 
@@ -575,7 +577,9 @@ public class ConsumerAssignorBenchmark {
         // partitions were added.
         var previousAssignment = new GroupAssignment(Map.of());
         if (event != Event.FULL) {
-            var previousGroup = builder.withMemberCount(previousMemberCount()).build();
+            var previousGroup = builder
+                .withMemberCount(previousMemberCount())
+                .build();
             previousAssignment = partitionAssignor.assign(previousGroup.spec(), previousGroup.describer());
         }
 
