@@ -242,6 +242,11 @@ public class ConsumerAssignorBenchmark {
      * Builds the input of an assignment. Every build creates the metadata image of the cluster
      * and new views of it, so that nothing is shared between the groups built.
      *
+     * <p>The topics are named by {@link AssignorBenchmarkUtils#createTopicNames}, and the
+     * partitions are split over them as the topology says, see {@link #partitionCounts}, the
+     * largest topics first. When partitions were added, one topic in
+     * {@link #ADDED_PARTITIONS_TOPIC_STRIDE} has one more partition than the split gives it.
+     *
      * <p>The cluster has {@link #BROKER_COUNT} brokers spread over {@link #RACK_COUNT} racks,
      * and every partition has two replicas on adjacent brokers, so that it is in two of the
      * three racks. Topic ids are drawn from a generator with a fixed seed, so that building the
@@ -257,25 +262,40 @@ public class ConsumerAssignorBenchmark {
      * keeps members through the events.
      */
     private static final class GroupBuilder {
-        private List<String> topicNames = List.of();
-        private int[] partitionCounts = new int[0];
+        private int topicCount = 0;
+        private int partitionCount = 0;
+        private Topology topology = Topology.EQUAL;
+        private boolean partitionsAdded = false;
         private Subscription subscription = Subscription.HOMOGENEOUS;
         private Rack rack = Rack.NONE;
         private int bucketCount = 1;
         private int memberCount = 0;
         private GroupAssignment currentAssignment = new GroupAssignment(Map.of());
 
-        GroupBuilder withTopicNames(List<String> topicNames) {
-            this.topicNames = topicNames;
+        GroupBuilder withTopicCount(int topicCount) {
+            this.topicCount = topicCount;
             return this;
         }
 
         /**
-         * @param partitionCounts   The number of partitions of every topic, in the order of the
-         *                          topic names. The array is copied.
+         * @param partitionCount    The total number of partitions over all topics.
          */
-        GroupBuilder withPartitionCounts(int[] partitionCounts) {
-            this.partitionCounts = partitionCounts.clone();
+        GroupBuilder withPartitionCount(int partitionCount) {
+            this.partitionCount = partitionCount;
+            return this;
+        }
+
+        GroupBuilder withTopology(Topology topology) {
+            this.topology = topology;
+            return this;
+        }
+
+        /**
+         * @param partitionsAdded   Whether one topic in {@link #ADDED_PARTITIONS_TOPIC_STRIDE}
+         *                          gained a partition.
+         */
+        GroupBuilder withPartitionsAdded(boolean partitionsAdded) {
+            this.partitionsAdded = partitionsAdded;
             return this;
         }
 
@@ -310,12 +330,19 @@ public class ConsumerAssignorBenchmark {
         }
 
         Group build() {
-            CoordinatorMetadataImage image = createImage();
+            List<String> topicNames = AssignorBenchmarkUtils.createTopicNames(topicCount);
+            int[] partitionCounts = partitionCounts(topology, topicCount, partitionCount);
+            if (partitionsAdded) {
+                for (int topic = 0; topic < topicCount; topic += ADDED_PARTITIONS_TOPIC_STRIDE) {
+                    partitionCounts[topic]++;
+                }
+            }
+            CoordinatorMetadataImage image = createImage(topicNames, partitionCounts);
             TopicIds.CachedTopicResolver topicResolver = new TopicIds.CachedTopicResolver(image);
 
             List<Set<String>> bucketTopics = new ArrayList<>(bucketCount);
             for (int bucket = 0; bucket < bucketCount; bucket++) {
-                bucketTopics.add(new HashSet<>(topicsOfBucket(bucket)));
+                bucketTopics.add(new HashSet<>(topicsOfBucket(bucket, topicNames)));
             }
 
             Map<String, MemberSubscriptionAndAssignmentImpl> members = new HashMap<>();
@@ -344,7 +371,7 @@ public class ConsumerAssignorBenchmark {
             return new Group(spec, topicResolver, new SubscribedTopicDescriberImpl(image));
         }
 
-        private CoordinatorMetadataImage createImage() {
+        private static CoordinatorMetadataImage createImage(List<String> topicNames, int[] partitionCounts) {
             MetadataDelta delta = new MetadataDelta.Builder().setImage(MetadataImage.EMPTY).build();
             for (int brokerId = 0; brokerId < BROKER_COUNT; brokerId++) {
                 delta.replay(new RegisterBrokerRecord().setBrokerId(brokerId).setRack(rackId(brokerId)));
@@ -378,8 +405,7 @@ public class ConsumerAssignorBenchmark {
         /**
          * @return The topics the members of the bucket subscribe to.
          */
-        private List<String> topicsOfBucket(int bucket) {
-            int topicCount = topicNames.size();
+        private List<String> topicsOfBucket(int bucket, List<String> topicNames) {
             return switch (subscription) {
                 case HOMOGENEOUS -> topicNames;
                 case HETEROGENEOUS_DISJOINT -> topicNames.subList(
@@ -395,6 +421,53 @@ public class ConsumerAssignorBenchmark {
          */
         private static String rackId(int index) {
             return "rack" + (index % RACK_COUNT);
+        }
+
+    /**
+         * @param topology          How the partitions are split over the topics.
+         * @param topicCount        The number of topics.
+         * @param partitionCount    The total number of partitions.
+         * @return The number of partitions of each topic, largest first and at least one, so that
+         *         the total may exceed the requested one when there are more topics than partitions.
+         */
+        private static int[] partitionCounts(Topology topology, int topicCount, int partitionCount) {
+            int[] counts = new int[topicCount];
+            if (topology == Topology.SKEWED) {
+                List<Integer> tierSizes = new ArrayList<>();
+                double share = 2.0 / 3.0;
+                for (int remaining = topicCount; remaining > 0; share /= 3.0) {
+                    int size = Math.min(remaining, Math.max(1, (int) Math.round(topicCount * share)));
+                    tierSizes.add(size);
+                    remaining -= size;
+                }
+                long weight = 0;
+                for (int tier = 0; tier < tierSizes.size(); tier++) {
+                    weight += (long) tierSizes.get(tier) << tier;
+                }
+                if (weight <= partitionCount) {
+                    long base = partitionCount / weight;
+                    int topic = 0;
+                    for (int tier = tierSizes.size() - 1; tier >= 0; tier--) {
+                        Arrays.fill(counts, topic, topic + tierSizes.get(tier), (int) (base << tier));
+                        topic += tierSizes.get(tier);
+                    }
+                    spreadRemainder(counts, partitionCount);
+                    return counts;
+                }
+            }
+            Arrays.fill(counts, Math.max(1, partitionCount / topicCount));
+            spreadRemainder(counts, partitionCount);
+            return counts;
+        }
+
+        /**
+         * Hands the partitions not given yet, if any, to the topics one at a time from the first.
+         */
+        private static void spreadRemainder(int[] counts, int partitionCount) {
+            long remainder = partitionCount - Arrays.stream(counts).asLongStream().sum();
+            for (long i = 0; i < remainder; i++) {
+                counts[(int) (i % counts.length)]++;
+            }
         }
     }
 
@@ -462,10 +535,10 @@ public class ConsumerAssignorBenchmark {
     public void setup() {
         partitionAssignor = createAssignor();
 
-        int[] partitionCounts = partitionCounts(topology, topicCount, partitionCount);
         GroupBuilder builder = new GroupBuilder()
-            .withTopicNames(AssignorBenchmarkUtils.createTopicNames(topicCount))
-            .withPartitionCounts(partitionCounts)
+            .withTopicCount(topicCount)
+            .withPartitionCount(partitionCount)
+            .withTopology(topology)
             .withSubscription(subscription)
             .withRack(rack)
             .withBucketCount(Math.min(BUCKET_COUNT, Math.min(memberCount, topicCount)));
@@ -479,15 +552,9 @@ public class ConsumerAssignorBenchmark {
             previousAssignment = partitionAssignor.assign(previousGroup.spec(), previousGroup.describer());
         }
 
-        if (event == Event.PARTITIONS_ADDED) {
-            for (int topic = 0; topic < topicCount; topic += ADDED_PARTITIONS_TOPIC_STRIDE) {
-                partitionCounts[topic]++;
-            }
-        }
-
         Group group = builder
             .withMemberCount(memberCount)
-            .withPartitionCounts(partitionCounts)
+            .withPartitionsAdded(event == Event.PARTITIONS_ADDED)
             .withCurrentAssignment(previousAssignment)
             .build();
         groupSpec = group.spec();
@@ -515,53 +582,6 @@ public class ConsumerAssignorBenchmark {
             case LEAVE_MANY -> memberCount + manyMembers;
             default -> memberCount;
         };
-    }
-
-    /**
-     * @param topology          How the partitions are split over the topics.
-     * @param topicCount        The number of topics.
-     * @param partitionCount    The total number of partitions.
-     * @return The number of partitions of each topic, largest first and at least one, so that
-     *         the total may exceed the requested one when there are more topics than partitions.
-     */
-    private static int[] partitionCounts(Topology topology, int topicCount, int partitionCount) {
-        int[] counts = new int[topicCount];
-        if (topology == Topology.SKEWED) {
-            List<Integer> tierSizes = new ArrayList<>();
-            double share = 2.0 / 3.0;
-            for (int remaining = topicCount; remaining > 0; share /= 3.0) {
-                int size = Math.min(remaining, Math.max(1, (int) Math.round(topicCount * share)));
-                tierSizes.add(size);
-                remaining -= size;
-            }
-            long weight = 0;
-            for (int tier = 0; tier < tierSizes.size(); tier++) {
-                weight += (long) tierSizes.get(tier) << tier;
-            }
-            if (weight <= partitionCount) {
-                long base = partitionCount / weight;
-                int topic = 0;
-                for (int tier = tierSizes.size() - 1; tier >= 0; tier--) {
-                    Arrays.fill(counts, topic, topic + tierSizes.get(tier), (int) (base << tier));
-                    topic += tierSizes.get(tier);
-                }
-                spreadRemainder(counts, partitionCount);
-                return counts;
-            }
-        }
-        Arrays.fill(counts, Math.max(1, partitionCount / topicCount));
-        spreadRemainder(counts, partitionCount);
-        return counts;
-    }
-
-    /**
-     * Hands the partitions not given yet, if any, to the topics one at a time from the first.
-     */
-    private static void spreadRemainder(int[] counts, int partitionCount) {
-        long remainder = partitionCount - Arrays.stream(counts).asLongStream().sum();
-        for (long i = 0; i < remainder; i++) {
-            counts[(int) (i % counts.length)]++;
-        }
     }
 
     @Benchmark
