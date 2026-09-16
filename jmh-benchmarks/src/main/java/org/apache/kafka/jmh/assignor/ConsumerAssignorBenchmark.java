@@ -73,29 +73,18 @@ import java.util.concurrent.TimeUnit;
  *     <li>{@code memberCount}: the number of members when the assignment is computed.</li>
  *     <li>{@code topicCount}: the number of subscribed topics.</li>
  *     <li>{@code partitionCount}: the number of partitions over all topics.</li>
- *     <li>{@code topology}: how the partitions are split over the topics. {@code EQUAL} gives
- *     every topic the same number of partitions. {@code SKEWED} gives a few large topics, a band
- *     of small ones and a majority with the smallest size, in geometric tiers, see
- *     {@link Topology#SKEWED}. Every topic has at least one partition.</li>
- *     <li>{@code subscription}: how the members subscribe. {@code HOMOGENEOUS}, every member
- *     subscribes to every topic. {@code DISJOINT}, the members form five buckets, each
- *     subscribing to its own fifth of the topics. {@code NESTED}, five buckets where the members
- *     of bucket {@code b} subscribe to the first {@code b + 1} fifths of the topics, so that
- *     topics are shared by several buckets. Member {@code i} is in bucket {@code i mod 5}, and
- *     the bucket count is capped at the member count and at the topic count.</li>
- *     <li>{@code rack}: {@code NONE}, the members have no rack. {@code PROVIDED}, member
- *     {@code i} is in rack {@code i mod 3}, the racks of the brokers, see {@link Cluster}.
- *     Assignors which do not use racks give the same results for both values.</li>
+ *     <li>{@code topology}: how the partitions are split over the topics, see {@link Topology}.
+ *     Every topic has at least one partition.</li>
+ *     <li>{@code subscription}: how the members subscribe, see {@link Subscription}. The
+ *     heterogeneous subscriptions put the members in five buckets, member {@code i} being in
+ *     bucket {@code i mod 5}, see {@link GroupBuilder}.</li>
+ *     <li>{@code rack}: whether the members have a rack, see {@link Rack}. Assignors which do
+ *     not use racks give the same results for both values.</li>
  *     <li>{@code assignor}: the assignor.</li>
- *     <li>{@code event}: the state of the group. {@code FULL}, no member holds partitions.
- *     {@code STABLE}, the members hold the output of the assignor for the same group, so
- *     nothing has to change. {@code JOIN_ONE} and {@code JOIN_MANY}, one member or a tenth of
- *     them, rounded up, joined and hold nothing. {@code LEAVE_ONE} and {@code LEAVE_MANY}, one
- *     member or a tenth of them left, leaving their partitions unassigned.
- *     {@code PARTITIONS_ADDED}, one topic in ten gained a partition. The group always has
+ *     <li>{@code event}: the state of the group, see {@link Event}. The group always has
  *     {@code memberCount} members when the assignment is computed, joining members included
- *     and leaving members excluded, and the joining or leaving members are taken at regular
- *     intervals over the member indices.</li>
+ *     and leaving members excluded. The joining or leaving members are the ones with the highest
+ *     indices, so they are spread over the buckets.</li>
  * </ul>
  *
  * <p>The full grid is a menu rather than a run. Three runs cover the points of interest: the
@@ -109,7 +98,7 @@ import java.util.concurrent.TimeUnit;
  *     -p topology=EQUAL -p subscription=HOMOGENEOUS ConsumerAssignorBenchmark
  *
  * ./jmh-benchmarks/jmh.sh -prof gc -w 1s -r 1s -p memberCount=10000 -p topicCount=1000 \
- *     -p subscription=HOMOGENEOUS,NESTED ConsumerAssignorBenchmark
+ *     -p subscription=HOMOGENEOUS,HETEROGENEOUS_NESTED ConsumerAssignorBenchmark
  * ./jmh-benchmarks/jmh.sh -prof gc -w 1s -r 1s -p memberCount=20 -p topicCount=10000 \
  *     -p subscription=HOMOGENEOUS ConsumerAssignorBenchmark
  * </pre>
@@ -124,21 +113,30 @@ import java.util.concurrent.TimeUnit;
 @OutputTimeUnit(TimeUnit.MILLISECONDS)
 public class ConsumerAssignorBenchmark {
 
+    /**
+     * The assignor computing the assignment.
+     */
     public enum AssignorType {
-        RANGE, UNIFORM;
+        /**
+         * The range assignor.
+         */
+        RANGE,
 
-        PartitionAssignor create() {
-            return switch (this) {
-                case RANGE -> new RangeAssignor();
-                case UNIFORM -> new UniformAssignor();
-            };
-        }
+        /**
+         * The uniform assignor.
+         */
+        UNIFORM
     }
 
-    /** How the partitions are split over the topics. */
+    /**
+     * How the partitions are split over the topics.
+     */
     public enum Topology {
-        /** Every topic has the same number of partitions, up to the rounding remainder. */
+        /**
+         * Every topic has the same number of partitions, up to the rounding remainder.
+         */
         EQUAL,
+
         /**
          * The topics form geometric tiers: the first tier holds two thirds of the topics, and
          * every following tier holds a third of the topics of the previous one, with twice as
@@ -146,112 +144,207 @@ public class ConsumerAssignorBenchmark {
          * majority of topics with the smallest size, which is how topics are commonly sized.
          * The tiers need about two partitions per topic; with fewer, the split is equal.
          */
-        SKEWED;
-
-        /**
-         * @param topicCount        The number of topics.
-         * @param partitionCount    The total number of partitions.
-         * @return The number of partitions of each topic, largest first and at least one, so
-         *         that the total may exceed the requested one when there are more topics than
-         *         partitions.
-         */
-        int[] partitionCounts(int topicCount, int partitionCount) {
-            int[] counts = new int[topicCount];
-            if (this == SKEWED) {
-                List<Integer> tierSizes = new ArrayList<>();
-                double share = 2.0 / 3.0;
-                for (int remaining = topicCount; remaining > 0; share /= 3.0) {
-                    int size = Math.min(remaining, Math.max(1, (int) Math.round(topicCount * share)));
-                    tierSizes.add(size);
-                    remaining -= size;
-                }
-                long weight = 0;
-                for (int tier = 0; tier < tierSizes.size(); tier++) {
-                    weight += (long) tierSizes.get(tier) << tier;
-                }
-                if (weight <= partitionCount) {
-                    long base = partitionCount / weight;
-                    int topic = 0;
-                    for (int tier = tierSizes.size() - 1; tier >= 0; tier--) {
-                        Arrays.fill(counts, topic, topic + tierSizes.get(tier), (int) (base << tier));
-                        topic += tierSizes.get(tier);
-                    }
-                    spreadRemainder(counts, partitionCount);
-                    return counts;
-                }
-            }
-            Arrays.fill(counts, Math.max(1, partitionCount / topicCount));
-            spreadRemainder(counts, partitionCount);
-            return counts;
-        }
-
-        /** Hands the partitions not given yet, if any, to the topics one at a time from the first. */
-        private static void spreadRemainder(int[] counts, int partitionCount) {
-            long remainder = partitionCount - Arrays.stream(counts).asLongStream().sum();
-            for (long i = 0; i < remainder; i++) {
-                counts[(int) (i % counts.length)]++;
-            }
-        }
+        SKEWED
     }
-
-    /** How the members subscribe to the topics. */
-    public enum Subscription {
-        HOMOGENEOUS, DISJOINT, NESTED;
-
-        SubscriptionType type() {
-            return this == HOMOGENEOUS ? SubscriptionType.HOMOGENEOUS : SubscriptionType.HETEROGENEOUS;
-        }
-
-        /**
-         * @param bucket        The bucket of the members.
-         * @param bucketCount   The number of buckets.
-         * @param topicNames    All the topics, largest first.
-         * @return The topics of the members of the bucket.
-         */
-        List<String> topics(int bucket, int bucketCount, List<String> topicNames) {
-            int topicCount = topicNames.size();
-            return switch (this) {
-                case HOMOGENEOUS -> topicNames;
-                case DISJOINT -> topicNames.subList(topicCount * bucket / bucketCount, topicCount * (bucket + 1) / bucketCount);
-                case NESTED -> topicNames.subList(0, topicCount * (bucket + 1) / bucketCount);
-            };
-        }
-    }
-
-    /** Whether the members have a rack. */
-    public enum Rack {
-        NONE, PROVIDED;
-
-        Optional<String> of(int memberIndex) {
-            return this == PROVIDED ? Optional.of(rackId(memberIndex)) : Optional.empty();
-        }
-    }
-
-    /** What happened to the group before the assignment is computed. */
-    public enum Event {
-        FULL, STABLE, JOIN_ONE, JOIN_MANY, LEAVE_ONE, LEAVE_MANY, PARTITIONS_ADDED;
-
-        boolean isJoin() {
-            return this == JOIN_ONE || this == JOIN_MANY;
-        }
-
-        boolean isLeave() {
-            return this == LEAVE_ONE || this == LEAVE_MANY;
-        }
-    }
-
-    /** A member of the group. */
-    private record Member(String id, Optional<String> rackId, Set<String> topics) { }
 
     /**
-     * The metadata of the cluster, and the views the assignors take on it. The cluster has
-     * {@link #BROKER_COUNT} brokers spread over {@link #RACK_COUNT} racks, and every partition
-     * has two replicas on adjacent brokers, so that it is in two of the three racks. Topic ids
-     * are drawn from a generator with a fixed seed, so that rebuilding the cluster with more
-     * partitions keeps the ids, and the ids are spread like real ones.
+     * How the members subscribe to the topics.
      */
-    private record Cluster(TopicIds.CachedTopicResolver topicResolver, SubscribedTopicDescriber describer) {
-        static Cluster create(List<String> topicNames, int[] partitionCounts) {
+    public enum Subscription {
+        /**
+         * Every member subscribes to every topic.
+         */
+        HOMOGENEOUS,
+
+        /**
+         * The members of a bucket subscribe to their own share of the topics, so that no topic
+         * is shared by two buckets.
+         */
+        HETEROGENEOUS_DISJOINT,
+
+        /**
+         * The members of bucket {@code b} subscribe to the first {@code b + 1} shares of the
+         * topics, so that the first share is subscribed by every member and the last one by the
+         * members of the last bucket only.
+         */
+        HETEROGENEOUS_NESTED
+    }
+
+    /**
+     * Whether the members have a rack.
+     */
+    public enum Rack {
+        /**
+         * The members have no rack.
+         */
+        NONE,
+
+        /**
+         * The members are spread over the racks of the brokers, member {@code i} being in rack
+         * {@code i mod 3}.
+         */
+        PROVIDED
+    }
+
+    /**
+     * What happened to the group before the assignment is computed.
+     */
+    public enum Event {
+        /**
+         * No member holds partitions.
+         */
+        FULL,
+
+        /**
+         * The members hold the output of the assignor for the same group, so nothing has to
+         * change.
+         */
+        STABLE,
+
+        /**
+         * One member joined and holds nothing.
+         */
+        JOIN_ONE,
+
+        /**
+         * A tenth of the members, rounded up, joined and hold nothing.
+         */
+        JOIN_MANY,
+
+        /**
+         * One member left, leaving its partitions unassigned.
+         */
+        LEAVE_ONE,
+
+        /**
+         * A tenth of the members, rounded up, left, leaving their partitions unassigned.
+         */
+        LEAVE_MANY,
+
+        /**
+         * One topic in ten gained a partition.
+         */
+        PARTITIONS_ADDED
+    }
+
+    /**
+     * The input of an assignment: the spec of the group, and the views of the cluster metadata
+     * the assignor takes. The resolver is cleared before every assignment, as the coordinator
+     * uses a new one for every assignment.
+     */
+    private record Group(
+        GroupSpec spec,
+        TopicIds.CachedTopicResolver topicResolver,
+        SubscribedTopicDescriber describer
+    ) { }
+
+    /**
+     * Builds the input of an assignment. Every build creates the metadata image of the cluster
+     * and new views of it, so that nothing is shared between the groups built.
+     *
+     * <p>The cluster has {@link #BROKER_COUNT} brokers spread over {@link #RACK_COUNT} racks,
+     * and every partition has two replicas on adjacent brokers, so that it is in two of the
+     * three racks. Topic ids are drawn from a generator with a fixed seed, so that building the
+     * cluster again with more partitions keeps the ids, and the ids are spread like real ones.
+     *
+     * <p>Member {@code i} is called {@code member<i>}, and is in bucket {@code i mod bucketCount}
+     * for the heterogeneous subscriptions, so that members added at the end are spread over the
+     * buckets. The bucket count is fixed by the caller rather than derived from the member
+     * count, so that the topics of a bucket are the same in groups built with different member
+     * counts. Bucket {@code b} owns the {@code b}-th share of the topics, the shares being
+     * consecutive ranges of about the same size. With two members and two buckets, a joining
+     * member brings a bucket nobody subscribed to before; from ten members on, every bucket
+     * keeps members through the events.
+     */
+    private static final class GroupBuilder {
+        private List<String> topicNames = List.of();
+        private int[] partitionCounts = new int[0];
+        private Subscription subscription = Subscription.HOMOGENEOUS;
+        private Rack rack = Rack.NONE;
+        private int bucketCount = 1;
+        private int memberCount = 0;
+        private GroupAssignment currentAssignment = new GroupAssignment(Map.of());
+
+        GroupBuilder withTopicNames(List<String> topicNames) {
+            this.topicNames = topicNames;
+            return this;
+        }
+
+        /**
+         * @param partitionCounts   The number of partitions of every topic, in the order of the
+         *                          topic names. The array is copied.
+         */
+        GroupBuilder withPartitionCounts(int[] partitionCounts) {
+            this.partitionCounts = partitionCounts.clone();
+            return this;
+        }
+
+        GroupBuilder withSubscription(Subscription subscription) {
+            this.subscription = subscription;
+            return this;
+        }
+
+        GroupBuilder withRack(Rack rack) {
+            this.rack = rack;
+            return this;
+        }
+
+        GroupBuilder withBucketCount(int bucketCount) {
+            this.bucketCount = bucketCount;
+            return this;
+        }
+
+        GroupBuilder withMemberCount(int memberCount) {
+            this.memberCount = memberCount;
+            return this;
+        }
+
+        /**
+         * @param currentAssignment The partitions the members hold. Members without an entry
+         *                          hold nothing, and the entries of members not in the group
+         *                          are ignored.
+         */
+        GroupBuilder withCurrentAssignment(GroupAssignment currentAssignment) {
+            this.currentAssignment = currentAssignment;
+            return this;
+        }
+
+        Group build() {
+            CoordinatorMetadataImage image = createImage();
+            TopicIds.CachedTopicResolver topicResolver = new TopicIds.CachedTopicResolver(image);
+
+            List<Set<String>> bucketTopics = new ArrayList<>(bucketCount);
+            for (int bucket = 0; bucket < bucketCount; bucket++) {
+                bucketTopics.add(new HashSet<>(topicsOfBucket(bucket)));
+            }
+
+            Map<String, MemberSubscriptionAndAssignmentImpl> members = new HashMap<>();
+            Map<String, MemberAssignment> memberAssignments = new HashMap<>();
+            for (int i = 0; i < memberCount; i++) {
+                String memberId = "member" + i;
+                MemberAssignment memberAssignment = currentAssignment.members().get(memberId);
+                Map<Uuid, Set<Integer>> partitions = Map.of();
+                if (memberAssignment != null) {
+                    memberAssignments.put(memberId, memberAssignment);
+                    partitions = memberAssignment.partitions();
+                }
+                members.put(memberId, new MemberSubscriptionAndAssignmentImpl(
+                    rack == Rack.NONE ? Optional.empty() : Optional.of(rackId(i)),
+                    Optional.empty(),
+                    new TopicIds(bucketTopics.get(i % bucketCount), topicResolver),
+                    new Assignment(partitions)
+                ));
+            }
+
+            GroupSpec spec = new GroupSpecImpl(
+                members,
+                subscription == Subscription.HOMOGENEOUS ? SubscriptionType.HOMOGENEOUS : SubscriptionType.HETEROGENEOUS,
+                AssignorBenchmarkUtils.computeInvertedTargetAssignment(new GroupAssignment(memberAssignments))
+            );
+            return new Group(spec, topicResolver, new SubscribedTopicDescriberImpl(image));
+        }
+
+        private CoordinatorMetadataImage createImage() {
             MetadataDelta delta = new MetadataDelta.Builder().setImage(MetadataImage.EMPTY).build();
             for (int brokerId = 0; brokerId < BROKER_COUNT; brokerId++) {
                 delta.replay(new RegisterBrokerRecord().setBrokerId(brokerId).setRack(rackId(brokerId)));
@@ -267,11 +360,13 @@ public class ConsumerAssignorBenchmark {
                         .setReplicas(List.of(partition % BROKER_COUNT, (partition + 1) % BROKER_COUNT)));
                 }
             }
-            CoordinatorMetadataImage image = new KRaftCoordinatorMetadataImage(delta.apply(MetadataProvenance.EMPTY));
-            return new Cluster(new TopicIds.CachedTopicResolver(image), new SubscribedTopicDescriberImpl(image));
+            return new KRaftCoordinatorMetadataImage(delta.apply(MetadataProvenance.EMPTY));
         }
 
-        /** Draws a topic id from the generator, with the same constraints as {@link Uuid#randomUuid()}. */
+        /**
+         * Draws a topic id from the generator, with the same constraints as
+         * {@link Uuid#randomUuid()}.
+         */
         private static Uuid topicId(Random random) {
             Uuid uuid = new Uuid(random.nextLong(), random.nextLong());
             while (Uuid.RESERVED.contains(uuid) || uuid.toString().contains("-")) {
@@ -279,16 +374,55 @@ public class ConsumerAssignorBenchmark {
             }
             return uuid;
         }
+
+        /**
+         * @return The topics the members of the bucket subscribe to.
+         */
+        private List<String> topicsOfBucket(int bucket) {
+            int topicCount = topicNames.size();
+            return switch (subscription) {
+                case HOMOGENEOUS -> topicNames;
+                case HETEROGENEOUS_DISJOINT -> topicNames.subList(
+                    topicCount * bucket / bucketCount,
+                    topicCount * (bucket + 1) / bucketCount
+                );
+                case HETEROGENEOUS_NESTED -> topicNames.subList(0, topicCount * (bucket + 1) / bucketCount);
+            };
+        }
+
+        /**
+         * @return The rack of the member or broker with the given index.
+         */
+        private static String rackId(int index) {
+            return "rack" + (index % RACK_COUNT);
+        }
     }
 
-    /** The brokers are spread over this many racks, and so are the members having a rack. */
+    /**
+     * The brokers are spread over this many racks, and so are the members having a rack.
+     */
     private static final int RACK_COUNT = 3;
 
-    /** Two brokers per rack. */
+    /**
+     * Two brokers per rack.
+     */
     private static final int BROKER_COUNT = 2 * RACK_COUNT;
 
-    /** The number of member buckets for heterogeneous subscriptions. */
+    /**
+     * The number of member buckets for the heterogeneous subscriptions, when the group has that
+     * many members and topics.
+     */
     private static final int BUCKET_COUNT = 5;
+
+    /**
+     * The events on many members change one member in this many.
+     */
+    private static final int MANY_MEMBERS_DIVISOR = 10;
+
+    /**
+     * The partitions added event adds a partition to one topic in this many.
+     */
+    private static final int ADDED_PARTITIONS_TOPIC_STRIDE = 10;
 
     private static final long TOPIC_ID_SEED = 42L;
 
@@ -304,7 +438,7 @@ public class ConsumerAssignorBenchmark {
     @Param({"EQUAL", "SKEWED"})
     private Topology topology;
 
-    @Param({"HOMOGENEOUS", "DISJOINT", "NESTED"})
+    @Param({"HOMOGENEOUS", "HETEROGENEOUS_DISJOINT", "HETEROGENEOUS_NESTED"})
     private Subscription subscription;
 
     @Param({"NONE", "PROVIDED"})
@@ -326,119 +460,108 @@ public class ConsumerAssignorBenchmark {
 
     @Setup(Level.Trial)
     public void setup() {
-        partitionAssignor = assignor.create();
-        List<String> topicNames = AssignorBenchmarkUtils.createTopicNames(topicCount);
-        int[] partitionCounts = topology.partitionCounts(topicCount, partitionCount);
-        Cluster cluster = Cluster.create(topicNames, partitionCounts);
+        partitionAssignor = createAssignor();
 
-        // The joining members are not in the group yet when the previous assignment is computed,
-        // and the leaving members are not in the group anymore when the assignment is measured.
-        int changedCount = changedMemberCount();
-        List<Member> allMembers = createMembers(event.isLeave() ? memberCount + changedCount : memberCount, topicNames);
-        Set<String> changedMemberIds = spreadMemberIds(allMembers.size(), changedCount);
-        List<Member> previousMembers = event.isJoin() ? without(allMembers, changedMemberIds) : allMembers;
-        List<Member> members = event.isLeave() ? without(allMembers, changedMemberIds) : allMembers;
+        int[] partitionCounts = partitionCounts(topology, topicCount, partitionCount);
+        GroupBuilder builder = new GroupBuilder()
+            .withTopicNames(AssignorBenchmarkUtils.createTopicNames(topicCount))
+            .withPartitionCounts(partitionCounts)
+            .withSubscription(subscription)
+            .withRack(rack)
+            .withBucketCount(Math.min(BUCKET_COUNT, Math.min(memberCount, topicCount)));
 
+        // The previous assignment is the output of the assignor for the group as it was before
+        // the event: without the joining members, with the leaving members, and before the
+        // partitions were added.
         GroupAssignment previousAssignment = new GroupAssignment(Map.of());
         if (event != Event.FULL) {
-            previousAssignment = partitionAssignor.assign(
-                groupSpec(previousMembers, cluster, previousAssignment),
-                cluster.describer()
-            );
+            Group previousGroup = builder.withMemberCount(previousMemberCount()).build();
+            previousAssignment = partitionAssignor.assign(previousGroup.spec(), previousGroup.describer());
         }
 
         if (event == Event.PARTITIONS_ADDED) {
-            for (int topic = 0; topic < topicCount; topic += 10) {
+            for (int topic = 0; topic < topicCount; topic += ADDED_PARTITIONS_TOPIC_STRIDE) {
                 partitionCounts[topic]++;
             }
-            cluster = Cluster.create(topicNames, partitionCounts);
         }
 
-        groupSpec = groupSpec(members, cluster, previousAssignment);
-        topicResolver = cluster.topicResolver();
-        subscribedTopicDescriber = cluster.describer();
+        Group group = builder
+            .withMemberCount(memberCount)
+            .withPartitionCounts(partitionCounts)
+            .withCurrentAssignment(previousAssignment)
+            .build();
+        groupSpec = group.spec();
+        topicResolver = group.topicResolver();
+        subscribedTopicDescriber = group.describer();
     }
 
-    private int changedMemberCount() {
-        return switch (event) {
-            case JOIN_ONE, LEAVE_ONE -> 1;
-            case JOIN_MANY, LEAVE_MANY -> (memberCount + 9) / 10;
-            default -> 0;
+    private PartitionAssignor createAssignor() {
+        return switch (assignor) {
+            case RANGE -> new RangeAssignor();
+            case UNIFORM -> new UniformAssignor();
         };
     }
 
     /**
-     * @return The given number of members, member {@code i} being in bucket {@code i mod
-     *         bucketCount}. The members of a bucket share their topic set.
+     * @return The number of members of the group before the event.
      */
-    private List<Member> createMembers(int count, List<String> topicNames) {
-        int bucketCount = Math.min(BUCKET_COUNT, Math.min(memberCount, topicCount));
-        List<Set<String>> bucketTopics = new ArrayList<>(bucketCount);
-        for (int bucket = 0; bucket < bucketCount; bucket++) {
-            bucketTopics.add(new HashSet<>(subscription.topics(bucket, bucketCount, topicNames)));
-        }
-        List<Member> members = new ArrayList<>(count);
-        for (int i = 0; i < count; i++) {
-            members.add(new Member("member" + i, rack.of(i), bucketTopics.get(i % bucketCount)));
-        }
-        return members;
+    private int previousMemberCount() {
+        // A tenth of the members, rounded up.
+        int manyMembers = (memberCount + MANY_MEMBERS_DIVISOR - 1) / MANY_MEMBERS_DIVISOR;
+        return switch (event) {
+            case JOIN_ONE -> memberCount - 1;
+            case JOIN_MANY -> memberCount - manyMembers;
+            case LEAVE_ONE -> memberCount + 1;
+            case LEAVE_MANY -> memberCount + manyMembers;
+            default -> memberCount;
+        };
     }
 
     /**
-     * @return The ids of {@code count} members taken at regular intervals over the {@code total}
-     *         members.
+     * @param topology          How the partitions are split over the topics.
+     * @param topicCount        The number of topics.
+     * @param partitionCount    The total number of partitions.
+     * @return The number of partitions of each topic, largest first and at least one, so that
+     *         the total may exceed the requested one when there are more topics than partitions.
      */
-    private static Set<String> spreadMemberIds(int total, int count) {
-        Set<String> memberIds = new HashSet<>();
-        for (int i = 0; i < count; i++) {
-            memberIds.add("member" + (int) ((long) i * total / count));
-        }
-        return memberIds;
-    }
-
-    private static List<Member> without(List<Member> members, Set<String> memberIds) {
-        List<Member> remaining = new ArrayList<>(members.size());
-        for (Member member : members) {
-            if (!memberIds.contains(member.id())) {
-                remaining.add(member);
+    private static int[] partitionCounts(Topology topology, int topicCount, int partitionCount) {
+        int[] counts = new int[topicCount];
+        if (topology == Topology.SKEWED) {
+            List<Integer> tierSizes = new ArrayList<>();
+            double share = 2.0 / 3.0;
+            for (int remaining = topicCount; remaining > 0; share /= 3.0) {
+                int size = Math.min(remaining, Math.max(1, (int) Math.round(topicCount * share)));
+                tierSizes.add(size);
+                remaining -= size;
+            }
+            long weight = 0;
+            for (int tier = 0; tier < tierSizes.size(); tier++) {
+                weight += (long) tierSizes.get(tier) << tier;
+            }
+            if (weight <= partitionCount) {
+                long base = partitionCount / weight;
+                int topic = 0;
+                for (int tier = tierSizes.size() - 1; tier >= 0; tier--) {
+                    Arrays.fill(counts, topic, topic + tierSizes.get(tier), (int) (base << tier));
+                    topic += tierSizes.get(tier);
+                }
+                spreadRemainder(counts, partitionCount);
+                return counts;
             }
         }
-        return remaining;
+        Arrays.fill(counts, Math.max(1, partitionCount / topicCount));
+        spreadRemainder(counts, partitionCount);
+        return counts;
     }
 
     /**
-     * @return The spec of the group, the members holding the partitions the previous assignment
-     *         gave them. The partitions of members no longer in the group are unassigned.
+     * Hands the partitions not given yet, if any, to the topics one at a time from the first.
      */
-    private GroupSpec groupSpec(List<Member> members, Cluster cluster, GroupAssignment previousAssignment) {
-        Map<String, MemberSubscriptionAndAssignmentImpl> memberSpecs = new HashMap<>();
-        Map<String, MemberAssignment> currentAssignments = new HashMap<>();
-        for (Member member : members) {
-            MemberAssignment currentAssignment = previousAssignment.members().get(member.id());
-            Map<Uuid, Set<Integer>> partitions = Map.of();
-            if (currentAssignment != null) {
-                currentAssignments.put(member.id(), currentAssignment);
-                partitions = currentAssignment.partitions();
-            }
-            memberSpecs.put(member.id(), new MemberSubscriptionAndAssignmentImpl(
-                member.rackId(),
-                Optional.empty(),
-                new TopicIds(member.topics(), cluster.topicResolver()),
-                new Assignment(partitions)
-            ));
+    private static void spreadRemainder(int[] counts, int partitionCount) {
+        long remainder = partitionCount - Arrays.stream(counts).asLongStream().sum();
+        for (long i = 0; i < remainder; i++) {
+            counts[(int) (i % counts.length)]++;
         }
-        return new GroupSpecImpl(
-            memberSpecs,
-            subscription.type(),
-            AssignorBenchmarkUtils.computeInvertedTargetAssignment(new GroupAssignment(currentAssignments))
-        );
-    }
-
-    /**
-     * @return The rack of the member or broker with the given index.
-     */
-    private static String rackId(int index) {
-        return "rack" + (index % RACK_COUNT);
     }
 
     @Benchmark
