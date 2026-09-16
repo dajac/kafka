@@ -241,8 +241,9 @@ public class ConsumerAssignorBenchmark {
      * and new views of it, so that nothing is shared between the groups built.
      *
      * <p>Topic {@code i} is called {@code topic-<i>}, and the partitions are split over the
-     * topics as the topology says, see {@link #partitionCounts}, the largest topics first. The topics with an added partition, taken at regular intervals over
-     * the topics, have one more partition than the split gives them.
+     * topics as the topology says, see {@link #partitionCounts}, the largest topics first. The
+     * topics with an added partition, taken at regular intervals over the topics, have one more
+     * partition than the split gives them.
      *
      * <p>The cluster has one broker per rack, and every partition has two replicas on adjacent
      * brokers, so that it is in two racks. Topic ids are drawn from a generator with a fixed
@@ -470,8 +471,9 @@ public class ConsumerAssignorBenchmark {
          * @param topology          How the partitions are split over the topics.
          * @param topicCount        The number of topics.
          * @param partitionCount    The total number of partitions.
-         * @return The number of partitions of each topic, largest first and at least one, so that
-         *         the total may exceed the requested one when there are more topics than partitions.
+         * @return The number of partitions of each topic, largest first and at least one, so
+         *         that the total may exceed the requested one when there are more topics than
+         *         partitions.
          */
         private static int[] partitionCounts(Topology topology, int topicCount, int partitionCount) {
             int[] counts = new int[topicCount];
