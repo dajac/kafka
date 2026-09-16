@@ -233,7 +233,7 @@ public class ConsumerAssignorBenchmark {
      */
     private record Group(
         GroupSpec spec,
-        TopicIds.CachedTopicResolver topicResolver,
+        TopicIds.TopicResolver topicResolver,
         SubscribedTopicDescriber describer
     ) { }
 
@@ -277,6 +277,9 @@ public class ConsumerAssignorBenchmark {
         private int memberCount = 0;
         private GroupAssignment currentAssignment = new GroupAssignment(Map.of());
 
+        /**
+         * @param topicCount    The number of topics.
+         */
         GroupBuilder withTopicCount(int topicCount) {
             this.topicCount = topicCount;
             return this;
@@ -290,6 +293,9 @@ public class ConsumerAssignorBenchmark {
             return this;
         }
 
+        /**
+         * @param topology  How the partitions are split over the topics.
+         */
         GroupBuilder withTopology(Topology topology) {
             this.topology = topology;
             return this;
@@ -312,21 +318,33 @@ public class ConsumerAssignorBenchmark {
             return this;
         }
 
+        /**
+         * @param subscription  How the members subscribe to the topics.
+         */
         GroupBuilder withSubscription(Subscription subscription) {
             this.subscription = subscription;
             return this;
         }
 
+        /**
+         * @param rack  Whether the members have a rack.
+         */
         GroupBuilder withRack(Rack rack) {
             this.rack = rack;
             return this;
         }
 
+        /**
+         * @param bucketCount   The number of member buckets for the heterogeneous subscriptions.
+         */
         GroupBuilder withBucketCount(int bucketCount) {
             this.bucketCount = bucketCount;
             return this;
         }
 
+        /**
+         * @param memberCount   The number of members.
+         */
         GroupBuilder withMemberCount(int memberCount) {
             this.memberCount = memberCount;
             return this;
@@ -342,27 +360,32 @@ public class ConsumerAssignorBenchmark {
             return this;
         }
 
+        /**
+         * @return The input of an assignment for the group, with its own metadata image and
+         *         views of it.
+         */
         Group build() {
-            List<String> topicNames = AssignorBenchmarkUtils.createTopicNames(topicCount);
-            int[] partitionCounts = partitionCounts(topology, topicCount, partitionCount);
+            var topicNames = AssignorBenchmarkUtils.createTopicNames(topicCount);
+            var partitionCounts = partitionCounts(topology, topicCount, partitionCount);
             if (addedPartitionTopicStride > 0) {
                 for (int topic = 0; topic < topicCount; topic += addedPartitionTopicStride) {
                     partitionCounts[topic]++;
                 }
             }
-            CoordinatorMetadataImage image = createImage(topicNames, partitionCounts);
-            TopicIds.CachedTopicResolver topicResolver = new TopicIds.CachedTopicResolver(image);
+            var image = createImage(topicNames, partitionCounts);
+            var topicResolver = new TopicIds.CachedTopicResolver(image);
+            var describer = new SubscribedTopicDescriberImpl(image);
 
-            List<Set<String>> bucketTopics = new ArrayList<>(bucketCount);
+            var bucketTopics = new ArrayList<Set<String>>(bucketCount);
             for (int bucket = 0; bucket < bucketCount; bucket++) {
                 bucketTopics.add(new HashSet<>(topicsOfBucket(bucket, topicNames)));
             }
 
-            Map<String, MemberSubscriptionAndAssignmentImpl> members = new HashMap<>();
-            Map<String, MemberAssignment> memberAssignments = new HashMap<>();
+            var members = new HashMap<String, MemberSubscriptionAndAssignmentImpl>();
+            var memberAssignments = new HashMap<String, MemberAssignment>();
             for (int i = 0; i < memberCount; i++) {
-                String memberId = "member" + i;
-                MemberAssignment memberAssignment = currentAssignment.members().get(memberId);
+                var memberId = "member" + i;
+                var memberAssignment = currentAssignment.members().get(memberId);
                 Map<Uuid, Set<Integer>> partitions = Map.of();
                 if (memberAssignment != null) {
                     memberAssignments.put(memberId, memberAssignment);
@@ -376,22 +399,25 @@ public class ConsumerAssignorBenchmark {
                 ));
             }
 
-            GroupSpec spec = new GroupSpecImpl(
+            var spec = new GroupSpecImpl(
                 members,
                 subscription == Subscription.HOMOGENEOUS ? SubscriptionType.HOMOGENEOUS : SubscriptionType.HETEROGENEOUS,
                 AssignorBenchmarkUtils.computeInvertedTargetAssignment(new GroupAssignment(memberAssignments))
             );
-            return new Group(spec, topicResolver, new SubscribedTopicDescriberImpl(image));
+            return new Group(spec, topicResolver, describer);
         }
 
+        /**
+         * @return The metadata image of the cluster holding the topics.
+         */
         private CoordinatorMetadataImage createImage(List<String> topicNames, int[] partitionCounts) {
-            MetadataDelta delta = new MetadataDelta.Builder().setImage(MetadataImage.EMPTY).build();
+            var delta = new MetadataDelta.Builder().setImage(MetadataImage.EMPTY).build();
             for (int brokerId = 0; brokerId < rackCount; brokerId++) {
                 delta.replay(new RegisterBrokerRecord().setBrokerId(brokerId).setRack(rackId(brokerId)));
             }
-            Random random = new Random(TOPIC_ID_SEED);
+            var random = new Random(TOPIC_ID_SEED);
             for (int topic = 0; topic < topicNames.size(); topic++) {
-                Uuid topicId = topicId(random);
+                var topicId = topicId(random);
                 delta.replay(new TopicRecord().setTopicId(topicId).setName(topicNames.get(topic)));
                 for (int partition = 0; partition < partitionCounts[topic]; partition++) {
                     delta.replay(new PartitionRecord()
@@ -408,7 +434,7 @@ public class ConsumerAssignorBenchmark {
          * {@link Uuid#randomUuid()}.
          */
         private static Uuid topicId(Random random) {
-            Uuid uuid = new Uuid(random.nextLong(), random.nextLong());
+            var uuid = new Uuid(random.nextLong(), random.nextLong());
             while (Uuid.RESERVED.contains(uuid) || uuid.toString().contains("-")) {
                 uuid = new Uuid(random.nextLong(), random.nextLong());
             }
@@ -436,7 +462,7 @@ public class ConsumerAssignorBenchmark {
             return "rack" + (index % rackCount);
         }
 
-    /**
+        /**
          * @param topology          How the partitions are split over the topics.
          * @param topicCount        The number of topics.
          * @param partitionCount    The total number of partitions.
@@ -531,17 +557,13 @@ public class ConsumerAssignorBenchmark {
 
     private PartitionAssignor partitionAssignor;
 
-    private TopicIds.CachedTopicResolver topicResolver;
-
-    private SubscribedTopicDescriber subscribedTopicDescriber;
-
-    private GroupSpec groupSpec;
+    private Group group;
 
     @Setup(Level.Trial)
     public void setup() {
         partitionAssignor = createAssignor();
 
-        GroupBuilder builder = new GroupBuilder()
+        var builder = new GroupBuilder()
             .withTopicCount(topicCount)
             .withPartitionCount(partitionCount)
             .withTopology(topology)
@@ -553,20 +575,17 @@ public class ConsumerAssignorBenchmark {
         // The previous assignment is the output of the assignor for the group as it was before
         // the event: without the joining members, with the leaving members, and before the
         // partitions were added.
-        GroupAssignment previousAssignment = new GroupAssignment(Map.of());
+        var previousAssignment = new GroupAssignment(Map.of());
         if (event != Event.FULL) {
-            Group previousGroup = builder.withMemberCount(previousMemberCount()).build();
+            var previousGroup = builder.withMemberCount(previousMemberCount()).build();
             previousAssignment = partitionAssignor.assign(previousGroup.spec(), previousGroup.describer());
         }
 
-        Group group = builder
+        group = builder
             .withMemberCount(memberCount)
             .withAddedPartitionTopicStride(event == Event.PARTITIONS_ADDED ? ADDED_PARTITIONS_TOPIC_STRIDE : 0)
             .withCurrentAssignment(previousAssignment)
             .build();
-        groupSpec = group.spec();
-        topicResolver = group.topicResolver();
-        subscribedTopicDescriber = group.describer();
     }
 
     private PartitionAssignor createAssignor() {
@@ -594,7 +613,7 @@ public class ConsumerAssignorBenchmark {
     @Benchmark
     @Threads(1)
     public GroupAssignment doAssignment() {
-        topicResolver.clear();
-        return partitionAssignor.assign(groupSpec, subscribedTopicDescriber);
+        group.topicResolver().clear();
+        return partitionAssignor.assign(group.spec(), group.describer());
     }
 }
