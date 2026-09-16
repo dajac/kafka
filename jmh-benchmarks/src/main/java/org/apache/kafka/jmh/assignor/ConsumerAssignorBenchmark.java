@@ -24,7 +24,6 @@ import org.apache.kafka.coordinator.common.runtime.CoordinatorMetadataImage;
 import org.apache.kafka.coordinator.common.runtime.KRaftCoordinatorMetadataImage;
 import org.apache.kafka.coordinator.group.api.assignor.GroupAssignment;
 import org.apache.kafka.coordinator.group.api.assignor.GroupSpec;
-import org.apache.kafka.coordinator.group.api.assignor.MemberAssignment;
 import org.apache.kafka.coordinator.group.api.assignor.PartitionAssignor;
 import org.apache.kafka.coordinator.group.api.assignor.SubscribedTopicDescriber;
 import org.apache.kafka.coordinator.group.api.assignor.SubscriptionType;
@@ -241,9 +240,8 @@ public class ConsumerAssignorBenchmark {
      * Builds the input of an assignment. Every build creates the metadata image of the cluster
      * and new views of it, so that nothing is shared between the groups built.
      *
-     * <p>The topics are named by {@link AssignorBenchmarkUtils#createTopicNames}, and the
-     * partitions are split over them as the topology says, see {@link #partitionCounts}, the
-     * largest topics first. The topics with an added partition, taken at regular intervals over
+     * <p>Topic {@code i} is called {@code topic-<i>}, and the partitions are split over the
+     * topics as the topology says, see {@link #partitionCounts}, the largest topics first. The topics with an added partition, taken at regular intervals over
      * the topics, have one more partition than the split gives them.
      *
      * <p>The cluster has one broker per rack, and every partition has two replicas on adjacent
@@ -366,7 +364,10 @@ public class ConsumerAssignorBenchmark {
          *         views of it.
          */
         Group build() {
-            var topicNames = AssignorBenchmarkUtils.createTopicNames(topicCount);
+            var topicNames = new ArrayList<String>(topicCount);
+            for (int topic = 0; topic < topicCount; topic++) {
+                topicNames.add("topic-" + topic);
+            }
             var partitionCounts = partitionCounts(topology, topicCount, partitionCount);
             for (int i = 0; i < topicsWithAddedPartition; i++) {
                 partitionCounts[(int) ((long) i * topicCount / topicsWithAddedPartition)]++;
@@ -381,14 +382,17 @@ public class ConsumerAssignorBenchmark {
             }
 
             var members = new HashMap<String, MemberSubscriptionAndAssignmentImpl>();
-            var memberAssignments = new HashMap<String, MemberAssignment>();
+            var invertedTargetAssignment = new HashMap<Uuid, Map<Integer, String>>();
             for (int i = 0; i < memberCount; i++) {
                 var memberId = "member" + i;
                 var memberAssignment = currentAssignment.members().get(memberId);
                 Map<Uuid, Set<Integer>> partitions = Map.of();
                 if (memberAssignment != null) {
-                    memberAssignments.put(memberId, memberAssignment);
                     partitions = memberAssignment.partitions();
+                    partitions.forEach((topicId, topicPartitions) -> {
+                        var owners = invertedTargetAssignment.computeIfAbsent(topicId, id -> new HashMap<>());
+                        topicPartitions.forEach(partition -> owners.put(partition, memberId));
+                    });
                 }
                 members.put(memberId, new MemberSubscriptionAndAssignmentImpl(
                     rack == Rack.NONE ? Optional.empty() : Optional.of(rackId(i)),
@@ -401,7 +405,7 @@ public class ConsumerAssignorBenchmark {
             var spec = new GroupSpecImpl(
                 members,
                 subscription == Subscription.HOMOGENEOUS ? SubscriptionType.HOMOGENEOUS : SubscriptionType.HETEROGENEOUS,
-                AssignorBenchmarkUtils.computeInvertedTargetAssignment(new GroupAssignment(memberAssignments))
+                invertedTargetAssignment
             );
 
             return new Group(spec, topicResolver, describer);
