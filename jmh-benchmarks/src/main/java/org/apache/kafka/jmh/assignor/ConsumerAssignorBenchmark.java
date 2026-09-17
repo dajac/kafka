@@ -28,6 +28,7 @@ import org.apache.kafka.coordinator.group.api.assignor.PartitionAssignor;
 import org.apache.kafka.coordinator.group.api.assignor.SubscribedTopicDescriber;
 import org.apache.kafka.coordinator.group.api.assignor.SubscriptionType;
 import org.apache.kafka.coordinator.group.assignor.RangeAssignor;
+import org.apache.kafka.coordinator.group.assignor.Uniform2Assignor;
 import org.apache.kafka.coordinator.group.assignor.UniformAssignor;
 import org.apache.kafka.coordinator.group.modern.Assignment;
 import org.apache.kafka.coordinator.group.modern.GroupSpecImpl;
@@ -113,7 +114,12 @@ public class ConsumerAssignorBenchmark {
         /**
          * The uniform assignor.
          */
-        UNIFORM
+        UNIFORM,
+
+        /**
+         * The uniform2 assignor.
+         */
+        UNIFORM2
     }
 
     /**
@@ -551,7 +557,7 @@ public class ConsumerAssignorBenchmark {
     @Param({"NONE", "PROVIDED"})
     private Rack rack;
 
-    @Param({"RANGE", "UNIFORM"})
+    @Param({"RANGE", "UNIFORM", "UNIFORM2"})
     private AssignorType assignor;
 
     @Param({"FULL", "STABLE", "JOIN_ONE", "JOIN_MANY", "LEAVE_ONE", "LEAVE_MANY", "PARTITIONS_ADDED"})
@@ -596,6 +602,7 @@ public class ConsumerAssignorBenchmark {
         return switch (assignor) {
             case RANGE -> new RangeAssignor();
             case UNIFORM -> new UniformAssignor();
+            case UNIFORM2 -> new Uniform2Assignor();
         };
     }
 
