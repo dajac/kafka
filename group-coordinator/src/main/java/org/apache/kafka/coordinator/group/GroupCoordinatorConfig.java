@@ -238,7 +238,8 @@ public class GroupCoordinatorConfig {
 
     public static final String CONSUMER_GROUP_UNIFORM2_ASSIGNOR_RACK_AWARE_ENABLE_CONFIG = Uniform2Assignor.RACK_AWARE_ENABLE_CONFIG;
     public static final String CONSUMER_GROUP_UNIFORM2_ASSIGNOR_RACK_AWARE_ENABLE_DOC = "Whether the " + Uniform2Assignor.NAME + " consumer group assignor aligns " +
-        "members with the partitions having a replica in their rack. Rack awareness is only used for groups where all the members have a rack id.";
+        "members with the partitions having a replica in their rack. Rack awareness is only used for groups where every member has a rack id and the " +
+        "members are in at most 64 distinct racks; other groups are assigned as if it were disabled.";
     public static final boolean CONSUMER_GROUP_UNIFORM2_ASSIGNOR_RACK_AWARE_ENABLE_DEFAULT = Uniform2Assignor.RACK_AWARE_ENABLE_DEFAULT;
 
     public static final String CONSUMER_GROUP_MIGRATION_POLICY_CONFIG = "group.consumer.migration.policy";

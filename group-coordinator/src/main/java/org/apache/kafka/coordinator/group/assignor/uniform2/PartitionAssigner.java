@@ -26,13 +26,13 @@ import static org.apache.kafka.coordinator.group.assignor.uniform2.GroupModel.NO
 
 /**
  * The partition phase of {@link AssignmentBuilder}: chooses the partition ids every
- * member gets, one topic at a time, given the quotas.
+ * member gets, one topic at a time, given the allocations.
  *
- * <p>Each current holder keeps its current partitions up to its quota, lowest ids first, and
+ * <p>Each current owner keeps its current partitions up to its allocation, lowest ids first, and
  * releases the rest. The partitions nobody kept are handed out, in ascending order, to the
- * members below their quota: the current holders first, then the other subscribers, each in
- * ascending member order. A topic in which every holder already has exactly its quota, and the
- * holders together hold every partition, is emitted as is. A member whose partitions of a topic
+ * members below their allocation: the current owners first, then the other subscribers, each in
+ * ascending member order. A topic in which every owner already has exactly its allocation, and the
+ * owners together hold every partition, is emitted as is. A member whose partitions of a topic
  * did not change gets its current set back rather than a copy.
  *
  * <p>{@link RackAwarePartitionAssigner} replaces the per topic assignment when racks are
@@ -41,24 +41,26 @@ import static org.apache.kafka.coordinator.group.assignor.uniform2.GroupModel.NO
  */
 class PartitionAssigner {
     final GroupModel model;
+    final GroupModel.Owners owners;
     final ExtraPartitions extras;
     final TopicScratch scratch;
     private final AssignmentResult result;
 
     PartitionAssigner(GroupModel model, ExtraPartitions extras) {
         this.model = model;
+        this.owners = model.owners();
         this.extras = extras;
-        scratch = new TopicScratch(model.memberCount, model.maxPartitionsPerTopic());
+        scratch = new TopicScratch(model.memberCount(), model.maxPartitionsPerTopic());
         result = new AssignmentResult(model);
     }
 
     GroupAssignment assign() {
-        for (int t = 0; t < model.topicCount; t++) {
-            int partitionCount = model.partitionCounts[t];
+        for (int t = 0; t < model.topicCount(); t++) {
+            int partitionCount = model.partitionCounts()[t];
             if (partitionCount == 0) {
-                // Anything currently held in a topic without partitions is dropped.
-                for (int i = model.holderStart[t]; i < model.holderStart[t + 1]; i++) {
-                    result.markChanged(model.holderMember[i]);
+                // Anything currently held in a topic without partitions is stale.
+                for (int i = owners.start()[t]; i < owners.start()[t + 1]; i++) {
+                    result.markChanged(owners.member()[i]);
                 }
                 continue;
             }
@@ -83,48 +85,48 @@ class PartitionAssigner {
     }
 
     /**
-     * A topic is settled when every current holder holds exactly its quota, all its current
-     * partitions exist, and the holders together hold every partition, so that nothing has to
+     * A topic is settled when every current owner holds exactly its allocation, all its current
+     * partitions exist, and the owners together hold every partition, so that nothing has to
      * move and the topic is emitted as is. This relies on the current assignment being
      * consistent, every partition being held once, which the target assignment maintained by
      * the coordinator guarantees.
      */
     boolean isSettled(int t) {
         int held = 0;
-        for (int i = model.holderStart[t]; i < model.holderStart[t + 1]; i++) {
-            int count = model.holderValidCount[i];
-            if (count != model.holderPartitions[i].size() || count != extras.quota(model.holderMember[i], t)) {
+        for (int i = owners.start()[t]; i < owners.start()[t + 1]; i++) {
+            int count = owners.validCount()[i];
+            if (count != owners.partitions()[i].size() || count != extras.allocation(owners.member()[i], t)) {
                 return false;
             }
             held += count;
         }
-        return held == model.partitionCounts[t];
+        return held == model.partitionCounts()[t];
     }
 
     private void emitSettled(int t) {
-        for (int i = model.holderStart[t]; i < model.holderStart[t + 1]; i++) {
-            result.add(model.holderMember[i], t, model.holderPartitions[i]);
+        for (int i = owners.start()[t]; i < owners.start()[t + 1]; i++) {
+            result.add(owners.member()[i], t, owners.partitions()[i]);
         }
     }
 
     /**
-     * Every current holder keeps its current partitions up to its quota, lowest ids first.
+     * Every current owner keeps its current partitions up to its allocation, lowest ids first.
      */
     private void keepCurrentPartitions(int t) {
-        int partitionCount = model.partitionCounts[t];
-        for (int i = model.holderStart[t]; i < model.holderStart[t + 1]; i++) {
-            int m = model.holderMember[i];
-            Set<Integer> current = model.holderPartitions[i];
-            int quota = extras.quota(m, t);
+        int partitionCount = model.partitionCounts()[t];
+        for (int i = owners.start()[t]; i < owners.start()[t + 1]; i++) {
+            int m = owners.member()[i];
+            Set<Integer> current = owners.partitions()[i];
+            int allocation = extras.allocation(m, t);
             int count = 0;
             for (int p : current) {
                 if (p >= 0 && p < partitionCount) {
                     scratch.partitions[count++] = p;
                 }
             }
-            if (count > quota) {
+            if (count > allocation) {
                 Arrays.sort(scratch.partitions, 0, count);
-                count = quota;
+                count = allocation;
             }
             scratch.keep(m, current, count);
         }
@@ -149,8 +151,8 @@ class PartitionAssigner {
      * @return The number of members that may receive partitions of the topic.
      */
     int receiverCount(int t) {
-        if (model.basePartitionCount[t] > 0) {
-            return model.subscribers[t].length;
+        if (model.basePartitionCount()[t] > 0) {
+            return model.subscribers()[t].length;
         }
         extras.sortRecipients(t);
         return extras.recipientCount(t);
@@ -160,26 +162,26 @@ class PartitionAssigner {
      * @return The {@code i}-th member that may receive partitions of the topic, see {@link #receiverCount}.
      */
     int receiverAt(int t, int i) {
-        return model.basePartitionCount[t] > 0 ? model.subscribers[t][i] : extras.recipientAt(t, i);
+        return model.basePartitionCount()[t] > 0 ? model.subscribers()[t][i] : extras.recipientAt(t, i);
     }
 
     private void recordDeficit(int t, int m) {
-        int quota = extras.quota(m, t);
+        int allocation = extras.allocation(m, t);
         int participant = scratch.participantOf(m);
         int kept = participant == NONE ? 0 : scratch.kept[participant];
-        if (quota > kept) {
-            scratch.deficit[scratch.participant(m)] = quota - kept;
+        if (allocation > kept) {
+            scratch.deficit[scratch.participant(m)] = allocation - kept;
         }
     }
 
     /**
      * The unassigned partitions, in ascending order, fill the deficits in participant order.
-     * The quotas add up to the partition count, so the deficits and the unassigned partitions
+     * The allocations add up to the partition count, so the deficits and the unassigned partitions
      * match exactly unless a partition is currently held by several members, in which case
      * some partitions are left over.
      */
     private void fillDeficits(int t) {
-        int partitionCount = model.partitionCounts[t];
+        int partitionCount = model.partitionCounts()[t];
         int next = 0;
         IntList participants = scratch.participants;
         for (int i = 0; i < participants.size(); i++) {
@@ -213,7 +215,7 @@ class PartitionAssigner {
      *         members, which the algorithm relies on never happening.
      */
     PartitionAssignorException inconsistentAssignment(int t) {
-        return new PartitionAssignorException("The current assignment of topic " + model.topicIds[t]
+        return new PartitionAssignorException("The current assignment of topic " + model.topicIds()[t]
             + " is inconsistent: a partition is held by several members.");
     }
 
@@ -222,7 +224,7 @@ class PartitionAssigner {
      * current set back, so that unchanged assignments can be returned as they are.
      */
     private void emit(int t) {
-        int partitionCount = model.partitionCounts[t];
+        int partitionCount = model.partitionCounts()[t];
         IntList participants = scratch.participants;
         for (int p = 0; p < partitionCount; p++) {
             scratch.count[scratch.participant(scratch.owner[p])]++;
@@ -277,7 +279,7 @@ class PartitionAssigner {
      * The working state of the partition phase for the topic at hand, sized once for the largest
      * topic and reused from topic to topic.
      *
-     * <p>The members involved in a topic, its current holders and the subscribers receiving
+     * <p>The members involved in a topic, its current owners and the subscribers receiving
      * partitions, are numbered in order of appearance and called participants. The per participant
      * arrays are only valid up to the number of participants and are reset by {@link #participant}
      * when a participant is added, so {@link #clear} only has to forget the participants.
@@ -313,7 +315,7 @@ class PartitionAssigner {
             participants = new IntList(16);
             participantOfMember = new int[memberCount];
             Arrays.fill(participantOfMember, NONE);
-            // Every member may be involved in a topic, as a current holder or as a receiver.
+            // Every member may be involved in a topic, as a current owner or as a receiver.
             kept = new int[memberCount];
             deficit = new int[memberCount];
             count = new int[memberCount];

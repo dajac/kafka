@@ -93,45 +93,45 @@ public class ExtraPartitionAssignerTest {
      */
     private static ExtraPartitions assign(GroupModel model) {
         ExtraPartitions extras = new ExtraPartitionAssigner(model).assign();
-        for (int t = 0; t < model.topicCount; t++) {
-            assertEquals(model.extraPartitionCount[t], extras.recipientCount(t), "extra partitions of topic " + t + " with a recipient");
+        for (int t = 0; t < model.topicCount(); t++) {
+            assertEquals(model.extraPartitionCount()[t], extras.recipientCount(t), "extra partitions of topic " + t + " with a recipient");
         }
         return extras;
     }
 
     /**
      * Asserts that exactly the given members get an extra partition of the topic, and that the
-     * quotas follow.
+     * allocations follow.
      */
     private static void assertExtraPartitions(
         GroupModel model,
         ExtraPartitions extras,
         int topic,
-        int... holders
+        int... owners
     ) {
         Set<Integer> expected = new HashSet<>();
-        for (int holder : holders) {
-            expected.add(holder);
+        for (int owner : owners) {
+            expected.add(owner);
         }
-        for (int m = 0; m < model.memberCount; m++) {
+        for (int m = 0; m < model.memberCount(); m++) {
             boolean has = expected.contains(m);
-            assertEquals(has, extras.has(m, topic), "member " + model.memberIds[m] + " has an extra partition of topic " + topic);
-            assertEquals(model.basePartitionCount[topic] + (has ? 1 : 0), extras.quota(m, topic),
-                "quota of member " + model.memberIds[m] + " for topic " + topic);
+            assertEquals(has, extras.has(m, topic), "member " + model.memberIds()[m] + " has an extra partition of topic " + topic);
+            assertEquals(model.basePartitionCount()[topic] + (has ? 1 : 0), extras.allocation(m, topic),
+                "allocation of member " + model.memberIds()[m] + " for topic " + topic);
         }
     }
 
     /**
-     * Asserts the load of every member: the sum of its quotas over its topics.
+     * Asserts the load of every member: the sum of its allocations over its topics.
      */
     private static void assertLoads(GroupModel model, ExtraPartitions extras, int... expectedLoads) {
-        assertEquals(model.memberCount, expectedLoads.length);
-        for (int m = 0; m < model.memberCount; m++) {
+        assertEquals(model.memberCount(), expectedLoads.length);
+        for (int m = 0; m < model.memberCount(); m++) {
             int load = 0;
-            for (int t : model.memberTopics[m]) {
-                load += extras.quota(m, t);
+            for (int t : model.memberTopics()[m]) {
+                load += extras.allocation(m, t);
             }
-            assertEquals(expectedLoads[m], load, "load of member " + model.memberIds[m]);
+            assertEquals(expectedLoads[m], load, "load of member " + model.memberIds()[m]);
         }
     }
 
@@ -409,12 +409,12 @@ public class ExtraPartitionAssignerTest {
     }
 
     /**
-     * A topic without extra partitions leaves every quota at the base. A and B subscribe to T1
+     * A topic without extra partitions leaves every allocation at the base. A and B subscribe to T1
      * with 4 partitions (2 base partitions, no extra partition), T2 without partitions and T3 with
      * 3 partitions (1 base partition and one extra partition, which goes to A by id).
      */
     @Test
-    public void testTopicWithoutExtraPartitionsKeepsTheBaseQuotas() {
+    public void testTopicWithoutExtraPartitionsKeepsTheBaseAllocations() {
         Map<String, MemberSubscriptionAndAssignmentImpl> members = new TreeMap<>();
         members.put("A", member(Set.of(T1, T2, T3), Assignment.EMPTY));
         members.put("B", member(Set.of(T1, T2, T3), Assignment.EMPTY));
@@ -423,14 +423,14 @@ public class ExtraPartitionAssignerTest {
         ExtraPartitions extras = assign(model);
 
         assertExtraPartitions(model, extras, 0);
-        assertEquals(2, extras.quota(A, 0));
-        assertEquals(2, extras.quota(B, 0));
+        assertEquals(2, extras.allocation(A, 0));
+        assertEquals(2, extras.allocation(B, 0));
         assertExtraPartitions(model, extras, 1);
-        assertEquals(0, extras.quota(A, 1));
-        assertEquals(0, extras.quota(B, 1));
+        assertEquals(0, extras.allocation(A, 1));
+        assertEquals(0, extras.allocation(B, 1));
         assertExtraPartitions(model, extras, 2, A);
-        assertEquals(2, extras.quota(A, 2));
-        assertEquals(1, extras.quota(B, 2));
+        assertEquals(2, extras.allocation(A, 2));
+        assertEquals(1, extras.allocation(B, 2));
         assertLoads(model, extras, 4, 3);
     }
 

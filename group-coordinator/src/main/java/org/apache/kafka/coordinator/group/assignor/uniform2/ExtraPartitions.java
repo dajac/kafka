@@ -30,6 +30,7 @@ import java.util.Arrays;
  */
 final class ExtraPartitions {
     private final GroupModel model;
+    private final GroupModel.Racks racks;
     /** Per topic, the compressed row of its recipients in {@link #recipients}, sized to its extra partitions. */
     private final int[] recipientStart;
     /** The recipients of the extra partitions of every topic, in no particular order. */
@@ -52,16 +53,17 @@ final class ExtraPartitions {
 
     ExtraPartitions(GroupModel model) {
         this.model = model;
-        recipientStart = new int[model.topicCount + 1];
-        for (int t = 0; t < model.topicCount; t++) {
-            recipientStart[t + 1] = recipientStart[t] + model.extraPartitionCount[t];
+        this.racks = model.racks();
+        recipientStart = new int[model.topicCount() + 1];
+        for (int t = 0; t < model.topicCount(); t++) {
+            recipientStart[t + 1] = recipientStart[t] + model.extraPartitionCount()[t];
         }
-        recipients = new int[recipientStart[model.topicCount]];
-        recipientCount = new int[model.topicCount];
-        topicsPerMember = new int[model.memberCount][];
-        countPerMember = new int[model.memberCount];
-        freeCountPerMember = new int[model.memberCount];
-        countPerRack = model.usesRacks ? new int[model.topicCount][model.rackCount] : null;
+        recipients = new int[recipientStart[model.topicCount()]];
+        recipientCount = new int[model.topicCount()];
+        topicsPerMember = new int[model.memberCount()][];
+        countPerMember = new int[model.memberCount()];
+        freeCountPerMember = new int[model.memberCount()];
+        countPerRack = model.usesRacks() ? new int[model.topicCount()][racks.count()] : null;
         bits = model.newBitset();
     }
 
@@ -74,11 +76,11 @@ final class ExtraPartitions {
     }
 
     /**
-     * @return The quota of the member for the topic: the base partitions, plus one if it gets an
+     * @return The allocation of the member for the topic: the base partitions, plus one if it gets an
      *         extra partition.
      */
-    int quota(int member, int topic) {
-        return model.basePartitionCount[topic] + (has(member, topic) ? 1 : 0);
+    int allocation(int member, int topic) {
+        return model.basePartitionCount()[topic] + (has(member, topic) ? 1 : 0);
     }
 
     /**
@@ -87,8 +89,8 @@ final class ExtraPartitions {
      * @throws IllegalStateException If every extra partition of the topic already has a recipient.
      */
     void add(int member, int topic) {
-        if (recipientCount[topic] == model.extraPartitionCount[topic]) {
-            throw new IllegalStateException("Every extra partition of topic " + model.topicIds[topic] + " has a recipient");
+        if (recipientCount[topic] == model.extraPartitionCount()[topic]) {
+            throw new IllegalStateException("Every extra partition of topic " + model.topicIds()[topic] + " has a recipient");
         }
         recipients[recipientStart[topic] + recipientCount[topic]++] = member;
         if (!model.isBacked(member, topic)) {
@@ -113,7 +115,7 @@ final class ExtraPartitions {
         int bit = model.bitIndex(member, topic);
         bits[bit >>> 6] |= 1L << bit;
         if (countPerRack != null) {
-            countPerRack[topic][model.memberRack[member]]++;
+            countPerRack[topic][racks.memberRack()[member]]++;
         }
     }
 
@@ -141,7 +143,7 @@ final class ExtraPartitions {
             freeCountPerMember[member]--;
         }
         if (countPerRack != null) {
-            countPerRack[topic][model.memberRack[member]]--;
+            countPerRack[topic][racks.memberRack()[member]]--;
         }
     }
 

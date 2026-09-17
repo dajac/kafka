@@ -87,8 +87,8 @@ public final class AssignmentTestUtils {
     public static Map<Uuid, Map<Integer, String>> invertedTargetAssignment(Map<String, MemberSubscriptionAndAssignmentImpl> members) {
         Map<Uuid, Map<Integer, String>> inverted = new HashMap<>();
         members.forEach((memberId, member) -> member.partitions().forEach((topicId, partitions) -> {
-            Map<Integer, String> holders = inverted.computeIfAbsent(topicId, k -> new HashMap<>());
-            partitions.forEach(partition -> holders.put(partition, memberId));
+            Map<Integer, String> owners = inverted.computeIfAbsent(topicId, k -> new HashMap<>());
+            partitions.forEach(partition -> owners.put(partition, memberId));
         }));
         return inverted;
     }
@@ -139,7 +139,7 @@ public final class AssignmentTestUtils {
         Set<Uuid> allTopics = new HashSet<>();
         members.values().forEach(m -> allTopics.addAll(m.subscribedTopicIds()));
 
-        Map<Uuid, Map<Integer, String>> holders = new HashMap<>();
+        Map<Uuid, Map<Integer, String>> owners = new HashMap<>();
         Map<String, Integer> loads = new HashMap<>();
         for (Map.Entry<String, MemberAssignment> entry : result.members().entrySet()) {
             String id = entry.getKey();
@@ -153,7 +153,7 @@ public final class AssignmentTestUtils {
                 for (int partition : topicEntry.getValue()) {
                     assertTrue(partition >= 0 && partition < numPartitions,
                         context + ": " + topicId + "-" + partition + " does not exist");
-                    assertNull(holders.computeIfAbsent(topicId, k -> new HashMap<>()).put(partition, id),
+                    assertNull(owners.computeIfAbsent(topicId, k -> new HashMap<>()).put(partition, id),
                         context + ": " + topicId + "-" + partition + " is assigned twice");
                     load++;
                 }
@@ -162,7 +162,7 @@ public final class AssignmentTestUtils {
         }
         for (Uuid topicId : allTopics) {
             int numPartitions = describer.numPartitions(topicId);
-            assertEquals(numPartitions, holders.getOrDefault(topicId, Map.of()).size(),
+            assertEquals(numPartitions, owners.getOrDefault(topicId, Map.of()).size(),
                 context + ": topic " + topicId + " is not fully assigned");
         }
 

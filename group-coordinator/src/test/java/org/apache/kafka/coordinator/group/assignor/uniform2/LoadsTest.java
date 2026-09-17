@@ -103,8 +103,8 @@ public class LoadsTest {
     public void testOrderListsMembersByAscendingLoad() {
         // Two topics with 6 partitions each for 3 members: base load 4.
         GroupModel model = homogeneousModel(3, 6, 6);
-        assertEquals(1, model.cohortCount);
-        assertEquals(4, model.cohortBaseLoad[0]);
+        assertEquals(1, model.cohorts().count());
+        assertEquals(4, model.cohorts().baseLoad()[0]);
 
         int[] load = {6, 4, 5};
         Loads loads = new Loads(model, load);
@@ -180,9 +180,9 @@ public class LoadsTest {
     @Test
     public void testMultipleCohorts() {
         GroupModel model = heterogeneousModel();
-        assertEquals(3, model.cohortCount);
-        assertArrayEquals(new int[] {0, 0, 1, 1, 2}, model.memberCohort);
-        assertArrayEquals(new int[] {4, 2, 2}, model.cohortBaseLoad);
+        assertEquals(3, model.cohorts().count());
+        assertArrayEquals(new int[] {0, 0, 1, 1, 2}, model.cohorts().memberCohort());
+        assertArrayEquals(new int[] {4, 2, 2}, model.cohorts().baseLoad());
 
         int[] load = {6, 5, 2, 3, 2};
         Loads loads = new Loads(model, load);
@@ -239,10 +239,10 @@ public class LoadsTest {
         members.put("C", member("rack-0", Set.of(TOPIC_1), Assignment.EMPTY));
         members.put("D", member("rack-1", Set.of(TOPIC_1), Assignment.EMPTY));
         GroupModel model = new GroupModel(spec(members), describer(4, 0), true);
-        assertTrue(model.usesRacks);
-        assertEquals(2, model.cohortCount);
-        assertArrayEquals(new int[] {0, 1, 0, 1}, model.memberCohort);
-        assertArrayEquals(new int[] {1, 1}, model.cohortBaseLoad);
+        assertTrue(model.usesRacks());
+        assertEquals(2, model.cohorts().count());
+        assertArrayEquals(new int[] {0, 1, 0, 1}, model.cohorts().memberCohort());
+        assertArrayEquals(new int[] {1, 1}, model.cohorts().baseLoad());
 
         int[] load = {2, 1, 1, 2};
         Loads loads = new Loads(model, load);
@@ -278,22 +278,22 @@ public class LoadsTest {
             members.put(memberId(m), member("rack-" + (m / 4), subscriptions.get(m % 3), Assignment.EMPTY));
         }
         GroupModel model = new GroupModel(spec(members), describer(10, 9), rackAware);
-        assertEquals(rackAware ? 9 : 3, model.cohortCount);
+        assertEquals(rackAware ? 9 : 3, model.cohorts().count());
 
-        int[] load = new int[model.memberCount];
-        for (int m = 0; m < model.memberCount; m++) {
-            load[m] = model.cohortBaseLoad[model.memberCohort[m]];
+        int[] load = new int[model.memberCount()];
+        for (int m = 0; m < model.memberCount(); m++) {
+            load[m] = model.cohorts().baseLoad()[model.cohorts().memberCohort()[m]];
         }
         Loads loads = new Loads(model, load);
         assertSorted(model, loads);
 
         Random random = new Random(17);
         for (int i = 0; i < 2000; i++) {
-            int m = random.nextInt(model.memberCount);
-            int c = model.memberCohort[m];
-            int base = model.cohortBaseLoad[c];
+            int m = random.nextInt(model.memberCount());
+            int c = model.cohorts().memberCohort()[m];
+            int base = model.cohorts().baseLoad()[c];
             // A member gets at most one extra partition per topic.
-            int max = base + model.cohortTopics[c].length;
+            int max = base + model.cohorts().topics()[c].length;
             int before = load[m];
             boolean canIncrement = before < max;
             boolean canDecrement = before > base;
@@ -314,14 +314,14 @@ public class LoadsTest {
      * load of the group.
      */
     private static void assertSorted(GroupModel model, Loads loads) {
-        for (int c = 0; c < model.cohortCount; c++) {
+        for (int c = 0; c < model.cohorts().count(); c++) {
             int[] order = loads.order(c);
-            assertEquals(model.cohortSize[c], order.length, "size of cohort " + c);
+            assertEquals(model.cohorts().size()[c], order.length, "size of cohort " + c);
 
             int[] expected = new int[order.length];
             int n = 0;
-            for (int m = 0; m < model.memberCount; m++) {
-                if (model.memberCohort[m] == c) {
+            for (int m = 0; m < model.memberCount(); m++) {
+                if (model.cohorts().memberCohort()[m] == c) {
                     expected[n++] = loads.load[m];
                 }
             }
@@ -331,7 +331,7 @@ public class LoadsTest {
             int[] actual = new int[order.length];
             for (int i = 0; i < order.length; i++) {
                 int m = order[i];
-                assertEquals(c, model.memberCohort[m], "member " + m + " is listed in cohort " + c);
+                assertEquals(c, model.cohorts().memberCohort()[m], "member " + m + " is listed in cohort " + c);
                 assertTrue(seen.add(m), "member " + m + " is listed twice in cohort " + c);
                 actual[i] = loads.load[m];
             }
@@ -339,7 +339,7 @@ public class LoadsTest {
         }
 
         int min = Integer.MAX_VALUE;
-        for (int m = 0; m < model.memberCount; m++) {
+        for (int m = 0; m < model.memberCount(); m++) {
             min = Math.min(min, loads.load[m]);
         }
         assertEquals(min, loads.min());

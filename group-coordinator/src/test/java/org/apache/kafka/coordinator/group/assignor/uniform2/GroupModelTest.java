@@ -96,14 +96,14 @@ public class GroupModelTest {
 
         GroupModel model = model(members, describer(1, 1, 1), false);
 
-        assertEquals(3, model.memberCount);
-        assertArrayEquals(new String[]{"A", "B", "C"}, model.memberIds);
-        assertEquals(3, model.topicCount);
-        assertArrayEquals(new Uuid[]{T1, T2, T3}, model.topicIds);
-        assertEquals(0, model.topicIndex.indexOf(T1));
-        assertEquals(1, model.topicIndex.indexOf(T2));
-        assertEquals(2, model.topicIndex.indexOf(T3));
-        assertEquals(NONE, model.topicIndex.indexOf(UNKNOWN_TOPIC));
+        assertEquals(3, model.memberCount());
+        assertArrayEquals(new String[]{"A", "B", "C"}, model.memberIds());
+        assertEquals(3, model.topicCount());
+        assertArrayEquals(new Uuid[]{T1, T2, T3}, model.topicIds());
+        assertEquals(0, model.topicIndex().indexOf(T1));
+        assertEquals(1, model.topicIndex().indexOf(T2));
+        assertEquals(2, model.topicIndex().indexOf(T3));
+        assertEquals(NONE, model.topicIndex().indexOf(UNKNOWN_TOPIC));
     }
 
     @Test
@@ -118,9 +118,9 @@ public class GroupModelTest {
 
         GroupModel model = model(members, describer(7, 2, 0), false);
 
-        assertArrayEquals(new int[]{7, 2, 0}, model.partitionCounts);
-        assertArrayEquals(new int[]{2, 0, 0}, model.basePartitionCount);
-        assertArrayEquals(new int[]{1, 2, 0}, model.extraPartitionCount);
+        assertArrayEquals(new int[]{7, 2, 0}, model.partitionCounts());
+        assertArrayEquals(new int[]{2, 0, 0}, model.basePartitionCount());
+        assertArrayEquals(new int[]{1, 2, 0}, model.extraPartitionCount());
         assertEquals(7, model.maxPartitionsPerTopic());
     }
 
@@ -142,13 +142,13 @@ public class GroupModelTest {
 
         GroupModel model = model(members, describer(5, 4), false);
 
-        assertTrue(model.homogeneous);
+        assertTrue(model.homogeneous());
         // Every topic has every member and every member has every topic, sharing one array each.
-        assertArrayEquals(new int[]{0, 1, 2}, model.subscribers[0]);
-        assertSame(model.subscribers[0], model.subscribers[1]);
-        assertArrayEquals(new int[]{0, 1}, model.memberTopics[0]);
-        assertSame(model.memberTopics[0], model.memberTopics[1]);
-        assertSame(model.memberTopics[0], model.memberTopics[2]);
+        assertArrayEquals(new int[]{0, 1, 2}, model.subscribers()[0]);
+        assertSame(model.subscribers()[0], model.subscribers()[1]);
+        assertArrayEquals(new int[]{0, 1}, model.memberTopics()[0]);
+        assertSame(model.memberTopics()[0], model.memberTopics()[1]);
+        assertSame(model.memberTopics()[0], model.memberTopics()[2]);
         for (int m = 0; m < 3; m++) {
             for (int t = 0; t < 2; t++) {
                 assertTrue(model.isSubscribed(m, t));
@@ -156,16 +156,16 @@ public class GroupModelTest {
         }
 
         // One cohort with every member, whose base load is 5 / 3 + 4 / 3 = 2.
-        assertEquals(1, model.cohortCount);
-        assertArrayEquals(new int[]{0, 0, 0}, model.memberCohort);
-        assertArrayEquals(new int[]{3}, model.cohortSize);
-        assertArrayEquals(new int[]{2}, model.cohortBaseLoad);
-        assertArrayEquals(new int[]{0, 1}, model.cohortTopics[0]);
-        assertArrayEquals(new int[]{0}, model.cohortRack);
-        assertArrayEquals(new int[]{0, 1, 2}, model.topicCohortStart);
-        assertArrayEquals(new int[]{0, 0}, model.topicCohorts);
+        assertEquals(1, model.cohorts().count());
+        assertArrayEquals(new int[]{0, 0, 0}, model.cohorts().memberCohort());
+        assertArrayEquals(new int[]{3}, model.cohorts().size());
+        assertArrayEquals(new int[]{2}, model.cohorts().baseLoad());
+        assertArrayEquals(new int[]{0, 1}, model.cohorts().topics()[0]);
+        assertArrayEquals(new int[]{0}, model.cohorts().rack());
+        assertArrayEquals(new int[]{0, 1, 2}, model.cohorts().topicCohortStart());
+        assertArrayEquals(new int[]{0, 0}, model.cohorts().topicCohorts());
         assertEquals(1, model.maxCohortsPerTopic());
-        assertFalse(model.usesRacks);
+        assertFalse(model.usesRacks());
     }
 
     @Test
@@ -178,63 +178,63 @@ public class GroupModelTest {
 
         GroupModel model = model(members, describer(4, 6, 3), false);
 
-        assertFalse(model.homogeneous);
+        assertFalse(model.homogeneous());
         // Subscribers per topic and topics per member, both ascending.
-        assertArrayEquals(new int[]{0, 2}, model.subscribers[0]);
-        assertArrayEquals(new int[]{0, 1, 2}, model.subscribers[1]);
-        assertArrayEquals(new int[]{1, 3}, model.subscribers[2]);
-        assertArrayEquals(new int[]{0, 1}, model.memberTopics[0]);
-        assertArrayEquals(new int[]{1, 2}, model.memberTopics[1]);
-        assertArrayEquals(new int[]{0, 1}, model.memberTopics[2]);
-        assertArrayEquals(new int[]{2}, model.memberTopics[3]);
+        assertArrayEquals(new int[]{0, 2}, model.subscribers()[0]);
+        assertArrayEquals(new int[]{0, 1, 2}, model.subscribers()[1]);
+        assertArrayEquals(new int[]{1, 3}, model.subscribers()[2]);
+        assertArrayEquals(new int[]{0, 1}, model.memberTopics()[0]);
+        assertArrayEquals(new int[]{1, 2}, model.memberTopics()[1]);
+        assertArrayEquals(new int[]{0, 1}, model.memberTopics()[2]);
+        assertArrayEquals(new int[]{2}, model.memberTopics()[3]);
         assertTrue(model.isSubscribed(1, 1));
         assertFalse(model.isSubscribed(1, 0));
         assertTrue(model.isSubscribed(3, 2));
         assertFalse(model.isSubscribed(3, 1));
 
         // T1: 4 / 2 = 2 base partitions, T2: 6 / 3 = 2, T3: 3 / 2 = 1 with one extra partition.
-        assertArrayEquals(new int[]{2, 2, 1}, model.basePartitionCount);
-        assertArrayEquals(new int[]{0, 0, 1}, model.extraPartitionCount);
+        assertArrayEquals(new int[]{2, 2, 1}, model.basePartitionCount());
+        assertArrayEquals(new int[]{0, 0, 1}, model.extraPartitionCount());
 
         // Cohorts are numbered in the order of their first member: {A, C} on T1 and T2 with base
         // load 2 + 2, {B} on T2 and T3 with base load 2 + 1, {D} on T3 with base load 1.
-        assertEquals(3, model.cohortCount);
-        assertArrayEquals(new int[]{0, 1, 0, 2}, model.memberCohort);
-        assertArrayEquals(new int[]{0, 1}, model.cohortTopics[0]);
-        assertArrayEquals(new int[]{1, 2}, model.cohortTopics[1]);
-        assertArrayEquals(new int[]{2}, model.cohortTopics[2]);
-        assertArrayEquals(new int[]{4, 3, 1}, model.cohortBaseLoad);
-        assertArrayEquals(new int[]{2, 1, 1}, model.cohortSize);
-        assertArrayEquals(new int[]{0, 0, 0}, model.cohortRack);
+        assertEquals(3, model.cohorts().count());
+        assertArrayEquals(new int[]{0, 1, 0, 2}, model.cohorts().memberCohort());
+        assertArrayEquals(new int[]{0, 1}, model.cohorts().topics()[0]);
+        assertArrayEquals(new int[]{1, 2}, model.cohorts().topics()[1]);
+        assertArrayEquals(new int[]{2}, model.cohorts().topics()[2]);
+        assertArrayEquals(new int[]{4, 3, 1}, model.cohorts().baseLoad());
+        assertArrayEquals(new int[]{2, 1, 1}, model.cohorts().size());
+        assertArrayEquals(new int[]{0, 0, 0}, model.cohorts().rack());
 
         // T1 has cohort 0, T2 has cohorts 0 and 1, T3 has cohorts 1 and 2.
-        assertArrayEquals(new int[]{0, 1, 3, 5}, model.topicCohortStart);
-        assertArrayEquals(new int[]{0, 0, 1, 1, 2}, model.topicCohorts);
+        assertArrayEquals(new int[]{0, 1, 3, 5}, model.cohorts().topicCohortStart());
+        assertArrayEquals(new int[]{0, 0, 1, 1, 2}, model.cohorts().topicCohorts());
         assertEquals(2, model.maxCohortsPerTopic());
         assertEquals(6, model.maxPartitionsPerTopic());
     }
 
     @Test
-    public void testCurrentHolders() {
+    public void testCurrentOwners() {
         Map<String, MemberSubscriptionAndAssignmentImpl> members = new TreeMap<>();
         members.put("A", member(Set.of(T1, T2), new Assignment(Map.of(T1, Set.of(0, 1), T2, Set.of(0)))));
-        // B is not subscribed to T1: its partitions of T1 are dropped.
+        // B is not subscribed to T1: its partitions of T1 are stale.
         members.put("B", member(Set.of(T2), new Assignment(Map.of(T1, Set.of(2), T2, Set.of(1, 2)))));
-        // An empty set and a topic unknown to the group are dropped.
+        // An empty set and a topic unknown to the group are stale.
         members.put("C", member(Set.of(T1, T2), new Assignment(Map.of(T1, Set.of(), T3, Set.of(0)))));
         members.put("D", member(Set.of(T1, T2), Assignment.EMPTY));
 
         GroupModel model = model(members, describer(4, 4), false);
 
-        // Holders per topic in ascending member order: T1 has A, T2 has A and B.
-        assertArrayEquals(new int[]{0, 1, 3}, model.holderStart);
-        assertArrayEquals(new int[]{0, 0, 1}, model.holderMember);
-        assertSame(members.get("A").partitions().get(T1), model.holderPartitions[0]);
-        assertSame(members.get("A").partitions().get(T2), model.holderPartitions[1]);
-        assertSame(members.get("B").partitions().get(T2), model.holderPartitions[2]);
-        assertArrayEquals(new boolean[]{false, true, true, false}, model.hasDroppedPartitions);
-        for (int m = 0; m < model.memberCount; m++) {
-            assertSame(members.get(model.memberIds[m]).partitions(), model.currentAssignments[m]);
+        // Owners per topic in ascending member order: T1 has A, T2 has A and B.
+        assertArrayEquals(new int[]{0, 1, 3}, model.owners().start());
+        assertArrayEquals(new int[]{0, 0, 1}, model.owners().member());
+        assertSame(members.get("A").partitions().get(T1), model.owners().partitions()[0]);
+        assertSame(members.get("A").partitions().get(T2), model.owners().partitions()[1]);
+        assertSame(members.get("B").partitions().get(T2), model.owners().partitions()[2]);
+        assertArrayEquals(new boolean[]{false, true, true, false}, model.hasStalePartitions());
+        for (int m = 0; m < model.memberCount(); m++) {
+            assertSame(members.get(model.memberIds()[m]).partitions(), model.currentAssignments()[m]);
         }
     }
 
@@ -290,11 +290,11 @@ public class GroupModelTest {
         // C holds a single partition of topic 22, its base, so it is only backed for topic 29.
         members.put("C", member(topics, new Assignment(Map.of(topicIds[22], Set.of(0), topicIds[29], Set.of(0, 1)))));
         GroupModel model = new GroupModel(spec(members), builder.buildDescriber(), false);
-        assertEquals(30, model.topicCount);
+        assertEquals(30, model.topicCount());
 
         Set<Integer> backed = Set.of(0, 21, 100 + 20, 100 + 21, 200 + 29);
-        for (int m = 0; m < model.memberCount; m++) {
-            for (int t = 0; t < model.topicCount; t++) {
+        for (int m = 0; m < model.memberCount(); m++) {
+            for (int t = 0; t < model.topicCount(); t++) {
                 assertEquals(backed.contains(m * 100 + t), model.isBacked(m, t), "member " + m + " topic " + t);
             }
         }
@@ -311,13 +311,13 @@ public class GroupModelTest {
 
         GroupModel model = model(members, rackDescriber(), false);
 
-        assertFalse(model.usesRacks);
-        assertEquals(0, model.rackCount);
-        assertNull(model.memberRack);
-        assertNull(model.partitionRacks);
-        assertNull(model.rackSupply);
-        assertEquals(1, model.cohortCount);
-        assertArrayEquals(new int[]{0, 0}, model.memberCohort);
+        assertFalse(model.usesRacks());
+        assertEquals(0, model.racks().count());
+        assertNull(model.racks().memberRack());
+        assertNull(model.racks().partitionRacks());
+        assertNull(model.racks().supply());
+        assertEquals(1, model.cohorts().count());
+        assertArrayEquals(new int[]{0, 0}, model.cohorts().memberCohort());
     }
 
     @Test
@@ -329,9 +329,9 @@ public class GroupModelTest {
 
         GroupModel model = model(members, rackDescriber(), true);
 
-        assertFalse(model.usesRacks);
-        assertEquals(0, model.rackCount);
-        assertEquals(1, model.cohortCount);
+        assertFalse(model.usesRacks());
+        assertEquals(0, model.racks().count());
+        assertEquals(1, model.cohorts().count());
     }
 
     @Test
@@ -342,17 +342,17 @@ public class GroupModelTest {
 
         GroupModel model = model(members, rackDescriber(), true);
 
-        assertFalse(model.usesRacks);
-        assertEquals(0, model.rackCount);
-        assertEquals(1, model.cohortCount);
+        assertFalse(model.usesRacks());
+        assertEquals(0, model.racks().count());
+        assertEquals(1, model.cohorts().count());
     }
 
     @Test
     public void testRacksAreUsedForAtMost64Racks() {
-        assertTrue(modelWithOneMemberPerRack(64).usesRacks);
-        assertEquals(64, modelWithOneMemberPerRack(64).rackCount);
-        assertFalse(modelWithOneMemberPerRack(65).usesRacks);
-        assertEquals(0, modelWithOneMemberPerRack(65).rackCount);
+        assertTrue(modelWithOneMemberPerRack(64).usesRacks());
+        assertEquals(64, modelWithOneMemberPerRack(64).racks().count());
+        assertFalse(modelWithOneMemberPerRack(65).usesRacks());
+        assertEquals(0, modelWithOneMemberPerRack(65).racks().count());
     }
 
     private static GroupModel modelWithOneMemberPerRack(int rackCount) {
@@ -372,29 +372,29 @@ public class GroupModelTest {
 
         GroupModel model = model(members, rackDescriber(), true);
 
-        assertTrue(model.usesRacks);
+        assertTrue(model.usesRacks());
         // Racks are numbered in the order of their first member: r1 is rack 0 and r2 is rack 1.
         // Rack r3 has no member and is not counted.
-        assertEquals(2, model.rackCount);
-        assertArrayEquals(new int[]{0, 1, 0}, model.memberRack);
+        assertEquals(2, model.racks().count());
+        assertArrayEquals(new int[]{0, 1, 0}, model.racks().memberRack());
         // One bit per rack: partition 2 of T1 has replicas in both racks and partition 3 only in r3.
-        assertArrayEquals(new long[]{0b01, 0b10, 0b11, 0b00}, model.partitionRacks[0]);
-        assertArrayEquals(new long[]{0b01, 0b10}, model.partitionRacks[1]);
+        assertArrayEquals(new long[]{0b01, 0b10, 0b11, 0b00}, model.racks().partitionRacks()[0]);
+        assertArrayEquals(new long[]{0b01, 0b10}, model.racks().partitionRacks()[1]);
         // Per topic and rack, the number of partitions with a replica in the rack.
-        assertArrayEquals(new int[]{2, 2}, model.rackSupply[0]);
-        assertArrayEquals(new int[]{1, 1}, model.rackSupply[1]);
+        assertArrayEquals(new int[]{2, 2}, model.racks().supply()[0]);
+        assertArrayEquals(new int[]{1, 1}, model.racks().supply()[1]);
 
         // Homogeneous with racks: one cohort per rack, the cohort of a rack having the index of the rack.
-        assertEquals(2, model.cohortCount);
-        assertArrayEquals(new int[]{0, 1, 0}, model.memberCohort);
-        assertArrayEquals(new int[]{0, 1}, model.cohortRack);
-        assertArrayEquals(new int[]{2, 1}, model.cohortSize);
+        assertEquals(2, model.cohorts().count());
+        assertArrayEquals(new int[]{0, 1, 0}, model.cohorts().memberCohort());
+        assertArrayEquals(new int[]{0, 1}, model.cohorts().rack());
+        assertArrayEquals(new int[]{2, 1}, model.cohorts().size());
         // T1: 4 / 3 = 1 base partition, T2: 2 / 3 = 0, so a base load of 1 for both cohorts.
-        assertArrayEquals(new int[]{1, 1}, model.cohortBaseLoad);
-        assertArrayEquals(new int[]{0, 1}, model.cohortTopics[0]);
-        assertArrayEquals(new int[]{0, 1}, model.cohortTopics[1]);
-        assertArrayEquals(new int[]{0, 2, 4}, model.topicCohortStart);
-        assertArrayEquals(new int[]{0, 1, 0, 1}, model.topicCohorts);
+        assertArrayEquals(new int[]{1, 1}, model.cohorts().baseLoad());
+        assertArrayEquals(new int[]{0, 1}, model.cohorts().topics()[0]);
+        assertArrayEquals(new int[]{0, 1}, model.cohorts().topics()[1]);
+        assertArrayEquals(new int[]{0, 2, 4}, model.cohorts().topicCohortStart());
+        assertArrayEquals(new int[]{0, 1, 0, 1}, model.cohorts().topicCohorts());
         assertEquals(2, model.maxCohortsPerTopic());
     }
 
@@ -408,25 +408,25 @@ public class GroupModelTest {
 
         // With racks, a cohort has one subscription and one rack: {A, C}, {B} and {D}.
         GroupModel model = model(members, rackDescriber(), true);
-        assertTrue(model.usesRacks);
-        assertEquals(3, model.cohortCount);
-        assertArrayEquals(new int[]{0, 1, 0, 2}, model.memberCohort);
-        assertArrayEquals(new int[]{0, 1, 0}, model.cohortRack);
-        assertArrayEquals(new int[]{2, 1, 1}, model.cohortSize);
-        assertArrayEquals(new int[]{0}, model.cohortTopics[0]);
-        assertArrayEquals(new int[]{0}, model.cohortTopics[1]);
-        assertArrayEquals(new int[]{0, 1}, model.cohortTopics[2]);
+        assertTrue(model.usesRacks());
+        assertEquals(3, model.cohorts().count());
+        assertArrayEquals(new int[]{0, 1, 0, 2}, model.cohorts().memberCohort());
+        assertArrayEquals(new int[]{0, 1, 0}, model.cohorts().rack());
+        assertArrayEquals(new int[]{2, 1, 1}, model.cohorts().size());
+        assertArrayEquals(new int[]{0}, model.cohorts().topics()[0]);
+        assertArrayEquals(new int[]{0}, model.cohorts().topics()[1]);
+        assertArrayEquals(new int[]{0, 1}, model.cohorts().topics()[2]);
 
         // Without racks, A, B and C form a single cohort.
         GroupModel plain = model(members, rackDescriber(), false);
-        assertEquals(2, plain.cohortCount);
-        assertArrayEquals(new int[]{0, 0, 0, 1}, plain.memberCohort);
-        assertArrayEquals(new int[]{0, 0}, plain.cohortRack);
+        assertEquals(2, plain.cohorts().count());
+        assertArrayEquals(new int[]{0, 0, 0, 1}, plain.cohorts().memberCohort());
+        assertArrayEquals(new int[]{0, 0}, plain.cohorts().rack());
     }
 
     /**
      * Current partition ids beyond the partition count of the topic exist in the input but are
-     * not counted: they neither make the holder backed nor count as a dropped entry.
+     * not counted: they neither make the owner backed nor count as a stale entry.
      */
     @Test
     public void testCurrentPartitionsBeyondThePartitionCountAreNotCounted() {
@@ -438,13 +438,13 @@ public class GroupModelTest {
         // T1 has 3 partitions for 3 subscribers, so the base is 1.
         GroupModel model = model(members, describer(3), false);
 
-        assertArrayEquals(new int[]{0, 2}, model.holderStart);
-        assertArrayEquals(new int[]{0, 1}, model.holderMember);
-        assertEquals(Set.of(0, 5), model.holderPartitions[0]);
-        assertArrayEquals(new int[]{1, 1}, model.holderValidCount);
+        assertArrayEquals(new int[]{0, 2}, model.owners().start());
+        assertArrayEquals(new int[]{0, 1}, model.owners().member());
+        assertEquals(Set.of(0, 5), model.owners().partitions()[0]);
+        assertArrayEquals(new int[]{1, 1}, model.owners().validCount());
         assertFalse(model.isBacked(0, 0));
         assertEquals(0, model.backedCount(0));
-        assertFalse(model.hasDroppedPartitions[0]);
+        assertFalse(model.hasStalePartitions()[0]);
         assertEquals(0, model.backedCount(1));
         assertEquals(0, model.backedCount(2));
     }

@@ -43,7 +43,7 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
 
 /**
  * Tests of the partition phase without racks, see {@link PartitionAssigner}: which
- * partition ids every member gets once the quotas are known. The quotas come from
+ * partition ids every member gets once the allocations are known. The allocations come from
  * {@link ExtraPartitionAssigner}, and every expectation is worked out by hand in the
  * comments.
  */
@@ -80,7 +80,7 @@ public class PartitionAssignerTest {
         SubscribedTopicDescriber describer
     ) {
         GroupModel model = new GroupModel(spec(members), describer, false);
-        assertFalse(model.usesRacks);
+        assertFalse(model.usesRacks());
         ExtraPartitions extras = new ExtraPartitionAssigner(model).assign();
         return new PartitionAssigner(model, extras).assign();
     }
@@ -94,9 +94,9 @@ public class PartitionAssignerTest {
     }
 
     @Test
-    public void testHoldersKeepTheirLowestPartitionsUpToTheirQuotaAndReleaseTheRest() {
-        // T1 has 6 partitions for 3 members: a quota of 2 each. A holds 4 and keeps the two
-        // lowest, 0 and 2, releasing 4 and 5 to C. B holds exactly its quota.
+    public void testOwnersKeepTheirLowestPartitionsUpToTheirAllocationAndReleaseTheRest() {
+        // T1 has 6 partitions for 3 members: a allocation of 2 each. A holds 4 and keeps the two
+        // lowest, 0 and 2, releasing 4 and 5 to C. B holds exactly its allocation.
         SubscribedTopicDescriber describer = describer(6);
         Map<String, MemberSubscriptionAndAssignmentImpl> members = new TreeMap<>();
         members.put(A, member(Set.of(T1), holding(T1, 0, 2, 4, 5)));
@@ -114,10 +114,10 @@ public class PartitionAssignerTest {
     }
 
     @Test
-    public void testReleasedPartitionsGoToHoldersFirstThenToOtherSubscribersInMemberOrder() {
-        // T1 has 8 partitions for 4 members: a quota of 2 each. B holds 3 and releases 2, D holds
+    public void testReleasedPartitionsGoToOwnersFirstThenToOtherSubscribersInMemberOrder() {
+        // T1 has 8 partitions for 4 members: a allocation of 2 each. B holds 3 and releases 2, D holds
         // 1, A and C hold nothing. Partitions 2, 4, 5, 6 and 7 are handed out in ascending order
-        // to the members below their quota, the holders first: D gets 2 before A, which comes
+        // to the members below their allocation, the owners first: D gets 2 before A, which comes
         // first by id but holds nothing, then A gets 4 and 5 and C gets 6 and 7.
         SubscribedTopicDescriber describer = describer(8);
         Map<String, MemberSubscriptionAndAssignmentImpl> members = new TreeMap<>();
@@ -167,7 +167,7 @@ public class PartitionAssignerTest {
 
     @Test
     public void testSettledTopicIsEmittedAsIs() {
-        // T1 has 4 partitions for 2 members holding 2 each: every holder has exactly its quota
+        // T1 has 4 partitions for 2 members holding 2 each: every owner has exactly its allocation
         // and every partition is held, so nothing moves and the input comes back as is.
         SubscribedTopicDescriber describer = describer(4);
         Map<String, MemberSubscriptionAndAssignmentImpl> members = new TreeMap<>();
@@ -186,8 +186,8 @@ public class PartitionAssignerTest {
     }
 
     @Test
-    public void testCurrentPartitionsBeyondThePartitionCountAreDropped() {
-        // T1 has 3 partitions for 3 members: a quota of 1 each. A holds 0 and 5, but 5 does not
+    public void testCurrentPartitionsBeyondThePartitionCountAreStale() {
+        // T1 has 3 partitions for 3 members: a allocation of 1 each. A holds 0 and 5, but 5 does not
         // exist, so A only counts as holding 0, which it keeps: every partition is assigned
         // exactly once and 5 disappears. A gets a new set and a new map, B and C are unchanged.
         SubscribedTopicDescriber describer = describer(3);
@@ -210,8 +210,8 @@ public class PartitionAssignerTest {
     }
 
     @Test
-    public void testTopicWithoutPartitionsIsDropped() {
-        // T1 has 2 partitions and T2 has none. A holds a partition of T2 which is dropped: A gets
+    public void testTopicWithoutPartitionsIsStale() {
+        // T1 has 2 partitions and T2 has none. A holds a partition of T2 which is stale: A gets
         // a new map without T2, in which its T1 set is still the same instance. B is unchanged.
         SubscribedTopicDescriber describer = describer(2, 0);
         assertEquals(0, describer.numPartitions(T2));
@@ -232,7 +232,7 @@ public class PartitionAssignerTest {
     @Test
     public void testChangedTopicGivesANewMapWhileUnchangedTopicsKeepTheirSets() {
         // T1 has 3 partitions and T2 has 2, for 2 members. A holds all of T1, more than the base
-        // of 1, and claims its extra partition: quota 2, it keeps 0 and 1 and releases 2 to B.
+        // of 1, and claims its extra partition: allocation 2, it keeps 0 and 1 and releases 2 to B.
         // T2 is settled with one partition each. Both members get a new map since their T1
         // partitions change, but their T2 sets are the very same instances.
         SubscribedTopicDescriber describer = describer(3, 2);
@@ -292,7 +292,7 @@ public class PartitionAssignerTest {
 
     @Test
     public void testPartitionHeldBySeveralMembersIsRejected() {
-        // T1 has 3 partitions for 3 members: a quota of 1 each. A holds 0 and 1, and B holds 0
+        // T1 has 3 partitions for 3 members: a allocation of 1 each. A holds 0 and 1, and B holds 0
         // too. A keeps 0, its lowest, and so does B, so C receives 1 and partition 2 is left
         // without a member: the inconsistency is reported rather than silently producing an
         // incomplete assignment or failing on an array bound.

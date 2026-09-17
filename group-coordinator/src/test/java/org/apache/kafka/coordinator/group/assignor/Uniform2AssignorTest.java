@@ -157,7 +157,7 @@ public class Uniform2AssignorTest {
     }
 
     @Test
-    public void testMemberJoinsOnlyMovesItsQuota() {
+    public void testMemberJoinsOnlyMovesItsAllocation() {
         SubscribedTopicDescriber describer = describer(3, 3);
         Map<String, MemberSubscriptionAndAssignmentImpl> members = new TreeMap<>();
         members.put(MEMBER_A, member(BOTH_TOPICS, new Assignment(mkAssignment(
@@ -214,7 +214,7 @@ public class Uniform2AssignorTest {
     }
 
     @Test
-    public void testUnsubscribedTopicIsDropped() {
+    public void testUnsubscribedTopicIsStale() {
         SubscribedTopicDescriber describer = describer(2, 2);
         Map<String, MemberSubscriptionAndAssignmentImpl> members = new TreeMap<>();
         members.put(MEMBER_A, member(Set.of(TOPIC_1), new Assignment(mkAssignment(
@@ -592,9 +592,9 @@ public class Uniform2AssignorTest {
         // Six partitions for three members in three racks, fully aligned: 0 and 3 have a replica
         // in rack-0, 1 and 4 in rack-1, 2 and 5 in rack-2. C moves from rack-2 to rack-1: its
         // partitions 2 and 5 only have replicas in rack-2 and rack-0, so they are misaligned
-        // and no member of rack-1 is below its quota. They are swapped with the partitions of
+        // and no member of rack-1 is below its allocation. They are swapped with the partitions of
         // A, the member of rack-0, which have a replica in rack-1: C takes 0 and 3, A takes 2
-        // and 5, and the quotas do not change. B is untouched.
+        // and 5, and the allocations do not change. B is untouched.
         SubscribedTopicDescriber describer = rackDescriber(6);
         Map<String, MemberSubscriptionAndAssignmentImpl> members = new TreeMap<>();
         members.put(MEMBER_A, member("rack-0", Set.of(TOPIC_1), new Assignment(mkAssignment(mkTopicAssignment(TOPIC_1, 0, 3)))));
@@ -616,10 +616,10 @@ public class Uniform2AssignorTest {
     }
 
     @Test
-    public void testReplicasMoveRealignWithoutChangingQuotas() {
+    public void testReplicasMoveRealignWithoutChangingAllocations() {
         // Six partitions for three members in three racks, fully aligned. The replicas of every
         // partition then move to the two other brokers, so that every partition is misaligned.
-        // Every member keeps a quota of 2 and gets two aligned partitions instead.
+        // Every member keeps a allocation of 2 and gets two aligned partitions instead.
         SubscribedTopicDescriber before = rackDescriber(6);
         Map<String, MemberSubscriptionAndAssignmentImpl> members = new TreeMap<>();
         members.put(MEMBER_A, member("rack-0", Set.of(TOPIC_1), new Assignment(mkAssignment(mkTopicAssignment(TOPIC_1, 0, 3)))));
@@ -748,7 +748,7 @@ public class Uniform2AssignorTest {
     }
 
     @Test
-    public void testOutOfRangeCurrentPartitionsAreDropped() {
+    public void testOutOfRangeCurrentPartitionsAreStale() {
         // T1 has 3 partitions for 3 members. A holds 0 and 7, which does not exist: A keeps 0
         // and 7 disappears, while B and C are unchanged.
         SubscribedTopicDescriber describer = describer(3, 0);

@@ -24,25 +24,25 @@ import java.util.TreeMap;
 import static org.apache.kafka.coordinator.group.assignor.uniform2.GroupModel.NONE;
 
 /**
- * The partition phase when racks are in use, see {@link AssignmentBuilder}. The quotas
+ * The partition phase when racks are in use, see {@link AssignmentBuilder}. The allocations
  * are the same as without racks; only the choice of partition ids changes, so that as many
  * members as possible get partitions having a replica in their rack. For each topic:
  * <ol>
- *     <li><b>Keep:</b> each current holder keeps its current aligned partitions up to its quota.
- *     Misaligned partitions are released so that they can be realigned. A holder with more
- *     aligned partitions than its quota releases first the ones most useful to the racks whose
- *     members are below their quotas, then the ones with the most replica racks.</li>
- *     <li><b>Align:</b> the released partitions are handed to the members below their quota
+ *     <li><b>Keep:</b> each current owner keeps its current aligned partitions up to its allocation.
+ *     Misaligned partitions are released so that they can be realigned. A owner with more
+ *     aligned partitions than its allocation releases first the ones most useful to the racks whose
+ *     members are below their allocations, then the ones with the most replica racks.</li>
+ *     <li><b>Align:</b> the released partitions are handed to the members below their allocation
  *     with a maximum flow from replica rack sets to racks, see {@link MaxFlow}. Among
- *     the partitions sharing the same replica racks, the ones whose previous holder can take
+ *     the partitions sharing the same replica racks, the ones whose previous owner can take
  *     them back are handed out last, so that they are the ones left over.</li>
  *     <li><b>Leftovers:</b> the partitions that cannot be aligned go back to their previous
- *     holder if it is still below its quota, then to the remaining members below their quota,
- *     the current holders of the topic first, then its other subscribers, each in member id
+ *     owner if it is still below its allocation, then to the remaining members below their allocation,
+ *     the current owners of the topic first, then its other subscribers, each in member id
  *     order.</li>
  *     <li><b>Swap:</b> each partition still misaligned is swapped with a partition held by a
  *     member in one of its replica racks, when that partition has a replica in the rack of the
- *     misaligned holder.</li>
+ *     misaligned owner.</li>
  * </ol>
  * A settled topic is only emitted as is when all its partitions are aligned, since it may
  * otherwise be realigned by swaps.
@@ -61,12 +61,14 @@ final class RackAwarePartitionAssigner extends PartitionAssigner {
     private final int[] flowReceivers;
     /** Per participant, while the flow is handed out, the number of leftovers it can still take back. */
     private final int[] returnable;
+    private final GroupModel.Racks racks;
 
     RackAwarePartitionAssigner(GroupModel model, ExtraPartitions extras) {
         super(model, extras);
+        this.racks = model.racks();
         previousOwner = new int[model.maxPartitionsPerTopic()];
         flowReceivers = new int[model.maxPartitionsPerTopic()];
-        returnable = new int[model.memberCount];
+        returnable = new int[model.memberCount()];
     }
 
     /**
@@ -78,11 +80,11 @@ final class RackAwarePartitionAssigner extends PartitionAssigner {
         if (!super.isSettled(t)) {
             return false;
         }
-        long[] racks = model.partitionRacks[t];
-        for (int i = model.holderStart[t]; i < model.holderStart[t + 1]; i++) {
-            long rackBit = 1L << model.memberRack[model.holderMember[i]];
-            for (int p : model.holderPartitions[i]) {
-                if ((racks[p] & rackBit) == 0) {
+        long[] replicaRacks = racks.partitionRacks()[t];
+        for (int i = owners.start()[t]; i < owners.start()[t + 1]; i++) {
+            long rackBit = 1L << racks.memberRack()[owners.member()[i]];
+            for (int p : owners.partitions()[i]) {
+                if ((replicaRacks[p] & rackBit) == 0) {
                     return false;
                 }
             }
@@ -92,7 +94,7 @@ final class RackAwarePartitionAssigner extends PartitionAssigner {
 
     @Override
     void assignTopic(int t) {
-        Arrays.fill(previousOwner, 0, model.partitionCounts[t], NONE);
+        Arrays.fill(previousOwner, 0, model.partitionCounts()[t], NONE);
         keepAlignedPartitions(t);
         computeDeficits(t);
         int leftoverCount = alignDeficits(t);
@@ -101,42 +103,42 @@ final class RackAwarePartitionAssigner extends PartitionAssigner {
     }
 
     /**
-     * Every current holder keeps its current aligned partitions up to its quota. When it has too
+     * Every current owner keeps its current aligned partitions up to its allocation. When it has too
      * many, the released ones are those most useful to the racks having a deficit, then the ones
      * with the most replica racks since they are the easiest to place elsewhere. Misaligned
-     * partitions are released so that they can be realigned, and come back to their holder if
+     * partitions are released so that they can be realigned, and come back to their owner if
      * that is not possible.
      */
     private void keepAlignedPartitions(int t) {
-        int partitionCount = model.partitionCounts[t];
-        long[] racks = model.partitionRacks[t];
+        int partitionCount = model.partitionCounts()[t];
+        long[] replicaRacks = racks.partitionRacks()[t];
         int[] demand = rackDemand(t);
-        for (int i = model.holderStart[t]; i < model.holderStart[t + 1]; i++) {
-            int m = model.holderMember[i];
-            Set<Integer> current = model.holderPartitions[i];
-            int quota = extras.quota(m, t);
-            long rackBit = 1L << model.memberRack[m];
+        for (int i = owners.start()[t]; i < owners.start()[t + 1]; i++) {
+            int m = owners.member()[i];
+            Set<Integer> current = owners.partitions()[i];
+            int allocation = extras.allocation(m, t);
+            long rackBit = 1L << racks.memberRack()[m];
             int aligned = 0;
             for (int p : current) {
                 if (p < 0 || p >= partitionCount) {
                     continue;
                 }
                 previousOwner[p] = m;
-                if ((racks[p] & rackBit) != 0) {
+                if ((replicaRacks[p] & rackBit) != 0) {
                     scratch.partitions[aligned++] = p;
                 }
             }
-            if (aligned > quota) {
+            if (aligned > allocation) {
                 long[] keys = new long[aligned];
                 for (int j = 0; j < aligned; j++) {
                     int p = scratch.partitions[j];
-                    keys[j] = ((long) releaseUsefulness(racks[p], demand) << 32) | p;
+                    keys[j] = ((long) releaseUsefulness(replicaRacks[p], demand) << 32) | p;
                 }
                 Arrays.sort(keys);
-                for (int j = 0; j < quota; j++) {
+                for (int j = 0; j < allocation; j++) {
                     scratch.partitions[j] = (int) keys[j];
                 }
-                aligned = quota;
+                aligned = allocation;
             }
             scratch.keep(m, current, aligned);
         }
@@ -158,35 +160,35 @@ final class RackAwarePartitionAssigner extends PartitionAssigner {
 
     /**
      * @return Per rack, the number of partitions of the topic that its members will have to
-     *         receive once every holder has kept its aligned partitions up to its quota.
+     *         receive once every owner has kept its aligned partitions up to its allocation.
      */
     private int[] rackDemand(int t) {
-        int partitionCount = model.partitionCounts[t];
-        long[] racks = model.partitionRacks[t];
-        int[] demand = new int[model.rackCount];
-        // Holders: the deficit is the quota minus the aligned partitions they can keep.
-        for (int i = model.holderStart[t]; i < model.holderStart[t + 1]; i++) {
-            int m = model.holderMember[i];
-            long rackBit = 1L << model.memberRack[m];
+        int partitionCount = model.partitionCounts()[t];
+        long[] replicaRacks = racks.partitionRacks()[t];
+        int[] demand = new int[racks.count()];
+        // Owners: the deficit is the allocation minus the aligned partitions they can keep.
+        for (int i = owners.start()[t]; i < owners.start()[t + 1]; i++) {
+            int m = owners.member()[i];
+            long rackBit = 1L << racks.memberRack()[m];
             int aligned = 0;
-            for (int p : model.holderPartitions[i]) {
-                if (p >= 0 && p < partitionCount && (racks[p] & rackBit) != 0) {
+            for (int p : owners.partitions()[i]) {
+                if (p >= 0 && p < partitionCount && (replicaRacks[p] & rackBit) != 0) {
                     aligned++;
                 }
             }
-            scratch.deficit[scratch.participant(m)] = Math.max(0, extras.quota(m, t) - aligned);
+            scratch.deficit[scratch.participant(m)] = Math.max(0, extras.allocation(m, t) - aligned);
         }
-        // Receivers holding nothing need their whole quota.
+        // Receivers holding nothing need their whole allocation.
         int count = receiverCount(t);
         for (int i = 0; i < count; i++) {
             int m = receiverAt(t, i);
             if (scratch.participantOf(m) == NONE) {
-                demand[model.memberRack[m]] += extras.quota(m, t);
+                demand[racks.memberRack()[m]] += extras.allocation(m, t);
             }
         }
         IntList participants = scratch.participants;
         for (int i = 0; i < participants.size(); i++) {
-            demand[model.memberRack[participants.get(i)]] += scratch.deficit[i];
+            demand[racks.memberRack()[participants.get(i)]] += scratch.deficit[i];
             scratch.deficit[i] = 0;
         }
         return demand;
@@ -203,7 +205,7 @@ final class RackAwarePartitionAssigner extends PartitionAssigner {
         if (pool.isEmpty()) {
             return 0;
         }
-        IntList[] receiversByRack = new IntList[model.rackCount];
+        IntList[] receiversByRack = new IntList[racks.count()];
         int[] demand = rackDeficits(receiversByRack);
 
         // Only the first rack sets go through the flow, the partitions of the others are leftovers.
@@ -231,31 +233,31 @@ final class RackAwarePartitionAssigner extends PartitionAssigner {
      * @return The unassigned partitions of the topic, grouped by the racks having a replica.
      */
     private TreeMap<Long, IntList> unassignedPartitionsByRacks(int t) {
-        int partitionCount = model.partitionCounts[t];
-        long[] racks = model.partitionRacks[t];
+        int partitionCount = model.partitionCounts()[t];
+        long[] replicaRacks = racks.partitionRacks()[t];
         TreeMap<Long, IntList> pool = new TreeMap<>();
         for (int p = 0; p < partitionCount; p++) {
             if (scratch.owner[p] == NONE) {
-                pool.computeIfAbsent(racks[p], k -> new IntList(8)).add(p);
+                pool.computeIfAbsent(replicaRacks[p], k -> new IntList(8)).add(p);
             }
         }
         return pool;
     }
 
     /**
-     * Collects, per rack, the participants below their quota.
+     * Collects, per rack, the participants below their allocation.
      *
      * @return Per rack, the total deficit of its participants.
      */
     private int[] rackDeficits(IntList[] receiversByRack) {
-        int[] demand = new int[model.rackCount];
+        int[] demand = new int[racks.count()];
         IntList participants = scratch.participants;
         for (int i = 0; i < participants.size(); i++) {
             int deficit = scratch.deficit[i];
             if (deficit == 0) {
                 continue;
             }
-            int rack = model.memberRack[participants.get(i)];
+            int rack = racks.memberRack()[participants.get(i)];
             demand[rack] += deficit;
             if (receiversByRack[rack] == null) {
                 receiversByRack[rack] = new IntList(8);
@@ -268,20 +270,20 @@ final class RackAwarePartitionAssigner extends PartitionAssigner {
     /**
      * Hands the partitions of every group to the participants of every rack as the flow says.
      * The partitions the flow does not place are leftovers, which cost no move when they go back
-     * to their previous holder, so the choice of the partitions handed out within a group
+     * to their previous owner, so the choice of the partitions handed out within a group
      * matters: the receivers are chosen first, since they do not depend on it, which leaves in
      * the deficits what every participant can still take back once the flow is served. The
      * partitions of a group are then handed out in this order: first those that have to move
-     * anyway, because nobody holds them, or their holder has no deficit left, or their holder
+     * anyway, because nobody holds them, or their owner has no deficit left, or their owner
      * already has as many partitions set aside as its deficit, and only when the flow needs more
      * the ones set aside, both in ascending order. Whatever is not handed out is left over. The
-     * partitions set aside go back to their holder in {@link #assignLeftovers}; the holder of a
+     * partitions set aside go back to their owner in {@link #assignLeftovers}; the owner of a
      * partition handed out in the second pass gets its room for one more leftover back.
      *
-     * <p>No partition goes through the flow to its own previous holder, so setting one aside
-     * never costs an aligned partition: a holder releases a partition either because it is
-     * misaligned, so the holder is not in one of the racks of the group, or because it has more
-     * aligned partitions than its quota, so the holder has no deficit at all.
+     * <p>No partition goes through the flow to its own previous owner, so setting one aside
+     * never costs an aligned partition: a owner releases a partition either because it is
+     * misaligned, so the owner is not in one of the racks of the group, or because it has more
+     * aligned partitions than its allocation, so the owner has no deficit at all.
      *
      * @return The number of leftovers in the partition buffer.
      */
@@ -297,9 +299,9 @@ final class RackAwarePartitionAssigner extends PartitionAssigner {
             int end = next + sum(flow[group]);
             for (int j = 0; j < partitions.size(); j++) {
                 int p = partitions.get(j);
-                int holder = holderParticipant(p);
-                if (holder != NONE && returnable[holder] > 0) {
-                    returnable[holder]--;
+                int owner = ownerParticipant(p);
+                if (owner != NONE && returnable[owner] > 0) {
+                    returnable[owner]--;
                 } else if (next < end) {
                     scratch.owner[p] = participants.get(flowReceivers[next++]);
                 }
@@ -310,7 +312,7 @@ final class RackAwarePartitionAssigner extends PartitionAssigner {
                     continue;
                 }
                 if (next < end) {
-                    returnable[holderParticipant(p)]++;
+                    returnable[ownerParticipant(p)]++;
                     scratch.owner[p] = participants.get(flowReceivers[next++]);
                 } else {
                     scratch.partitions[leftoverCount++] = p;
@@ -322,13 +324,13 @@ final class RackAwarePartitionAssigner extends PartitionAssigner {
 
     /**
      * Chooses the receivers of every unit of the flow, per group then per rack: the participants
-     * of the rack below their quota, in participant order, whose deficits are lowered as they go.
+     * of the rack below their allocation, in participant order, whose deficits are lowered as they go.
      */
     private void chooseReceivers(int[][] flow, IntList[] receiversByRack) {
-        int[] rackCursor = new int[model.rackCount];
+        int[] rackCursor = new int[racks.count()];
         int next = 0;
         for (int[] groupFlow : flow) {
-            for (int rack = 0; rack < model.rackCount; rack++) {
+            for (int rack = 0; rack < racks.count(); rack++) {
                 IntList receivers = receiversByRack[rack];
                 for (int j = 0; j < groupFlow[rack]; j++) {
                     while (scratch.deficit[receivers.get(rackCursor[rack])] == 0) {
@@ -353,7 +355,7 @@ final class RackAwarePartitionAssigner extends PartitionAssigner {
     /**
      * @return The participant currently holding the partition, or NONE.
      */
-    private int holderParticipant(int p) {
+    private int ownerParticipant(int p) {
         int m = previousOwner[p];
         return m == NONE ? NONE : scratch.participantOf(m);
     }
@@ -366,16 +368,16 @@ final class RackAwarePartitionAssigner extends PartitionAssigner {
     }
 
     /**
-     * Leftovers cannot be aligned: they go back to their previous holder if it still has a
+     * Leftovers cannot be aligned: they go back to their previous owner if it still has a
      * deficit, then to the remaining deficits in participant order. The flow leaves over, as far
-     * as it can, partitions whose holder can take them back, so most leftovers cost no move.
+     * as it can, partitions whose owner can take them back, so most leftovers cost no move.
      */
     private void assignLeftovers(int t, int leftoverCount) {
         Arrays.sort(scratch.partitions, 0, leftoverCount);
         int remaining = 0;
         for (int j = 0; j < leftoverCount; j++) {
             int p = scratch.partitions[j];
-            int participant = holderParticipant(p);
+            int participant = ownerParticipant(p);
             if (participant != NONE && scratch.deficit[participant] > 0) {
                 scratch.owner[p] = previousOwner[p];
                 scratch.deficit[participant]--;
@@ -405,31 +407,31 @@ final class RackAwarePartitionAssigner extends PartitionAssigner {
      */
     @SuppressWarnings({"unchecked", "rawtypes"})
     private void realignBySwapping(int t) {
-        int partitionCount = model.partitionCounts[t];
-        long[] racks = model.partitionRacks[t];
+        int partitionCount = model.partitionCounts()[t];
+        long[] replicaRacks = racks.partitionRacks()[t];
         boolean anyMisaligned = false;
         for (int p = 0; p < partitionCount && !anyMisaligned; p++) {
-            anyMisaligned = (racks[p] & (1L << model.memberRack[scratch.owner[p]])) == 0;
+            anyMisaligned = (replicaRacks[p] & (1L << racks.memberRack()[scratch.owner[p]])) == 0;
         }
         if (!anyMisaligned) {
             return;
         }
-        TreeMap<Long, IntList>[] bucketsByRack = new TreeMap[model.rackCount];
+        TreeMap<Long, IntList>[] bucketsByRack = new TreeMap[racks.count()];
         for (int p = 0; p < partitionCount; p++) {
-            int rack = model.memberRack[scratch.owner[p]];
+            int rack = racks.memberRack()[scratch.owner[p]];
             if (bucketsByRack[rack] == null) {
                 bucketsByRack[rack] = new TreeMap<>();
             }
-            bucketsByRack[rack].computeIfAbsent(racks[p], key -> new IntList(8)).add(p);
+            bucketsByRack[rack].computeIfAbsent(replicaRacks[p], key -> new IntList(8)).add(p);
         }
 
         for (int p = 0; p < partitionCount; p++) {
             int m = scratch.owner[p];
-            int rack = model.memberRack[m];
-            if ((racks[p] & (1L << rack)) != 0) {
+            int rack = racks.memberRack()[m];
+            if ((replicaRacks[p] & (1L << rack)) != 0) {
                 continue;
             }
-            long partnerAndRack = findSwapPartner(p, rack, racks, bucketsByRack);
+            long partnerAndRack = findSwapPartner(p, rack, replicaRacks, bucketsByRack);
             if (partnerAndRack == NONE) {
                 continue;
             }
@@ -441,10 +443,10 @@ final class RackAwarePartitionAssigner extends PartitionAssigner {
             scratch.owner[partner] = m;
             markSwapped(m);
             markSwapped(other);
-            bucketsByRack[rack].get(racks[p]).removeValue(p);
-            bucketsByRack[partnerRack].computeIfAbsent(racks[p], key -> new IntList(8)).add(p);
-            bucketsByRack[partnerRack].get(racks[partner]).removeValue(partner);
-            bucketsByRack[rack].computeIfAbsent(racks[partner], key -> new IntList(8)).add(partner);
+            bucketsByRack[rack].get(replicaRacks[p]).removeValue(p);
+            bucketsByRack[partnerRack].computeIfAbsent(replicaRacks[p], key -> new IntList(8)).add(p);
+            bucketsByRack[partnerRack].get(replicaRacks[partner]).removeValue(partner);
+            bucketsByRack[rack].computeIfAbsent(replicaRacks[partner], key -> new IntList(8)).add(partner);
         }
     }
 
@@ -463,9 +465,9 @@ final class RackAwarePartitionAssigner extends PartitionAssigner {
      * @return The partner partition in the low 32 bits and the rack of its member in the high 32
      *         bits, or NONE when there is no partner.
      */
-    private long findSwapPartner(int p, int rack, long[] racks, TreeMap<Long, IntList>[] bucketsByRack) {
+    private long findSwapPartner(int p, int rack, long[] replicaRacks, TreeMap<Long, IntList>[] bucketsByRack) {
         long rackBit = 1L << rack;
-        long remaining = racks[p];
+        long remaining = replicaRacks[p];
         while (remaining != 0) {
             int otherRack = Long.numberOfTrailingZeros(remaining);
             remaining &= remaining - 1;

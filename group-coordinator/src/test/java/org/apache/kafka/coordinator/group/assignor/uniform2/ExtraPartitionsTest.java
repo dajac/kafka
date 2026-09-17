@@ -80,24 +80,24 @@ public class ExtraPartitionsTest {
     @Test
     public void testModelOfTheTests() {
         GroupModel model = model();
-        assertEquals(3, model.memberCount);
-        assertEquals(3, model.topicCount);
-        assertArrayEquals(new int[] {1, 1, 2}, model.basePartitionCount);
-        assertArrayEquals(new int[] {2, 1, 2}, model.extraPartitionCount);
+        assertEquals(3, model.memberCount());
+        assertEquals(3, model.topicCount());
+        assertArrayEquals(new int[] {1, 1, 2}, model.basePartitionCount());
+        assertArrayEquals(new int[] {2, 1, 2}, model.extraPartitionCount());
     }
 
     @Test
     public void testNothingIsAssignedInitially() {
         GroupModel model = model();
         ExtraPartitions extras = new ExtraPartitions(model);
-        for (int t = 0; t < model.topicCount; t++) {
+        for (int t = 0; t < model.topicCount(); t++) {
             assertEquals(0, extras.recipientCount(t));
-            for (int m = 0; m < model.memberCount; m++) {
+            for (int m = 0; m < model.memberCount(); m++) {
                 assertFalse(extras.has(m, t));
-                assertEquals(model.basePartitionCount[t], extras.quota(m, t));
+                assertEquals(model.basePartitionCount()[t], extras.allocation(m, t));
             }
         }
-        for (int m = 0; m < model.memberCount; m++) {
+        for (int m = 0; m < model.memberCount(); m++) {
             assertEquals(0, extras.countOf(m));
             assertEquals(0, extras.freeCountOf(m));
         }
@@ -116,9 +116,9 @@ public class ExtraPartitionsTest {
         assertEquals(0, extras.recipientCount(T2));
         assertTopics(extras, A, T1);
         assertTopics(extras, B);
-        assertEquals(2, extras.quota(A, T1));
-        assertEquals(1, extras.quota(B, T1));
-        assertEquals(1, extras.quota(A, T2));
+        assertEquals(2, extras.allocation(A, T1));
+        assertEquals(1, extras.allocation(B, T1));
+        assertEquals(1, extras.allocation(A, T2));
         // Nothing is currently held, so the extra partition is free.
         assertEquals(1, extras.freeCountOf(A));
         assertEquals(0, extras.freeCountOf(B));
@@ -138,9 +138,9 @@ public class ExtraPartitionsTest {
         assertTopics(extras, A, T1);
         assertTopics(extras, B);
         assertTopics(extras, C, T1);
-        assertEquals(2, extras.quota(A, T1));
-        assertEquals(1, extras.quota(B, T1));
-        assertEquals(2, extras.quota(C, T1));
+        assertEquals(2, extras.allocation(A, T1));
+        assertEquals(1, extras.allocation(B, T1));
+        assertEquals(2, extras.allocation(C, T1));
     }
 
     @Test
@@ -167,8 +167,8 @@ public class ExtraPartitionsTest {
         assertEquals(B, extras.recipientAt(T1, 0));
         assertTopics(extras, A);
         assertTopics(extras, B, T1);
-        assertEquals(1, extras.quota(A, T1));
-        assertEquals(2, extras.quota(B, T1));
+        assertEquals(1, extras.allocation(A, T1));
+        assertEquals(2, extras.allocation(B, T1));
         assertEquals(0, extras.freeCountOf(A));
         assertEquals(1, extras.freeCountOf(B));
 
@@ -192,7 +192,7 @@ public class ExtraPartitionsTest {
             .addTopic(TOPIC_1, "topic-1", 7, 4, 2)
             .buildDescriber();
         GroupModel model = new GroupModel(spec(members(4, Set.of(TOPIC_1))), describer, false);
-        assertArrayEquals(new int[] {3}, model.extraPartitionCount);
+        assertArrayEquals(new int[] {3}, model.extraPartitionCount());
 
         ExtraPartitions extras = new ExtraPartitions(model);
         extras.add(A, T1);
@@ -226,9 +226,9 @@ public class ExtraPartitionsTest {
         assertTrue(extras.has(A, T1));
         assertTrue(extras.has(A, T2));
         assertTrue(extras.has(A, T3));
-        assertEquals(2, extras.quota(A, T1));
-        assertEquals(2, extras.quota(A, T2));
-        assertEquals(3, extras.quota(A, T3));
+        assertEquals(2, extras.allocation(A, T1));
+        assertEquals(2, extras.allocation(A, T2));
+        assertEquals(3, extras.allocation(A, T3));
         assertEquals(3, extras.freeCountOf(A));
         assertTopics(extras, B);
     }
@@ -248,7 +248,7 @@ public class ExtraPartitionsTest {
         assertEquals(0, extras.recipientCount(T2));
         assertEquals(1, extras.recipientCount(T1));
         assertEquals(1, extras.recipientCount(T3));
-        assertEquals(1, extras.quota(A, T2));
+        assertEquals(1, extras.allocation(A, T2));
         assertEquals(2, extras.freeCountOf(A));
 
         extras.remove(A, T1);
@@ -276,7 +276,7 @@ public class ExtraPartitionsTest {
             topics.add(topicId);
         }
         GroupModel model = new GroupModel(spec(members(2, topics)), builder.buildDescriber(), false);
-        assertArrayEquals(new int[] {1, 1, 1, 1, 1, 1}, model.extraPartitionCount);
+        assertArrayEquals(new int[] {1, 1, 1, 1, 1, 1}, model.extraPartitionCount());
 
         ExtraPartitions extras = new ExtraPartitions(model);
         for (int t = 5; t >= 0; t--) {
@@ -287,8 +287,8 @@ public class ExtraPartitionsTest {
         for (int t = 0; t < 6; t++) {
             assertTrue(extras.has(A, t));
             assertFalse(extras.has(B, t));
-            assertEquals(2, extras.quota(A, t));
-            assertEquals(1, extras.quota(B, t));
+            assertEquals(2, extras.allocation(A, t));
+            assertEquals(1, extras.allocation(B, t));
             assertEquals(1, extras.recipientCount(t));
             assertEquals(A, extras.recipientAt(t, 0));
         }
@@ -313,8 +313,8 @@ public class ExtraPartitionsTest {
         members.put("C", member(Set.of(TOPIC_1, TOPIC_2), new Assignment(mkAssignment(
             mkTopicAssignment(TOPIC_1, 4), mkTopicAssignment(TOPIC_2, 2)))));
         GroupModel model = new GroupModel(spec(members), describer, false);
-        assertArrayEquals(new int[] {1, 1}, model.basePartitionCount);
-        assertArrayEquals(new int[] {2, 1}, model.extraPartitionCount);
+        assertArrayEquals(new int[] {1, 1}, model.basePartitionCount());
+        assertArrayEquals(new int[] {2, 1}, model.extraPartitionCount());
         assertTrue(model.isBacked(A, T1));
         assertFalse(model.isBacked(A, T2));
         assertFalse(model.isBacked(B, T1));
@@ -365,21 +365,21 @@ public class ExtraPartitionsTest {
     }
 
     @Test
-    public void testQuotaIsTheBasePlusOneWithAnExtraPartition() {
+    public void testAllocationIsTheBasePlusOneWithAnExtraPartition() {
         ExtraPartitions extras = new ExtraPartitions(model());
-        assertEquals(1, extras.quota(A, T1));
-        assertEquals(2, extras.quota(A, T3));
+        assertEquals(1, extras.allocation(A, T1));
+        assertEquals(2, extras.allocation(A, T3));
 
         extras.add(A, T1);
         extras.add(A, T3);
-        assertEquals(2, extras.quota(A, T1));
-        assertEquals(3, extras.quota(A, T3));
-        assertEquals(1, extras.quota(B, T1));
-        assertEquals(2, extras.quota(B, T3));
+        assertEquals(2, extras.allocation(A, T1));
+        assertEquals(3, extras.allocation(A, T3));
+        assertEquals(1, extras.allocation(B, T1));
+        assertEquals(2, extras.allocation(B, T3));
 
         extras.remove(A, T3);
-        assertEquals(2, extras.quota(A, T1));
-        assertEquals(2, extras.quota(A, T3));
+        assertEquals(2, extras.allocation(A, T1));
+        assertEquals(2, extras.allocation(A, T3));
     }
 
     @Test
@@ -397,9 +397,9 @@ public class ExtraPartitionsTest {
         members.put("B", member("rack-1", Set.of(TOPIC_1, TOPIC_2), Assignment.EMPTY));
         members.put("C", member("rack-0", Set.of(TOPIC_1, TOPIC_2), Assignment.EMPTY));
         GroupModel model = new GroupModel(spec(members), describer, true);
-        assertTrue(model.usesRacks);
-        assertEquals(2, model.rackCount);
-        assertArrayEquals(new int[] {0, 1, 0}, model.memberRack);
+        assertTrue(model.usesRacks());
+        assertEquals(2, model.racks().count());
+        assertArrayEquals(new int[] {0, 1, 0}, model.racks().memberRack());
 
         ExtraPartitions extras = new ExtraPartitions(model);
         assertEquals(0, extras.countInRack(T1, 0));
@@ -452,7 +452,7 @@ public class ExtraPartitionsTest {
             topics.add(topicId);
         }
         GroupModel model = new GroupModel(spec(members(3, topics)), builder.buildDescriber(), false);
-        assertEquals(30, model.topicCount);
+        assertEquals(30, model.topicCount());
 
         ExtraPartitions extras = new ExtraPartitions(model);
         // With the topic first and three members, topic 21 of A is pair 63, the last of the
@@ -464,8 +464,8 @@ public class ExtraPartitionsTest {
         extras.add(B, 20);
         extras.add(C, 22);
         Set<Integer> expected = Set.of(A * 100 + 21, B * 100 + 21, C * 100 + 29, A * 100, B * 100 + 20, C * 100 + 22);
-        for (int m = 0; m < model.memberCount; m++) {
-            for (int t = 0; t < model.topicCount; t++) {
+        for (int m = 0; m < model.memberCount(); m++) {
+            for (int t = 0; t < model.topicCount(); t++) {
                 assertEquals(expected.contains(m * 100 + t), extras.has(m, t), "member " + m + " topic " + t);
             }
         }

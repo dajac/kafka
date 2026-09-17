@@ -20,7 +20,7 @@ import java.util.Arrays;
 
 /**
  * A maximum flow from groups of partitions to racks, used by the rack aware partition phase to
- * align as many released partitions as possible with the members below their quota.
+ * align as many released partitions as possible with the members below their allocation.
  *
  * <p>The network has a source, one node per group of partitions sharing the same replica racks,
  * one node per rack and a sink. A group can flow to each of its racks, up to the number of its

@@ -44,89 +44,58 @@ final class GroupModel {
     /** Marks the absence of a member, topic or partition index. */
     static final int NONE = -1;
 
-    /** Rack awareness handles at most this many racks, one bit per rack in a long. */
+    /**
+     * Rack awareness is used when the members of the group are in at most this many distinct
+     * racks, the racks having a replica of a partition being kept as one bit per rack in a long.
+     * Above it, the racks are ignored for the assignment.
+     */
     static final int MAX_RACKS = 64;
 
     /** The number of members. */
-    final int memberCount;
+    private final int memberCount;
     /** The member ids, sorted. */
-    final String[] memberIds;
+    private final String[] memberIds;
     /** Per member, its current assignment as given in the input. */
-    final Map<Uuid, Set<Integer>>[] currentAssignments;
+    private final Map<Uuid, Set<Integer>>[] currentAssignments;
     /**
-     * Per member, whether some entries of its current assignment are dropped because they refer
-     * to topics that no longer exist or are no longer subscribed, or hold no partition.
+     * Per member, whether some entries of its current assignment are stale: they refer to topics
+     * that no longer exist or are no longer subscribed, or hold no partition.
      */
-    final boolean[] hasDroppedPartitions;
+    private final boolean[] hasStalePartitions;
 
     /** The number of subscribed topics. */
-    final int topicCount;
+    private final int topicCount;
     /** The topic ids, sorted. */
-    final Uuid[] topicIds;
+    private final Uuid[] topicIds;
     /** Maps topic ids to their index. */
-    final TopicIndex topicIndex;
+    private final TopicIndex topicIndex;
     /** Per topic, its number of partitions. */
-    final int[] partitionCounts;
+    private final int[] partitionCounts;
     /** Per topic, the base partitions: the number every subscriber gets. */
-    final int[] basePartitionCount;
+    private final int[] basePartitionCount;
     /** Per topic, the number of extra partitions, each going to a distinct subscriber. */
-    final int[] extraPartitionCount;
+    private final int[] extraPartitionCount;
 
     /** Whether all members have the same subscription. */
-    final boolean homogeneous;
+    private final boolean homogeneous;
     /** Per topic, its subscribers in ascending order. Every topic shares one array when homogeneous. */
-    final int[][] subscribers;
+    private final int[][] subscribers;
     /** Per member, its topics in ascending order. Every member shares one array when homogeneous. */
-    final int[][] memberTopics;
+    private final int[][] memberTopics;
 
-    /** Per topic, the compressed row of its current holders in {@link #holderMember}. */
-    final int[] holderStart;
-    /** The current holders of every topic, in ascending member order within a topic. */
-    final int[] holderMember;
-    /** The current partitions of every holder, parallel to {@link #holderMember}. */
-    final Set<Integer>[] holderPartitions;
-    /**
-     * Per holder, how many of its current partitions exist, that is have an id below the
-     * partition count of the topic. The others are dropped.
-     */
-    final int[] holderValidCount;
-    /** Per member, the number of topics of which it currently holds more than the base partitions. */
+    /** The current owners of the partitions of every topic. */
+    private final Owners owners;
+    /** Per member, the number of topics of which it currently owns more than the base partitions. */
     private final int[] backedCounts;
     /**
-     * Per member and topic, whether the member currently holds more than the base partitions of
+     * Per member and topic, whether the member currently owns more than the base partitions of
      * the topic, indexed by {@link #bitIndex}.
      */
     private final long[] backedBits;
-
-    /** The number of cohorts: groups of members with the same subscription, and rack when in use. */
-    final int cohortCount;
-    /** Per member, its cohort. */
-    final int[] memberCohort;
-    /** Per cohort, its rack, or zero when racks are not in use. */
-    final int[] cohortRack;
-    /** Per cohort, the base load of its members: the sum of the base partitions of their topics. */
-    final int[] cohortBaseLoad;
-    /** Per cohort, its number of members. */
-    final int[] cohortSize;
-    /** Per cohort, its topics in ascending order. */
-    final int[][] cohortTopics;
-    /** Per topic, the compressed row of its cohorts in {@link #topicCohorts}. */
-    final int[] topicCohortStart;
-    /** The cohorts subscribed to every topic. */
-    final int[] topicCohorts;
-
-    /** Whether rack awareness is in use: enabled, every member has a rack and 2 to 64 racks. */
-    final boolean usesRacks;
-    /** The number of member racks, when in use. */
-    final int rackCount;
-    /** Per member, its rack, when in use. */
-    final int[] memberRack;
-    /** Per topic and partition, the racks having a replica, one bit per rack, when in use. */
-    final long[][] partitionRacks;
-    /** Per topic and rack, the number of partitions with a replica in the rack, when in use. */
-    final int[][] rackSupply;
-    /** Per topic and rack, the number of subscribers of the topic in the rack, when in use. */
-    final int[][] rackSubscribers;
+    /** The cohorts: groups of members with the same subscription, and rack when in use. */
+    private final Cohorts cohorts;
+    /** The racks of the members and of the partition replicas, when rack awareness is in use. */
+    private final Racks racks;
 
     @SuppressWarnings({"unchecked", "rawtypes"})
     GroupModel(
@@ -156,35 +125,136 @@ final class GroupModel {
             extraPartitionCount[t] = partitionCounts[t] % subscriberCount;
         }
 
-        Racks racks = racks(groupSpec, describer, rackAwareEnabled);
-        usesRacks = racks.count > 0;
-        rackCount = racks.count;
-        memberRack = racks.memberRack;
-        partitionRacks = racks.partitionRacks;
-        rackSupply = racks.supply;
-
-        Cohorts cohorts = homogeneous ? homogeneousCohorts() : heterogeneousCohorts();
-        cohortCount = cohorts.count;
-        memberCohort = cohorts.memberCohort;
-        cohortRack = cohorts.rack;
-        cohortTopics = cohorts.topics;
-        CohortIndex cohortIndex = indexCohorts();
-        cohortBaseLoad = cohortIndex.baseLoad;
-        cohortSize = cohortIndex.size;
-        topicCohortStart = cohortIndex.topicCohortStart;
-        topicCohorts = cohortIndex.topicCohorts;
-        rackSubscribers = cohortIndex.rackSubscribers;
+        racks = racks(groupSpec, describer, rackAwareEnabled);
+        cohorts = indexCohorts(homogeneous ? homogeneousCohorts() : heterogeneousCohorts());
 
         currentAssignments = (Map<Uuid, Set<Integer>>[]) new Map[memberCount];
-        hasDroppedPartitions = new boolean[memberCount];
-        Holders holders = holders(groupSpec);
-        holderStart = holders.start;
-        holderMember = holders.member;
-        holderPartitions = holders.partitions;
-        holderValidCount = holders.validCount;
+        hasStalePartitions = new boolean[memberCount];
+        owners = owners(groupSpec);
         Backed backed = backed();
         backedCounts = backed.counts;
         backedBits = backed.bits;
+    }
+
+    /**
+     * @return The number of members.
+     */
+    int memberCount() {
+        return memberCount;
+    }
+
+    /**
+     * @return The member ids, sorted, the index of a member being its position here.
+     */
+    String[] memberIds() {
+        return memberIds;
+    }
+
+    /**
+     * @return Per member, its current assignment as given in the input.
+     */
+    Map<Uuid, Set<Integer>>[] currentAssignments() {
+        return currentAssignments;
+    }
+
+    /**
+     * @return Per member, whether some entries of its current assignment are stale.
+     */
+    boolean[] hasStalePartitions() {
+        return hasStalePartitions;
+    }
+
+    /**
+     * @return The number of subscribed topics.
+     */
+    int topicCount() {
+        return topicCount;
+    }
+
+    /**
+     * @return The topic ids, sorted, the index of a topic being its position here.
+     */
+    Uuid[] topicIds() {
+        return topicIds;
+    }
+
+    /**
+     * @return The index of the topics by id.
+     */
+    TopicIndex topicIndex() {
+        return topicIndex;
+    }
+
+    /**
+     * @return Per topic, its number of partitions.
+     */
+    int[] partitionCounts() {
+        return partitionCounts;
+    }
+
+    /**
+     * @return Per topic, its base partitions: the number every subscriber gets.
+     */
+    int[] basePartitionCount() {
+        return basePartitionCount;
+    }
+
+    /**
+     * @return Per topic, its number of extra partitions, each going to a distinct subscriber.
+     */
+    int[] extraPartitionCount() {
+        return extraPartitionCount;
+    }
+
+    /**
+     * @return Whether all members have the same subscription.
+     */
+    boolean homogeneous() {
+        return homogeneous;
+    }
+
+    /**
+     * @return Per topic, its subscribers in ascending order.
+     */
+    int[][] subscribers() {
+        return subscribers;
+    }
+
+    /**
+     * @return Per member, its topics in ascending order.
+     */
+    int[][] memberTopics() {
+        return memberTopics;
+    }
+
+    /**
+     * @return The current owners of the partitions of every topic.
+     */
+    Owners owners() {
+        return owners;
+    }
+
+    /**
+     * @return The cohorts of the group.
+     */
+    Cohorts cohorts() {
+        return cohorts;
+    }
+
+    /**
+     * @return The racks of the members and partitions, or {@link Racks#NONE} when rack awareness
+     *         is not in use.
+     */
+    Racks racks() {
+        return racks;
+    }
+
+    /**
+     * @return Whether rack awareness is in use: enabled, every member has a rack and the members
+     *         are in 2 to {@link #MAX_RACKS} racks.
+     */
+    boolean usesRacks() {
+        return racks.count() > 0;
     }
 
     /**
@@ -234,7 +304,7 @@ final class GroupModel {
     int maxCohortsPerTopic() {
         int max = 0;
         for (int t = 0; t < topicCount; t++) {
-            max = Math.max(max, topicCohortStart[t + 1] - topicCohortStart[t]);
+            max = Math.max(max, cohorts.topicCohortStart()[t + 1] - cohorts.topicCohortStart()[t]);
         }
         return max;
     }
@@ -263,19 +333,16 @@ final class GroupModel {
      *         member is the subscription of every member.
      */
     private Uuid[] subscribedTopicIds(GroupSpec groupSpec) {
-        Set<Uuid> topicSet = new HashSet<>();
+        Uuid[] sorted;
         if (homogeneous) {
-            for (Uuid topicId : groupSpec.memberSubscription(memberIds[0]).subscribedTopicIds()) {
-                topicSet.add(topicId);
-            }
+            sorted = groupSpec.memberSubscription(memberIds[0]).subscribedTopicIds().toArray(new Uuid[0]);
         } else {
+            Set<Uuid> topicSet = new HashSet<>();
             for (String memberId : memberIds) {
-                for (Uuid topicId : groupSpec.memberSubscription(memberId).subscribedTopicIds()) {
-                    topicSet.add(topicId);
-                }
+                topicSet.addAll(groupSpec.memberSubscription(memberId).subscribedTopicIds());
             }
+            sorted = topicSet.toArray(new Uuid[0]);
         }
-        Uuid[] sorted = topicSet.toArray(new Uuid[0]);
         Arrays.sort(sorted);
         return sorted;
     }
@@ -356,26 +423,53 @@ final class GroupModel {
         return new Subscriptions(invert(memberTopics, topicCount), memberTopics);
     }
 
-    private record CohortIndex(int[] baseLoad, int[] size, int[] topicCohortStart, int[] topicCohorts, int[][] rackSubscribers) { }
+    /**
+     * The cohorts of the group: groups of members sharing a subscription, and a rack when racks
+     * are in use, numbered from zero.
+     *
+     * @param count             The number of cohorts.
+     * @param memberCohort      Per member, its cohort.
+     * @param rack              Per cohort, its rack, or zero when racks are not in use.
+     * @param baseLoad          Per cohort, the base load of its members: the sum of the base
+     *                          partitions of their topics.
+     * @param size              Per cohort, its number of members.
+     * @param topics            Per cohort, its topics in ascending order.
+     * @param topicCohortStart  Per topic, the start of its row in {@code topicCohorts}.
+     * @param topicCohorts      The cohorts subscribed to every topic, by rows.
+     * @param rackSubscribers   Per topic and rack, the number of subscribers of the topic in the
+     *                          rack, when racks are in use.
+     */
+    record Cohorts(
+        int count,
+        int[] memberCohort,
+        int[] rack,
+        int[] baseLoad,
+        int[] size,
+        int[][] topics,
+        int[] topicCohortStart,
+        int[] topicCohorts,
+        int[][] rackSubscribers
+    ) { }
 
     /**
      * Computes the base load and size of every cohort, the cohorts of every topic and, when racks
      * are in use, the number of subscribers of every topic in every rack.
      */
-    private CohortIndex indexCohorts() {
-        int[] baseLoad = new int[cohortCount];
-        int[] size = new int[cohortCount];
+    private Cohorts indexCohorts(CohortGroups groups) {
+        int count = groups.count();
+        int[] baseLoad = new int[count];
+        int[] size = new int[count];
         int[] topicCohortStart = new int[topicCount + 1];
-        int[][] rackSubscribers = usesRacks ? new int[topicCount][rackCount] : null;
+        int[][] rackSubscribers = racks.count() > 0 ? new int[topicCount][racks.count()] : null;
         for (int m = 0; m < memberCount; m++) {
-            size[memberCohort[m]]++;
+            size[groups.memberCohort()[m]]++;
         }
-        for (int c = 0; c < cohortCount; c++) {
-            for (int t : cohortTopics[c]) {
+        for (int c = 0; c < count; c++) {
+            for (int t : groups.topics()[c]) {
                 baseLoad[c] += basePartitionCount[t];
                 topicCohortStart[t + 1]++;
                 if (rackSubscribers != null) {
-                    rackSubscribers[t][cohortRack[c]] += size[c];
+                    rackSubscribers[t][groups.rack()[c]] += size[c];
                 }
             }
         }
@@ -384,12 +478,12 @@ final class GroupModel {
         }
         int[] topicCohorts = new int[topicCohortStart[topicCount]];
         int[] fill = Arrays.copyOf(topicCohortStart, topicCount);
-        for (int c = 0; c < cohortCount; c++) {
-            for (int t : cohortTopics[c]) {
+        for (int c = 0; c < count; c++) {
+            for (int t : groups.topics()[c]) {
                 topicCohorts[fill[t]++] = c;
             }
         }
-        return new CohortIndex(baseLoad, size, topicCohortStart, topicCohorts, rackSubscribers);
+        return new Cohorts(count, groups.memberCohort(), groups.rack(), baseLoad, size, groups.topics(), topicCohortStart, topicCohorts, rackSubscribers);
     }
 
     private record Backed(int[] counts, long[] bits) { }
@@ -402,9 +496,9 @@ final class GroupModel {
         int[] counts = new int[memberCount];
         long[] bits = newBitset();
         for (int t = 0; t < topicCount; t++) {
-            for (int i = holderStart[t]; i < holderStart[t + 1]; i++) {
-                if (holderValidCount[i] > basePartitionCount[t]) {
-                    int m = holderMember[i];
+            for (int i = owners.start()[t]; i < owners.start()[t + 1]; i++) {
+                if (owners.validCount()[i] > basePartitionCount[t]) {
+                    int m = owners.member()[i];
                     counts[m]++;
                     int bit = bitIndex(m, t);
                     bits[bit >>> 6] |= 1L << bit;
@@ -414,7 +508,18 @@ final class GroupModel {
         return new Backed(counts, bits);
     }
 
-    private record Racks(int count, int[] memberRack, long[][] partitionRacks, int[][] supply) {
+    /**
+     * The racks of the members and of the partition replicas, numbered from zero, when rack
+     * awareness is in use.
+     *
+     * @param count             The number of racks, zero when rack awareness is not in use.
+     * @param memberRack        Per member, its rack.
+     * @param partitionRacks    Per topic and partition, the racks having a replica, one bit per
+     *                          rack.
+     * @param supply            Per topic and rack, the number of partitions with a replica in
+     *                          the rack.
+     */
+    record Racks(int count, int[] memberRack, long[][] partitionRacks, int[][] supply) {
         static final Racks NONE = new Racks(0, null, null, null);
     }
 
@@ -462,14 +567,15 @@ final class GroupModel {
         return new Racks(count, racks, partitionRacks, supply);
     }
 
-    private record Cohorts(int count, int[] memberCohort, int[] rack, int[][] topics) { }
+    private record CohortGroups(int count, int[] memberCohort, int[] rack, int[][] topics) { }
 
     /**
      * With a single subscription, there is one cohort, or one per rack when racks are in use,
      * in which case the cohort of a rack has the index of the rack.
      */
-    private Cohorts homogeneousCohorts() {
-        int count = usesRacks ? rackCount : 1;
+    private CohortGroups homogeneousCohorts() {
+        boolean usesRacks = racks.count() > 0;
+        int count = usesRacks ? racks.count() : 1;
         int[] memberCohort = new int[memberCount];
         int[] rack = new int[count];
         int[][] topics = new int[count][];
@@ -479,29 +585,30 @@ final class GroupModel {
             topics[c] = allTopics;
         }
         for (int m = 0; m < memberCount; m++) {
-            memberCohort[m] = usesRacks ? memberRack[m] : 0;
+            memberCohort[m] = usesRacks ? racks.memberRack()[m] : 0;
         }
-        return new Cohorts(count, memberCohort, rack, topics);
+        return new CohortGroups(count, memberCohort, rack, topics);
     }
 
-    private Cohorts heterogeneousCohorts() {
+    private CohortGroups heterogeneousCohorts() {
+        boolean usesRacks = racks.count() > 0;
         Map<CohortKey, Integer> cohortIndex = new HashMap<>();
         List<int[]> topics = new ArrayList<>();
-        IntList racks = new IntList(16);
+        IntList cohortRacks = new IntList(16);
         int[] memberCohort = new int[memberCount];
         for (int m = 0; m < memberCount; m++) {
-            int rack = usesRacks ? memberRack[m] : 0;
+            int rack = usesRacks ? racks.memberRack()[m] : 0;
             CohortKey key = new CohortKey(memberTopics[m], rack);
             Integer c = cohortIndex.get(key);
             if (c == null) {
                 c = cohortIndex.size();
                 cohortIndex.put(key, c);
                 topics.add(memberTopics[m]);
-                racks.add(rack);
+                cohortRacks.add(rack);
             }
             memberCohort[m] = c;
         }
-        return new Cohorts(cohortIndex.size(), memberCohort, racks.toArray(), topics.toArray(new int[0][]));
+        return new CohortGroups(cohortIndex.size(), memberCohort, cohortRacks.toArray(), topics.toArray(new int[0][]));
     }
 
     private record CohortKey(int[] topics, int rack) {
@@ -516,14 +623,25 @@ final class GroupModel {
         }
     }
 
-    private record Holders(int[] start, int[] member, Set<Integer>[] partitions, int[] validCount) { }
+    /**
+     * The current owners of the partitions of every topic, one entry per member owning
+     * partitions of a topic it is subscribed to, in ascending member order within a topic.
+     *
+     * @param start         Per topic, the start of its row in the other arrays.
+     * @param member        Per entry, the member.
+     * @param partitions    Per entry, the partitions of the topic the member currently owns, as
+     *                      given in the input.
+     * @param validCount    Per entry, how many of those partitions exist, that is have an id
+     *                      below the partition count of the topic. The others are stale.
+     */
+    record Owners(int[] start, int[] member, Set<Integer>[] partitions, int[] validCount) { }
 
     /**
      * Indexes the current partitions by topic. Entries of topics that are gone or no longer
-     * subscribed by the member, and empty entries, are dropped and the member is flagged.
+     * subscribed by the member, and empty entries, are stale and the member is flagged.
      */
     @SuppressWarnings({"unchecked", "rawtypes"})
-    private Holders holders(GroupSpec groupSpec) {
+    private Owners owners(GroupSpec groupSpec) {
         int maxEntries = 0;
         for (int m = 0; m < memberCount; m++) {
             Map<Uuid, Set<Integer>> currentAssignment = groupSpec.memberAssignment(memberIds[m]).partitions();
@@ -537,7 +655,7 @@ final class GroupModel {
             for (Map.Entry<Uuid, Set<Integer>> entry : currentAssignments[m].entrySet()) {
                 int t = topicIndex.indexOf(entry.getKey());
                 if (t == TopicIndex.NONE || !isSubscribed(m, t) || entry.getValue().isEmpty()) {
-                    hasDroppedPartitions[m] = true;
+                    hasStalePartitions[m] = true;
                     continue;
                 }
                 entryMember.add(m);
@@ -566,7 +684,7 @@ final class GroupModel {
             validCount[fill[t]] = countValid(current, partitionCounts[t]);
             fill[t]++;
         }
-        return new Holders(start, member, partitions, validCount);
+        return new Owners(start, member, partitions, validCount);
     }
 
     /**

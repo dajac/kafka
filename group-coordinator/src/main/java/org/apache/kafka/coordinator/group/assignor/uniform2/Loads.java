@@ -30,6 +30,7 @@ import java.util.Arrays;
  */
 final class Loads {
     private final GroupModel model;
+    private final GroupModel.Cohorts cohorts;
     /** Per member, its load: the number of partitions it gets with the current extra partitions. */
     final int[] load;
     /** Per cohort, its members by ascending load. */
@@ -45,33 +46,34 @@ final class Loads {
      */
     Loads(GroupModel model, int[] load) {
         this.model = model;
+        this.cohorts = model.cohorts();
         this.load = load;
-        cohortOrder = new int[model.cohortCount][];
-        bucketStart = new int[model.cohortCount][];
-        position = new int[model.memberCount];
-        for (int c = 0; c < model.cohortCount; c++) {
-            cohortOrder[c] = new int[model.cohortSize[c]];
+        cohortOrder = new int[cohorts.count()][];
+        bucketStart = new int[cohorts.count()][];
+        position = new int[model.memberCount()];
+        for (int c = 0; c < cohorts.count(); c++) {
+            cohortOrder[c] = new int[cohorts.size()[c]];
             // A member gets at most one extra partition per topic, so its load is at most the
             // base load plus its number of topics.
-            bucketStart[c] = new int[model.cohortTopics[c].length + 2];
+            bucketStart[c] = new int[cohorts.topics()[c].length + 2];
         }
-        for (int m = 0; m < model.memberCount; m++) {
-            int c = model.memberCohort[m];
-            bucketStart[c][load[m] - model.cohortBaseLoad[c] + 1]++;
+        for (int m = 0; m < model.memberCount(); m++) {
+            int c = cohorts.memberCohort()[m];
+            bucketStart[c][load[m] - cohorts.baseLoad()[c] + 1]++;
         }
-        for (int c = 0; c < model.cohortCount; c++) {
+        for (int c = 0; c < cohorts.count(); c++) {
             int[] start = bucketStart[c];
             for (int i = 1; i < start.length; i++) {
                 start[i] += start[i - 1];
             }
         }
-        int[][] fill = new int[model.cohortCount][];
-        for (int c = 0; c < model.cohortCount; c++) {
+        int[][] fill = new int[cohorts.count()][];
+        for (int c = 0; c < cohorts.count(); c++) {
             fill[c] = Arrays.copyOf(bucketStart[c], bucketStart[c].length - 1);
         }
-        for (int m = 0; m < model.memberCount; m++) {
-            int c = model.memberCohort[m];
-            int at = fill[c][load[m] - model.cohortBaseLoad[c]]++;
+        for (int m = 0; m < model.memberCount(); m++) {
+            int c = cohorts.memberCohort()[m];
+            int at = fill[c][load[m] - cohorts.baseLoad()[c]]++;
             cohortOrder[c][at] = m;
             position[m] = at;
         }
@@ -86,9 +88,9 @@ final class Loads {
     }
 
     void increment(int member) {
-        int c = model.memberCohort[member];
+        int c = cohorts.memberCohort()[member];
         int[] start = bucketStart[c];
-        int offset = load[member] - model.cohortBaseLoad[c];
+        int offset = load[member] - cohorts.baseLoad()[c];
         // Move the member to the end of its bucket, then shrink the next bucket over it.
         swap(cohortOrder[c], position[member], start[offset + 1] - 1);
         start[offset + 1]--;
@@ -96,9 +98,9 @@ final class Loads {
     }
 
     void decrement(int member) {
-        int c = model.memberCohort[member];
+        int c = cohorts.memberCohort()[member];
         int[] start = bucketStart[c];
-        int offset = load[member] - model.cohortBaseLoad[c];
+        int offset = load[member] - cohorts.baseLoad()[c];
         // Move the member to the start of its bucket, then grow the previous bucket over it.
         swap(cohortOrder[c], position[member], start[offset]);
         start[offset]++;
@@ -110,7 +112,7 @@ final class Loads {
      */
     int min() {
         int min = Integer.MAX_VALUE;
-        for (int c = 0; c < model.cohortCount; c++) {
+        for (int c = 0; c < cohorts.count(); c++) {
             int[] order = cohortOrder[c];
             if (order.length > 0) {
                 min = Math.min(min, load[order[0]]);

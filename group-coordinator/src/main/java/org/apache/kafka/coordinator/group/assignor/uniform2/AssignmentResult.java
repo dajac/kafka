@@ -44,11 +44,11 @@ final class AssignmentResult {
     AssignmentResult(GroupModel model) {
         this.model = model;
         // Most of the current entries are usually emitted unchanged, plus a few new ones.
-        int expectedEntries = Math.max(1024, model.holderMember.length + model.memberCount);
+        int expectedEntries = Math.max(1024, model.owners().member().length + model.memberCount());
         entryMember = new IntList(expectedEntries);
         entryTopic = new IntList(expectedEntries);
         entryPartitions = new ArrayList<>(expectedEntries);
-        memberChanged = model.hasDroppedPartitions.clone();
+        memberChanged = model.hasStalePartitions().clone();
     }
 
     /**
@@ -70,32 +70,32 @@ final class AssignmentResult {
 
     GroupAssignment build() {
         int entryCount = entryMember.size();
-        int[] entryStart = new int[model.memberCount + 1];
+        int[] entryStart = new int[model.memberCount() + 1];
         for (int i = 0; i < entryCount; i++) {
             entryStart[entryMember.get(i) + 1]++;
         }
-        for (int m = 0; m < model.memberCount; m++) {
+        for (int m = 0; m < model.memberCount(); m++) {
             entryStart[m + 1] += entryStart[m];
         }
         int[] order = new int[entryCount];
-        int[] fill = Arrays.copyOf(entryStart, model.memberCount);
+        int[] fill = Arrays.copyOf(entryStart, model.memberCount());
         for (int i = 0; i < entryCount; i++) {
             order[fill[entryMember.get(i)]++] = i;
         }
 
-        Map<String, MemberAssignment> members = AssignorHelpers.newHashMap(model.memberCount);
-        for (int m = 0; m < model.memberCount; m++) {
+        Map<String, MemberAssignment> members = AssignorHelpers.newHashMap(model.memberCount());
+        for (int m = 0; m < model.memberCount(); m++) {
             Map<Uuid, Set<Integer>> assignment;
             if (!memberChanged[m]) {
-                assignment = model.currentAssignments[m];
+                assignment = model.currentAssignments()[m];
             } else {
                 assignment = AssignorHelpers.newHashMap(entryStart[m + 1] - entryStart[m]);
                 for (int i = entryStart[m]; i < entryStart[m + 1]; i++) {
                     int entry = order[i];
-                    assignment.put(model.topicIds[entryTopic.get(entry)], entryPartitions.get(entry));
+                    assignment.put(model.topicIds()[entryTopic.get(entry)], entryPartitions.get(entry));
                 }
             }
-            members.put(model.memberIds[m], new MemberAssignmentImpl(assignment));
+            members.put(model.memberIds()[m], new MemberAssignmentImpl(assignment));
         }
         return new GroupAssignment(members);
     }

@@ -92,7 +92,7 @@ public class RackAwarePartitionAssignerTest {
         SubscribedTopicDescriber describer
     ) {
         GroupModel model = new GroupModel(spec(members), describer, true);
-        assertTrue(model.usesRacks);
+        assertTrue(model.usesRacks());
         ExtraPartitions extras = new ExtraPartitionAssigner(model).assign();
         return new RackAwarePartitionAssigner(model, extras).assign();
     }
@@ -107,7 +107,7 @@ public class RackAwarePartitionAssignerTest {
 
     @Test
     public void testFreshGroupIsFullyAligned() {
-        // 6 partitions for 3 members in 3 racks: a quota of 2 each. Every rack has replicas of 4
+        // 6 partitions for 3 members in 3 racks: a allocation of 2 each. Every rack has replicas of 4
         // partitions, so every member can get 2 partitions with a replica in its rack.
         SubscribedTopicDescriber describer = describer(6);
         Map<String, MemberSubscriptionAndAssignmentImpl> members = new TreeMap<>();
@@ -127,7 +127,7 @@ public class RackAwarePartitionAssignerTest {
 
     @Test
     public void testMisalignedPartitionIsReleasedAndRealignedToAnotherMember() {
-        // 2 partitions for A in rack-0 and B in rack-1: a quota of 1 each. Partition 0 has replicas
+        // 2 partitions for A in rack-0 and B in rack-1: a allocation of 1 each. Partition 0 has replicas
         // in rack-0 and rack-1, partition 1 in rack-1 and rack-2. A holds 1, misaligned, and
         // releases it. Partition 1 can only be aligned with B and partition 0 with A.
         SubscribedTopicDescriber describer = describer(2);
@@ -145,13 +145,13 @@ public class RackAwarePartitionAssignerTest {
     }
 
     @Test
-    public void testMisalignedPartitionsComeBackToTheirHolderWhenTheyCannotBeAligned() {
-        // A in rack-0 and B in rack-1, a quota of 2 each. Replica racks, counting only member
+    public void testMisalignedPartitionsComeBackToTheirOwnerWhenTheyCannotBeAligned() {
+        // A in rack-0 and B in rack-1, a allocation of 2 each. Replica racks, counting only member
         // racks: partition 0 in rack-0 and rack-1, partition 1 in rack-1, partition 2 in rack-0,
         // partition 3 in none. A holds 1 and 3, both misaligned, and releases both. B keeps 0 and
         // releases 2, misaligned for it. The flow aligns 2 with A and 1 with B; 3 cannot be
-        // aligned with anyone and comes back to A, its previous holder, which is still below
-        // its quota. No swap can help since 3 has no replica in a member rack.
+        // aligned with anyone and comes back to A, its previous owner, which is still below
+        // its allocation. No swap can help since 3 has no replica in a member rack.
         SubscribedTopicDescriber describer = describer(List.of(List.of(0, 1), List.of(1, 2), List.of(0, 2), List.of(3)));
         Map<String, MemberSubscriptionAndAssignmentImpl> members = new TreeMap<>();
         members.put(A, member(RACK_0, TOPICS, holding(1, 3)));
@@ -167,8 +167,8 @@ public class RackAwarePartitionAssignerTest {
     }
 
     @Test
-    public void testHolderAboveQuotaReleasesThePartitionsMostUsefulToRacksInDeficit() {
-        // 6 partitions for A in rack-0 and B in rack-1: a quota of 3 each. Replica racks, counting
+    public void testOwnerAboveAllocationReleasesThePartitionsMostUsefulToRacksInDeficit() {
+        // 6 partitions for A in rack-0 and B in rack-1: a allocation of 3 each. Replica racks, counting
         // only member racks: 0 and 3 in both racks, 1 and 4 in rack-1, 2 and 5 in rack-0. A holds
         // 0, 2, 3 and 5, all aligned, one too many. B holds 1 and 4, aligned, and needs one more,
         // so rack-1 has a deficit of 1. A releases the partition most useful to rack-1: 0 and 3
@@ -192,7 +192,7 @@ public class RackAwarePartitionAssignerTest {
 
     @Test
     public void testAlignmentIsFoundByMaximumFlowWhereGreedyFails() {
-        // 3 partitions for 3 members in 3 racks: a quota of 1 each. Partition 0 has replicas in
+        // 3 partitions for 3 members in 3 racks: a allocation of 1 each. Partition 0 has replicas in
         // rack-1 and rack-2, partitions 1 and 2 in rack-0 and rack-1. Handing partitions out in
         // order to the first rack with a replica and a deficit would give 0 to rack-1, 1 to
         // rack-0 and leave 2 without an aligned member. Full alignment requires 0 to go to
@@ -215,12 +215,12 @@ public class RackAwarePartitionAssignerTest {
     }
 
     @Test
-    public void testFlowHandsOutFirstThePartitionsWhosePreviousHolderHasNoDeficit() {
+    public void testFlowHandsOutFirstThePartitionsWhosePreviousOwnerHasNoDeficit() {
         // 4 partitions for A in rack-0 and B and C in rack-1: a base of 1 and one extra partition.
         // Partition 0 has its replica in rack-0, partitions 1, 2 and 3 in rack-1. A holds 0 and 2,
         // B holds 1 and 3 and C joins. A and B both hold more than the base and claim the extra
-        // partition, which A wins by id: quotas A 2, B 1, C 1. A keeps 0 and releases 2,
-        // misaligned; B keeps 1, the lowest, and releases 3. A and C are one below their quota.
+        // partition, which A wins by id: allocations A 2, B 1, C 1. A keeps 0 and releases 2,
+        // misaligned; B keeps 1, the lowest, and releases 3. A and C are one below their allocation.
         // The flow can align one of 2 and 3 with C, and the other one is a leftover, which must
         // go to A. B has no deficit, so 3 cannot go back to it: it is handed to C, and 2 comes
         // back to A. One move. Handing 2, the lowest, to C would have moved 3 to A as well.
@@ -242,8 +242,8 @@ public class RackAwarePartitionAssignerTest {
     }
 
     @Test
-    public void testFlowHandsOutFirstThePartitionsWithoutPreviousHolder() {
-        // A in rack-0 holds 0 and 2, B in rack-1 holds 1, and partition 3 was just added: a quota
+    public void testFlowHandsOutFirstThePartitionsWithoutPreviousOwner() {
+        // A in rack-0 holds 0 and 2, B in rack-1 holds 1, and partition 3 was just added: a allocation
         // of 2 each. Partition 0 has its replica in rack-0, the others in rack-1. A keeps 0 and
         // releases 2, misaligned; B keeps 1. The flow can align one of 2 and 3 with B, and the
         // other one comes back to A. Nobody holds 3, so it is the one handed to B and 2 stays with
@@ -264,11 +264,11 @@ public class RackAwarePartitionAssignerTest {
     }
 
     @Test
-    public void testLeftoversGoingBackToAHolderAreLimitedToItsDeficit() {
-        // 6 partitions for A and B in rack-0 and C in rack-1: a quota of 2 each. Partitions 0 and
+    public void testLeftoversGoingBackToAOwnerAreLimitedToItsDeficit() {
+        // 6 partitions for A and B in rack-0 and C in rack-1: a allocation of 2 each. Partitions 0 and
         // 1 have their replica in rack-0, 2 to 5 in rack-1. A holds 0, 3 and 4, B holds 1 and 2,
         // C holds 5. A keeps 0 and releases 3 and 4, B keeps 1 and releases 2, all misaligned, and
-        // C keeps 5. Everyone is one below its quota. The flow can align one of 2, 3 and 4 with C
+        // C keeps 5. Everyone is one below its allocation. The flow can align one of 2, 3 and 4 with C
         // and the two others are leftovers. A can only take one back, so one of 3 and 4 has to
         // move anyway: 4, the highest, is handed to C, then 2 comes back to B and 3 to A. One
         // move. Handing 2, the lowest, to C would have left 3 and 4 to A, which can only take 3,
@@ -292,13 +292,13 @@ public class RackAwarePartitionAssignerTest {
     }
 
     @Test
-    public void testHolderWhoseDeficitTheFlowFillsDoesNotTakeLeftoversBack() {
-        // 4 partitions for A and D in rack-0 and B and C in rack-1: a quota of 1 each. Partition
+    public void testOwnerWhoseDeficitTheFlowFillsDoesNotTakeLeftoversBack() {
+        // 4 partitions for A and D in rack-0 and B and C in rack-1: a allocation of 1 each. Partition
         // 0 has its replica in rack-0, the others in rack-1. A holds 3, B holds 0 and 2, D holds
         // 1 and C joins. A releases 3 and D releases 1, misaligned; B keeps 2, aligned, and
-        // releases 0. A, C and D are one below their quota. The flow aligns 0 with A, the first
+        // releases 0. A, C and D are one below their allocation. The flow aligns 0 with A, the first
         // member of rack-0, and one of 1 and 3 with C; the other one is a leftover. A is served by
-        // the flow, so 3 cannot come back to it although A was below its quota when the flow
+        // the flow, so 3 cannot come back to it although A was below its allocation when the flow
         // started: 3 is handed to C and 1 comes back to D. Two moves, 0 and 3. Handing 1, the
         // lowest, to C would have moved 3 to D as well: three moves.
         SubscribedTopicDescriber describer = describer(List.of(List.of(0), List.of(1), List.of(1), List.of(1)));
@@ -322,11 +322,11 @@ public class RackAwarePartitionAssignerTest {
 
     @Test
     public void testMisalignedPartitionIsSwappedWithAnAlignedOne() {
-        // 4 partitions for A in rack-0 and B in rack-1: a quota of 2 each. Replica racks, counting
+        // 4 partitions for A in rack-0 and B in rack-1: a allocation of 2 each. Replica racks, counting
         // only member racks: 0 and 3 in both racks, 1 in rack-1, 2 in rack-0. A holds 1 and 2, B
-        // holds 0 and 3. A releases 1, misaligned; nobody in rack-1 is below its quota, so 1
+        // holds 0 and 3. A releases 1, misaligned; nobody in rack-1 is below its allocation, so 1
         // comes back to A. It is then swapped with a partition of B, which is in a replica rack
-        // of 1, having a replica in rack-0: 0, the first of 0 and 3. Both keep their quota.
+        // of 1, having a replica in rack-0: 0, the first of 0 and 3. Both keep their allocation.
         SubscribedTopicDescriber describer = describer(4);
         Map<String, MemberSubscriptionAndAssignmentImpl> members = new TreeMap<>();
         members.put(A, member(RACK_0, TOPICS, holding(1, 2)));
@@ -344,7 +344,7 @@ public class RackAwarePartitionAssignerTest {
 
     @Test
     public void testSettledButMisalignedTopicIsRealigned() {
-        // 6 partitions for 3 members in 3 racks holding 2 each: the quotas are met, but every
+        // 6 partitions for 3 members in 3 racks holding 2 each: the allocations are met, but every
         // partition is held by the member of the one rack without a replica of it. Everything
         // is released and realigned, so every partition moves.
         SubscribedTopicDescriber describer = describer(6);
@@ -390,10 +390,10 @@ public class RackAwarePartitionAssignerTest {
 
     @Test
     public void testPartitionWithoutReplicaInAnyMemberRackIsStillAssigned() {
-        // 3 partitions for 3 members in 3 racks: a quota of 1 each. Partition 0 has replicas in
+        // 3 partitions for 3 members in 3 racks: a allocation of 1 each. Partition 0 has replicas in
         // rack-0 and rack-1, partition 1 in rack-1 and rack-2, partition 2 only in rack-3, where
         // no member is. The flow aligns 0 with A and 1 with B; 2 is a leftover without previous
-        // holder and goes to the remaining member below its quota, C. Feeding the result back
+        // owner and goes to the remaining member below its allocation, C. Feeding the result back
         // changes nothing: 2 is released by C as misaligned and comes back to it.
         SubscribedTopicDescriber describer = describer(List.of(List.of(0, 1), List.of(1, 2), List.of(3)));
         Map<String, MemberSubscriptionAndAssignmentImpl> members = new TreeMap<>();
@@ -425,7 +425,7 @@ public class RackAwarePartitionAssignerTest {
         racked.forEach((memberId, m) -> unracked.put(memberId, member(m.subscribedTopicIds(), new Assignment(m.partitions()))));
 
         GroupModel model = new GroupModel(spec(racked), describer, false);
-        assertFalse(model.usesRacks);
+        assertFalse(model.usesRacks());
         GroupAssignment withRacks = new PartitionAssigner(model, new ExtraPartitionAssigner(model).assign()).assign();
         GroupModel unrackedModel = new GroupModel(spec(unracked), describer, false);
         GroupAssignment withoutRacks = new PartitionAssigner(unrackedModel, new ExtraPartitionAssigner(unrackedModel).assign()).assign();
