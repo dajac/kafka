@@ -14,7 +14,7 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
  */
-package org.apache.kafka.coordinator.group.assignor.uniform2;
+package org.apache.kafka.coordinator.group.assignor.uniform2.util;
 
 import java.util.AbstractSet;
 import java.util.Arrays;
@@ -27,14 +27,14 @@ import java.util.Set;
  * It is much cheaper to build and to store than a {@code HashSet<Integer>}, which
  * matters when an assignment contains many small partition sets.
  */
-final class IntArraySet extends AbstractSet<Integer> {
+public final class IntArraySet extends AbstractSet<Integer> {
     private final int[] values;
 
     /**
      * @param values The values. The array must be sorted in ascending order, must not contain
      *               duplicates and must not be modified afterwards.
      */
-    IntArraySet(int[] values) {
+    public IntArraySet(int[] values) {
         this.values = values;
     }
 
@@ -42,7 +42,7 @@ final class IntArraySet extends AbstractSet<Integer> {
      * Creates a set from the first {@code length} values of the given array, which are copied.
      * The values must be sorted in ascending order and must not contain duplicates.
      */
-    static IntArraySet copyOf(int[] values, int length) {
+    public static IntArraySet copyOf(int[] values, int length) {
         return new IntArraySet(Arrays.copyOf(values, length));
     }
 
@@ -51,10 +51,6 @@ final class IntArraySet extends AbstractSet<Integer> {
         return values.length;
     }
 
-    @Override
-    public boolean isEmpty() {
-        return values.length == 0;
-    }
 
     @Override
     public boolean contains(Object o) {
@@ -111,4 +107,5 @@ final class IntArraySet extends AbstractSet<Integer> {
     public String toString() {
         return Arrays.toString(values);
     }
+
 }

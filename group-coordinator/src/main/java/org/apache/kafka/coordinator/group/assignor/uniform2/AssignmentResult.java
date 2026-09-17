@@ -20,6 +20,7 @@ import org.apache.kafka.common.Uuid;
 import org.apache.kafka.coordinator.group.api.assignor.GroupAssignment;
 import org.apache.kafka.coordinator.group.api.assignor.MemberAssignment;
 import org.apache.kafka.coordinator.group.assignor.AssignorHelpers;
+import org.apache.kafka.coordinator.group.assignor.uniform2.util.IntArrayList;
 import org.apache.kafka.coordinator.group.modern.MemberAssignmentImpl;
 
 import java.util.ArrayList;
@@ -35,8 +36,8 @@ import java.util.Set;
  */
 final class AssignmentResult {
     private final GroupModel model;
-    private final IntList entryMember;
-    private final IntList entryTopic;
+    private final IntArrayList entryMember;
+    private final IntArrayList entryTopic;
     private final List<Set<Integer>> entryPartitions;
     /**
      * Per member, whether its assignment differs from its current one.
@@ -47,8 +48,8 @@ final class AssignmentResult {
         this.model = model;
         // Most of the current entries are usually emitted unchanged, plus a few new ones.
         int expectedEntries = Math.max(1024, model.owners().member().length + model.memberCount());
-        entryMember = new IntList(expectedEntries);
-        entryTopic = new IntList(expectedEntries);
+        entryMember = new IntArrayList(expectedEntries);
+        entryTopic = new IntArrayList(expectedEntries);
         entryPartitions = new ArrayList<>(expectedEntries);
         memberChanged = model.hasStalePartitions().clone();
     }

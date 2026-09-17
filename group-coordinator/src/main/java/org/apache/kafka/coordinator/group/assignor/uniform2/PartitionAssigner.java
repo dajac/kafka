@@ -18,6 +18,8 @@ package org.apache.kafka.coordinator.group.assignor.uniform2;
 
 import org.apache.kafka.coordinator.group.api.assignor.GroupAssignment;
 import org.apache.kafka.coordinator.group.api.assignor.PartitionAssignorException;
+import org.apache.kafka.coordinator.group.assignor.uniform2.util.IntArrayList;
+import org.apache.kafka.coordinator.group.assignor.uniform2.util.IntArraySet;
 
 import java.util.Arrays;
 import java.util.Set;
@@ -184,7 +186,7 @@ class PartitionAssigner {
     private void fillDeficits(int t) {
         int partitionCount = model.partitionCounts()[t];
         int next = 0;
-        IntList participants = scratch.participants;
+        IntArrayList participants = scratch.participants;
         for (int i = 0; i < participants.size(); i++) {
             int deficit = scratch.deficit[i];
             if (deficit == 0) {
@@ -226,7 +228,7 @@ class PartitionAssigner {
      */
     private void emit(int t) {
         int partitionCount = model.partitionCounts()[t];
-        IntList participants = scratch.participants;
+        IntArrayList participants = scratch.participants;
         for (int p = 0; p < partitionCount; p++) {
             scratch.count[scratch.participant(scratch.owner[p])]++;
         }
@@ -297,7 +299,7 @@ class PartitionAssigner {
         /**
          * The participants, in order of appearance.
          */
-        final IntList participants;
+        final IntArrayList participants;
         /**
          * Per member, its participant index, or NONE.
          */
@@ -329,7 +331,7 @@ class PartitionAssigner {
         TopicScratch(int memberCount, int maxPartitions) {
             owner = new int[maxPartitions];
             partitions = new int[maxPartitions];
-            participants = new IntList(16);
+            participants = new IntArrayList(16);
             participantOfMember = new int[memberCount];
             Arrays.fill(participantOfMember, NONE);
             // Every member may be involved in a topic, as a current owner or as a receiver.

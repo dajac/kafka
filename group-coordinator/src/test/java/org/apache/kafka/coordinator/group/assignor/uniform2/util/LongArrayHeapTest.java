@@ -14,7 +14,7 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
  */
-package org.apache.kafka.coordinator.group.assignor.uniform2;
+package org.apache.kafka.coordinator.group.assignor.uniform2.util;
 
 import org.junit.jupiter.api.Test;
 
@@ -26,18 +26,18 @@ import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
-public class LongHeapTest {
+public class LongArrayHeapTest {
 
     @Test
     public void testNewHeapIsEmpty() {
-        LongHeap heap = new LongHeap(4);
+        LongArrayHeap heap = new LongArrayHeap(4);
         assertTrue(heap.isEmpty());
         assertEquals(0, heap.size());
     }
 
     @Test
     public void testPopReturnsValuesInAscendingOrder() {
-        LongHeap heap = new LongHeap(8);
+        LongArrayHeap heap = new LongArrayHeap(8);
         heap.push(5);
         heap.push(1);
         heap.push(4);
@@ -59,7 +59,7 @@ public class LongHeapTest {
 
     @Test
     public void testNegativeValuesAndDuplicates() {
-        LongHeap heap = new LongHeap(8);
+        LongArrayHeap heap = new LongArrayHeap(8);
         heap.push(3);
         heap.push(-1);
         heap.push(3);
@@ -81,7 +81,7 @@ public class LongHeapTest {
 
     @Test
     public void testSingleValue() {
-        LongHeap heap = new LongHeap(4);
+        LongArrayHeap heap = new LongArrayHeap(4);
         heap.push(7);
         assertEquals(1, heap.size());
         assertEquals(7, heap.pop());
@@ -90,7 +90,7 @@ public class LongHeapTest {
 
     @Test
     public void testGrowsBeyondTheCapacity() {
-        LongHeap heap = new LongHeap(1);
+        LongArrayHeap heap = new LongArrayHeap(1);
         for (long value = 99; value >= 0; value--) {
             heap.push(value);
         }
@@ -103,7 +103,7 @@ public class LongHeapTest {
 
     @Test
     public void testZeroCapacity() {
-        LongHeap heap = new LongHeap(0);
+        LongArrayHeap heap = new LongArrayHeap(0);
         heap.push(2);
         heap.push(1);
         heap.push(3);
@@ -114,7 +114,7 @@ public class LongHeapTest {
 
     @Test
     public void testPopOnAnEmptyHeapThrows() {
-        LongHeap heap = new LongHeap(4);
+        LongArrayHeap heap = new LongArrayHeap(4);
         assertThrows(IllegalStateException.class, heap::pop);
 
         heap.push(1);
@@ -124,7 +124,7 @@ public class LongHeapTest {
 
     @Test
     public void testClear() {
-        LongHeap heap = new LongHeap(4);
+        LongArrayHeap heap = new LongArrayHeap(4);
         heap.push(3);
         heap.push(1);
         heap.push(2);
@@ -143,7 +143,7 @@ public class LongHeapTest {
 
     @Test
     public void testInterleavedPushAndPop() {
-        LongHeap heap = new LongHeap(2);
+        LongArrayHeap heap = new LongArrayHeap(2);
         heap.push(5);
         heap.push(2);
         assertEquals(2, heap.pop());
@@ -162,7 +162,7 @@ public class LongHeapTest {
     public void testPopsRandomValuesInSortedOrder() {
         Random random = new Random(42);
         long[] values = new long[1000];
-        LongHeap heap = new LongHeap(4);
+        LongArrayHeap heap = new LongArrayHeap(4);
         for (int i = 0; i < values.length; i++) {
             // A small range, so that there are many duplicates and negative values.
             values[i] = random.nextInt(200) - 100;

@@ -14,51 +14,51 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
  */
-package org.apache.kafka.coordinator.group.assignor.uniform2;
+package org.apache.kafka.coordinator.group.assignor.uniform2.util;
 
 import java.util.Arrays;
 
 /**
  * A minimal growable list of ints, avoiding the boxing of {@code List<Integer>}.
  */
-final class IntList {
+public final class IntArrayList {
     private int[] values;
     private int size;
 
-    IntList(int capacity) {
+    public IntArrayList(int capacity) {
         values = new int[Math.max(1, capacity)];
     }
 
-    void add(int value) {
+    public void add(int value) {
         if (size == values.length) {
             values = Arrays.copyOf(values, Math.max(8, size * 2));
         }
         values[size++] = value;
     }
 
-    int get(int index) {
+    public int get(int index) {
         if (index >= size) {
             throw new IndexOutOfBoundsException("Index " + index + " out of bounds for size " + size);
         }
         return values[index];
     }
 
-    int size() {
+    public int size() {
         return size;
     }
 
-    boolean isEmpty() {
+    public boolean isEmpty() {
         return size == 0;
     }
 
-    void clear() {
+    public void clear() {
         size = 0;
     }
 
     /**
      * Removes the first occurrence of the value, if any, shifting the following values down.
      */
-    void removeValue(int value) {
+    public void removeValue(int value) {
         for (int i = 0; i < size; i++) {
             if (values[i] == value) {
                 System.arraycopy(values, i + 1, values, i, size - i - 1);
@@ -68,11 +68,11 @@ final class IntList {
         }
     }
 
-    int[] toArray() {
+    public int[] toArray() {
         return Arrays.copyOf(values, size);
     }
 
-    int[] toSortedArray() {
+    public int[] toSortedArray() {
         int[] array = toArray();
         Arrays.sort(array);
         return array;

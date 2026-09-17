@@ -17,6 +17,8 @@
 package org.apache.kafka.coordinator.group.assignor.uniform2;
 
 import org.apache.kafka.coordinator.group.api.assignor.PartitionAssignorException;
+import org.apache.kafka.coordinator.group.assignor.uniform2.util.IntArrayList;
+import org.apache.kafka.coordinator.group.assignor.uniform2.util.LongArrayHeap;
 
 import java.util.Arrays;
 
@@ -48,7 +50,7 @@ final class ExtraPartitionAssigner {
      * backed extra partition away. Null when there are none. They are the receivers that cost
      * no move, see {@link #backedReceiver}.
      */
-    private final IntList[] backedCandidates;
+    private final IntArrayList[] backedCandidates;
 
     ExtraPartitionAssigner(GroupModel model) {
         this.model = model;
@@ -57,7 +59,7 @@ final class ExtraPartitionAssigner {
         this.racks = model.racks();
         extras = new ExtraPartitions(model);
         cursors = new int[model.maxCohortsPerTopic()];
-        backedCandidates = new IntList[model.topicCount()];
+        backedCandidates = new IntArrayList[model.topicCount()];
     }
 
     /**
@@ -154,7 +156,7 @@ final class ExtraPartitionAssigner {
      * the next round sees. A round without any move ends the pass.
      */
     private void evenOut() {
-        LongHeap givers = new LongHeap(model.memberCount());
+        LongArrayHeap givers = new LongArrayHeap(model.memberCount());
         int[] scanStart = new int[model.memberCount()];
         for (int pass = 0; pass < 2; pass++) {
             boolean backedAllowed = pass == 1;
@@ -324,7 +326,7 @@ final class ExtraPartitionAssigner {
      *         partition, which saves a move.
      */
     private int backedReceiver(int t, int receiverLoad) {
-        IntList candidates = backedCandidates[t];
+        IntArrayList candidates = backedCandidates[t];
         int best = NONE;
         if (candidates != null) {
             for (int i = 0; i < candidates.size(); i++) {
@@ -339,7 +341,7 @@ final class ExtraPartitionAssigner {
 
     private void addBackedCandidate(int m, int t) {
         if (backedCandidates[t] == null) {
-            backedCandidates[t] = new IntList(4);
+            backedCandidates[t] = new IntArrayList(4);
         }
         backedCandidates[t].add(m);
     }

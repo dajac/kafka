@@ -14,34 +14,34 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
  */
-package org.apache.kafka.coordinator.group.assignor.uniform2;
+package org.apache.kafka.coordinator.group.assignor.uniform2.util;
 
 import java.util.Arrays;
 
 /**
  * A minimal binary min-heap of longs, avoiding the boxing of {@code PriorityQueue<Long>}.
  */
-final class LongHeap {
+public final class LongArrayHeap {
     private long[] values;
     private int size;
 
-    LongHeap(int capacity) {
+    public LongArrayHeap(int capacity) {
         values = new long[Math.max(1, capacity)];
     }
 
-    boolean isEmpty() {
+    public boolean isEmpty() {
         return size == 0;
     }
 
-    int size() {
+    public int size() {
         return size;
     }
 
-    void clear() {
+    public void clear() {
         size = 0;
     }
 
-    void push(long value) {
+    public void push(long value) {
         if (size == values.length) {
             values = Arrays.copyOf(values, size * 2);
         }
@@ -61,7 +61,7 @@ final class LongHeap {
      * @return The smallest value, which is removed from the heap.
      * @throws IllegalStateException If the heap is empty.
      */
-    long pop() {
+    public long pop() {
         if (size == 0) {
             throw new IllegalStateException("The heap is empty");
         }

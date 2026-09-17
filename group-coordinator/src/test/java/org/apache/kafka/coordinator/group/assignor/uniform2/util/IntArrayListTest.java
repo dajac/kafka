@@ -14,7 +14,7 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
  */
-package org.apache.kafka.coordinator.group.assignor.uniform2;
+package org.apache.kafka.coordinator.group.assignor.uniform2.util;
 
 import org.junit.jupiter.api.Test;
 
@@ -24,11 +24,11 @@ import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
-public class IntListTest {
+public class IntArrayListTest {
 
     @Test
     public void testNewListIsEmpty() {
-        IntList list = new IntList(4);
+        IntArrayList list = new IntArrayList(4);
         assertTrue(list.isEmpty());
         assertEquals(0, list.size());
         assertArrayEquals(new int[0], list.toArray());
@@ -37,7 +37,7 @@ public class IntListTest {
 
     @Test
     public void testAddAndGet() {
-        IntList list = new IntList(4);
+        IntArrayList list = new IntArrayList(4);
         list.add(5);
         list.add(-3);
         list.add(9);
@@ -51,7 +51,7 @@ public class IntListTest {
 
     @Test
     public void testGrowsBeyondTheInitialCapacity() {
-        IntList list = new IntList(2);
+        IntArrayList list = new IntArrayList(2);
         for (int i = 0; i < 100; i++) {
             list.add(i * 3);
         }
@@ -63,7 +63,7 @@ public class IntListTest {
 
     @Test
     public void testZeroCapacity() {
-        IntList list = new IntList(0);
+        IntArrayList list = new IntArrayList(0);
         list.add(1);
         list.add(2);
         assertEquals(2, list.size());
@@ -72,7 +72,7 @@ public class IntListTest {
 
     @Test
     public void testGetPastTheSizeThrows() {
-        IntList list = new IntList(4);
+        IntArrayList list = new IntArrayList(4);
         assertThrows(IndexOutOfBoundsException.class, () -> list.get(0));
         list.add(1);
         list.add(2);
@@ -85,7 +85,7 @@ public class IntListTest {
 
     @Test
     public void testClear() {
-        IntList list = new IntList(4);
+        IntArrayList list = new IntArrayList(4);
         list.add(1);
         list.add(2);
         list.add(3);
@@ -103,7 +103,7 @@ public class IntListTest {
 
     @Test
     public void testRemoveValueRemovesTheFirstOccurrenceOnly() {
-        IntList list = new IntList(4);
+        IntArrayList list = new IntArrayList(4);
         list.add(4);
         list.add(7);
         list.add(4);
@@ -128,7 +128,7 @@ public class IntListTest {
 
     @Test
     public void testRemoveValueOfAnAbsentValueIsANoOp() {
-        IntList list = new IntList(4);
+        IntArrayList list = new IntArrayList(4);
         list.removeValue(1);
         assertTrue(list.isEmpty());
 
@@ -142,7 +142,7 @@ public class IntListTest {
 
     @Test
     public void testToArrayIsACopySizedToTheList() {
-        IntList list = new IntList(16);
+        IntArrayList list = new IntArrayList(16);
         list.add(1);
         list.add(2);
         int[] array = list.toArray();
@@ -153,7 +153,7 @@ public class IntListTest {
 
     @Test
     public void testToSortedArrayDoesNotChangeTheList() {
-        IntList list = new IntList(4);
+        IntArrayList list = new IntArrayList(4);
         list.add(5);
         list.add(1);
         list.add(4);

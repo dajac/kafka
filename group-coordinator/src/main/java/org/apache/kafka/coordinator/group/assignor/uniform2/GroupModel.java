@@ -21,6 +21,7 @@ import org.apache.kafka.coordinator.group.api.assignor.GroupSpec;
 import org.apache.kafka.coordinator.group.api.assignor.PartitionAssignorException;
 import org.apache.kafka.coordinator.group.api.assignor.SubscribedTopicDescriber;
 import org.apache.kafka.coordinator.group.api.assignor.SubscriptionType;
+import org.apache.kafka.coordinator.group.assignor.uniform2.util.IntArrayList;
 
 import java.util.ArrayList;
 import java.util.Arrays;
@@ -429,7 +430,7 @@ final class GroupModel {
      */
     private int[][] memberTopics(GroupSpec groupSpec) {
         int[][] topics = new int[memberCount][];
-        IntList buffer = new IntList(16);
+        IntArrayList buffer = new IntArrayList(16);
         for (int m = 0; m < memberCount; m++) {
             buffer.clear();
             for (Uuid topicId : groupSpec.memberSubscription(memberIds[m]).subscribedTopicIds()) {
@@ -658,7 +659,7 @@ final class GroupModel {
         boolean usesRacks = racks.count() > 0;
         Map<CohortKey, Integer> cohortIndex = new HashMap<>();
         List<int[]> topics = new ArrayList<>();
-        IntList cohortRacks = new IntList(16);
+        IntArrayList cohortRacks = new IntArrayList(16);
         int[] memberCohort = new int[memberCount];
         for (int m = 0; m < memberCount; m++) {
             int rack = usesRacks ? racks.memberRack()[m] : 0;
@@ -712,8 +713,8 @@ final class GroupModel {
             currentAssignments[m] = currentAssignment;
             maxEntries += currentAssignment.size();
         }
-        IntList entryMember = new IntList(Math.max(16, maxEntries));
-        IntList entryTopic = new IntList(Math.max(16, maxEntries));
+        IntArrayList entryMember = new IntArrayList(Math.max(16, maxEntries));
+        IntArrayList entryTopic = new IntArrayList(Math.max(16, maxEntries));
         List<Set<Integer>> entryPartitions = new ArrayList<>(Math.max(16, maxEntries));
         for (int m = 0; m < memberCount; m++) {
             for (Map.Entry<Uuid, Set<Integer>> entry : currentAssignments[m].entrySet()) {

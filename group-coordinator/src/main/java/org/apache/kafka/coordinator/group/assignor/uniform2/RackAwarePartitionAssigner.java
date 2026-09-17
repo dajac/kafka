@@ -16,6 +16,8 @@
  */
 package org.apache.kafka.coordinator.group.assignor.uniform2;
 
+import org.apache.kafka.coordinator.group.assignor.uniform2.util.IntArrayList;
+
 import java.util.Arrays;
 import java.util.Map;
 import java.util.Set;
@@ -194,7 +196,7 @@ final class RackAwarePartitionAssigner extends PartitionAssigner {
                 demand[racks.memberRack()[m]] += extras.allocation(m, t);
             }
         }
-        IntList participants = scratch.participants;
+        IntArrayList participants = scratch.participants;
         for (int i = 0; i < participants.size(); i++) {
             demand[racks.memberRack()[participants.get(i)]] += scratch.deficit[i];
             scratch.deficit[i] = 0;
@@ -209,21 +211,21 @@ final class RackAwarePartitionAssigner extends PartitionAssigner {
      * @return The number of partitions that could not be aligned, left in the partition buffer.
      */
     private int alignDeficits(int t) {
-        TreeMap<Long, IntList> pool = unassignedPartitionsByRacks(t);
+        TreeMap<Long, IntArrayList> pool = unassignedPartitionsByRacks(t);
         if (pool.isEmpty()) {
             return 0;
         }
-        IntList[] receiversByRack = new IntList[racks.count()];
+        IntArrayList[] receiversByRack = new IntArrayList[racks.count()];
         int[] demand = rackDeficits(receiversByRack);
 
         // Only the first rack sets go through the flow, the partitions of the others are leftovers.
         int groupCount = Math.min(pool.size(), MAX_FLOW_GROUPS);
         long[] groupRacks = new long[groupCount];
-        IntList[] groupPartitions = new IntList[groupCount];
+        IntArrayList[] groupPartitions = new IntArrayList[groupCount];
         int[] supply = new int[groupCount];
         int leftoverCount = 0;
         int k = 0;
-        for (Map.Entry<Long, IntList> entry : pool.entrySet()) {
+        for (Map.Entry<Long, IntArrayList> entry : pool.entrySet()) {
             if (k < groupCount) {
                 groupRacks[k] = entry.getKey();
                 groupPartitions[k] = entry.getValue();
@@ -240,13 +242,13 @@ final class RackAwarePartitionAssigner extends PartitionAssigner {
     /**
      * @return The unassigned partitions of the topic, grouped by the racks having a replica.
      */
-    private TreeMap<Long, IntList> unassignedPartitionsByRacks(int t) {
+    private TreeMap<Long, IntArrayList> unassignedPartitionsByRacks(int t) {
         int partitionCount = model.partitionCounts()[t];
         long[] replicaRacks = racks.partitionRacks()[t];
-        TreeMap<Long, IntList> pool = new TreeMap<>();
+        TreeMap<Long, IntArrayList> pool = new TreeMap<>();
         for (int p = 0; p < partitionCount; p++) {
             if (scratch.owner[p] == NONE) {
-                pool.computeIfAbsent(replicaRacks[p], k -> new IntList(8)).add(p);
+                pool.computeIfAbsent(replicaRacks[p], k -> new IntArrayList(8)).add(p);
             }
         }
         return pool;
@@ -257,9 +259,9 @@ final class RackAwarePartitionAssigner extends PartitionAssigner {
      *
      * @return Per rack, the total deficit of its participants.
      */
-    private int[] rackDeficits(IntList[] receiversByRack) {
+    private int[] rackDeficits(IntArrayList[] receiversByRack) {
         int[] demand = new int[racks.count()];
-        IntList participants = scratch.participants;
+        IntArrayList participants = scratch.participants;
         for (int i = 0; i < participants.size(); i++) {
             int deficit = scratch.deficit[i];
             if (deficit == 0) {
@@ -268,7 +270,7 @@ final class RackAwarePartitionAssigner extends PartitionAssigner {
             int rack = racks.memberRack()[participants.get(i)];
             demand[rack] += deficit;
             if (receiversByRack[rack] == null) {
-                receiversByRack[rack] = new IntList(8);
+                receiversByRack[rack] = new IntArrayList(8);
             }
             receiversByRack[rack].add(i);
         }
@@ -295,15 +297,15 @@ final class RackAwarePartitionAssigner extends PartitionAssigner {
      *
      * @return The number of leftovers in the partition buffer.
      */
-    private int assignFlow(IntList[] groupPartitions, int[][] flow, IntList[] receiversByRack, int leftoverCount) {
+    private int assignFlow(IntArrayList[] groupPartitions, int[][] flow, IntArrayList[] receiversByRack, int leftoverCount) {
         chooseReceivers(flow, receiversByRack);
-        IntList participants = scratch.participants;
+        IntArrayList participants = scratch.participants;
         for (int i = 0; i < participants.size(); i++) {
             returnable[i] = scratch.deficit[i];
         }
         int next = 0;
         for (int group = 0; group < groupPartitions.length; group++) {
-            IntList partitions = groupPartitions[group];
+            IntArrayList partitions = groupPartitions[group];
             int end = next + sum(flow[group]);
             for (int j = 0; j < partitions.size(); j++) {
                 int p = partitions.get(j);
@@ -335,12 +337,12 @@ final class RackAwarePartitionAssigner extends PartitionAssigner {
      * of the rack below their allocation, in participant order, whose deficits are lowered as
      * they go.
      */
-    private void chooseReceivers(int[][] flow, IntList[] receiversByRack) {
+    private void chooseReceivers(int[][] flow, IntArrayList[] receiversByRack) {
         int[] rackCursor = new int[racks.count()];
         int next = 0;
         for (int[] groupFlow : flow) {
             for (int rack = 0; rack < racks.count(); rack++) {
-                IntList receivers = receiversByRack[rack];
+                IntArrayList receivers = receiversByRack[rack];
                 for (int j = 0; j < groupFlow[rack]; j++) {
                     while (scratch.deficit[receivers.get(rackCursor[rack])] == 0) {
                         rackCursor[rack]++;
@@ -369,7 +371,7 @@ final class RackAwarePartitionAssigner extends PartitionAssigner {
         return m == NONE ? NONE : scratch.participantOf(m);
     }
 
-    private int addLeftovers(IntList partitions, int from, int leftoverCount) {
+    private int addLeftovers(IntArrayList partitions, int from, int leftoverCount) {
         for (int j = from; j < partitions.size(); j++) {
             scratch.partitions[leftoverCount++] = partitions.get(j);
         }
@@ -425,13 +427,13 @@ final class RackAwarePartitionAssigner extends PartitionAssigner {
         if (!anyMisaligned) {
             return;
         }
-        TreeMap<Long, IntList>[] bucketsByRack = new TreeMap[racks.count()];
+        TreeMap<Long, IntArrayList>[] bucketsByRack = new TreeMap[racks.count()];
         for (int p = 0; p < partitionCount; p++) {
             int rack = racks.memberRack()[scratch.owner[p]];
             if (bucketsByRack[rack] == null) {
                 bucketsByRack[rack] = new TreeMap<>();
             }
-            bucketsByRack[rack].computeIfAbsent(replicaRacks[p], key -> new IntList(8)).add(p);
+            bucketsByRack[rack].computeIfAbsent(replicaRacks[p], key -> new IntArrayList(8)).add(p);
         }
 
         for (int p = 0; p < partitionCount; p++) {
@@ -453,9 +455,9 @@ final class RackAwarePartitionAssigner extends PartitionAssigner {
             markSwapped(m);
             markSwapped(other);
             bucketsByRack[rack].get(replicaRacks[p]).removeValue(p);
-            bucketsByRack[partnerRack].computeIfAbsent(replicaRacks[p], key -> new IntList(8)).add(p);
+            bucketsByRack[partnerRack].computeIfAbsent(replicaRacks[p], key -> new IntArrayList(8)).add(p);
             bucketsByRack[partnerRack].get(replicaRacks[partner]).removeValue(partner);
-            bucketsByRack[rack].computeIfAbsent(replicaRacks[partner], key -> new IntList(8)).add(partner);
+            bucketsByRack[rack].computeIfAbsent(replicaRacks[partner], key -> new IntArrayList(8)).add(partner);
         }
     }
 
@@ -474,21 +476,21 @@ final class RackAwarePartitionAssigner extends PartitionAssigner {
      * @return The partner partition in the low 32 bits and the rack of its member in the high 32
      *         bits, or NONE when there is no partner.
      */
-    private long findSwapPartner(int p, int rack, long[] replicaRacks, TreeMap<Long, IntList>[] bucketsByRack) {
+    private long findSwapPartner(int p, int rack, long[] replicaRacks, TreeMap<Long, IntArrayList>[] bucketsByRack) {
         long rackBit = 1L << rack;
         long remaining = replicaRacks[p];
         while (remaining != 0) {
             int otherRack = Long.numberOfTrailingZeros(remaining);
             remaining &= remaining - 1;
-            TreeMap<Long, IntList> buckets = bucketsByRack[otherRack];
+            TreeMap<Long, IntArrayList> buckets = bucketsByRack[otherRack];
             if (buckets == null) {
                 continue;
             }
-            for (Map.Entry<Long, IntList> entry : buckets.entrySet()) {
+            for (Map.Entry<Long, IntArrayList> entry : buckets.entrySet()) {
                 if ((entry.getKey() & rackBit) == 0 || entry.getValue().isEmpty()) {
                     continue;
                 }
-                IntList candidates = entry.getValue();
+                IntArrayList candidates = entry.getValue();
                 int partner = candidates.get(0);
                 for (int j = 0; j < candidates.size(); j++) {
                     int candidate = candidates.get(j);
