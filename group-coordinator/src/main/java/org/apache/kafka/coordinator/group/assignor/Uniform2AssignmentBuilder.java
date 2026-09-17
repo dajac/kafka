@@ -194,10 +194,16 @@ import java.util.Map;
  *     one able to serve rack 1. The flow network has one node per distinct replica rack set
  *     among the released partitions and one per rack: a handful with the usual three racks.
  *     Within a rack, the partitions go to the members below their quota, the current holders
- *     of the topic first, then its other subscribers, each in member id order.</li>
+ *     of the topic first, then its other subscribers, each in member id order. Within a group,
+ *     the partitions handed out are first those that have to move anyway: the ones nobody
+ *     holds, and the ones whose previous holder has no deficit left once the flow is served, or
+ *     already has as many of them set aside as its deficit. The partitions whose holder can
+ *     take them back are only handed out when the flow needs more of the group, so that they
+ *     are the ones left over.</li>
  *     <li><b>Leftovers:</b> the partitions that cannot be aligned go back to their previous
  *     holder if it is still below its quota, then to the remaining members below their quota
- *     in that same order.</li>
+ *     in that same order. Thanks to the order of the align step, a leftover goes back to its
+ *     holder whenever its group has enough other partitions to hand out.</li>
  *     <li><b>Swap:</b> for each partition still misaligned, look for a partition held by a
  *     member in one of its replica racks which has itself a replica in the rack of the
  *     misaligned holder, and swap the two. Both members keep their quotas. Partitions that

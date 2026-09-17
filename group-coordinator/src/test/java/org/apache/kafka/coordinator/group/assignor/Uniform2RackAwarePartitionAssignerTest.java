@@ -54,6 +54,7 @@ public class Uniform2RackAwarePartitionAssignerTest {
     private static final String A = "A";
     private static final String B = "B";
     private static final String C = "C";
+    private static final String D = "D";
     private static final String RACK_0 = "rack-0";
     private static final String RACK_1 = "rack-1";
     private static final String RACK_2 = "rack-2";
@@ -208,6 +209,112 @@ public class Uniform2RackAwarePartitionAssignerTest {
         assertEquals(Set.of(2), partitions(result, B));
         assertEquals(Set.of(0), partitions(result, C));
         assertEquals(3, alignedPartitions(members, result, describer));
+        assertValidAssignment(members, describer, result);
+        assertStable(members, describer, result, assignor);
+    }
+
+    @Test
+    public void testFlowHandsOutFirstThePartitionsWhosePreviousHolderHasNoDeficit() {
+        // 4 partitions for A in rack-0 and B and C in rack-1: a base of 1 and one extra partition.
+        // Partition 0 has its replica in rack-0, partitions 1, 2 and 3 in rack-1. A holds 0 and 2,
+        // B holds 1 and 3 and C joins. A and B both hold more than the base and claim the extra
+        // partition, which A wins by id: quotas A 2, B 1, C 1. A keeps 0 and releases 2,
+        // misaligned; B keeps 1, the lowest, and releases 3. A and C are one below their quota.
+        // The flow can align one of 2 and 3 with C, and the other one is a leftover, which must
+        // go to A. B has no deficit, so 3 cannot go back to it: it is handed to C, and 2 comes
+        // back to A. One move. Handing 2, the lowest, to C would have moved 3 to A as well.
+        SubscribedTopicDescriber describer = describer(List.of(List.of(0), List.of(1), List.of(1), List.of(1)));
+        Map<String, MemberSubscriptionAndAssignmentImpl> members = new TreeMap<>();
+        members.put(A, member(RACK_0, TOPICS, holding(0, 2)));
+        members.put(B, member(RACK_1, TOPICS, holding(1, 3)));
+        members.put(C, member(RACK_1, TOPICS, Assignment.EMPTY));
+
+        GroupAssignment result = assign(members, describer);
+
+        assertEquals(Set.of(0, 2), partitions(result, A));
+        assertEquals(Set.of(1), partitions(result, B));
+        assertEquals(Set.of(3), partitions(result, C));
+        assertEquals(3, alignedPartitions(members, result, describer));
+        assertEquals(1, revocations(members, result));
+        assertValidAssignment(members, describer, result);
+        assertStable(members, describer, result, assignor);
+    }
+
+    @Test
+    public void testFlowHandsOutFirstThePartitionsWithoutPreviousHolder() {
+        // A in rack-0 holds 0 and 2, B in rack-1 holds 1, and partition 3 was just added: a quota
+        // of 2 each. Partition 0 has its replica in rack-0, the others in rack-1. A keeps 0 and
+        // releases 2, misaligned; B keeps 1. The flow can align one of 2 and 3 with B, and the
+        // other one comes back to A. Nobody holds 3, so it is the one handed to B and 2 stays with
+        // A: nothing moves. Handing 2, the lowest, to B would have moved it for nothing.
+        SubscribedTopicDescriber describer = describer(List.of(List.of(0), List.of(1), List.of(1), List.of(1)));
+        Map<String, MemberSubscriptionAndAssignmentImpl> members = new TreeMap<>();
+        members.put(A, member(RACK_0, TOPICS, holding(0, 2)));
+        members.put(B, member(RACK_1, TOPICS, holding(1)));
+
+        GroupAssignment result = assign(members, describer);
+
+        assertEquals(Set.of(0, 2), partitions(result, A));
+        assertEquals(Set.of(1, 3), partitions(result, B));
+        assertEquals(3, alignedPartitions(members, result, describer));
+        assertEquals(0, revocations(members, result));
+        assertValidAssignment(members, describer, result);
+        assertStable(members, describer, result, assignor);
+    }
+
+    @Test
+    public void testLeftoversGoingBackToAHolderAreLimitedToItsDeficit() {
+        // 6 partitions for A and B in rack-0 and C in rack-1: a quota of 2 each. Partitions 0 and
+        // 1 have their replica in rack-0, 2 to 5 in rack-1. A holds 0, 3 and 4, B holds 1 and 2,
+        // C holds 5. A keeps 0 and releases 3 and 4, B keeps 1 and releases 2, all misaligned, and
+        // C keeps 5. Everyone is one below its quota. The flow can align one of 2, 3 and 4 with C
+        // and the two others are leftovers. A can only take one back, so one of 3 and 4 has to
+        // move anyway: 4, the highest, is handed to C, then 2 comes back to B and 3 to A. One
+        // move. Handing 2, the lowest, to C would have left 3 and 4 to A, which can only take 3,
+        // so that 4 would have moved to B: two moves.
+        SubscribedTopicDescriber describer = describer(List.of(
+            List.of(0), List.of(0), List.of(1), List.of(1), List.of(1), List.of(1)));
+        Map<String, MemberSubscriptionAndAssignmentImpl> members = new TreeMap<>();
+        members.put(A, member(RACK_0, TOPICS, holding(0, 3, 4)));
+        members.put(B, member(RACK_0, TOPICS, holding(1, 2)));
+        members.put(C, member(RACK_1, TOPICS, holding(5)));
+
+        GroupAssignment result = assign(members, describer);
+
+        assertEquals(Set.of(0, 3), partitions(result, A));
+        assertEquals(Set.of(1, 2), partitions(result, B));
+        assertEquals(Set.of(4, 5), partitions(result, C));
+        assertEquals(4, alignedPartitions(members, result, describer));
+        assertEquals(1, revocations(members, result));
+        assertValidAssignment(members, describer, result);
+        assertStable(members, describer, result, assignor);
+    }
+
+    @Test
+    public void testHolderWhoseDeficitTheFlowFillsDoesNotTakeLeftoversBack() {
+        // 4 partitions for A and D in rack-0 and B and C in rack-1: a quota of 1 each. Partition
+        // 0 has its replica in rack-0, the others in rack-1. A holds 3, B holds 0 and 2, D holds
+        // 1 and C joins. A releases 3 and D releases 1, misaligned; B keeps 2, aligned, and
+        // releases 0. A, C and D are one below their quota. The flow aligns 0 with A, the first
+        // member of rack-0, and one of 1 and 3 with C; the other one is a leftover. A is served by
+        // the flow, so 3 cannot come back to it although A was below its quota when the flow
+        // started: 3 is handed to C and 1 comes back to D. Two moves, 0 and 3. Handing 1, the
+        // lowest, to C would have moved 3 to D as well: three moves.
+        SubscribedTopicDescriber describer = describer(List.of(List.of(0), List.of(1), List.of(1), List.of(1)));
+        Map<String, MemberSubscriptionAndAssignmentImpl> members = new TreeMap<>();
+        members.put(A, member(RACK_0, TOPICS, holding(3)));
+        members.put(B, member(RACK_1, TOPICS, holding(0, 2)));
+        members.put(C, member(RACK_1, TOPICS, Assignment.EMPTY));
+        members.put(D, member(RACK_0, TOPICS, holding(1)));
+
+        GroupAssignment result = assign(members, describer);
+
+        assertEquals(Set.of(0), partitions(result, A));
+        assertEquals(Set.of(2), partitions(result, B));
+        assertEquals(Set.of(3), partitions(result, C));
+        assertEquals(Set.of(1), partitions(result, D));
+        assertEquals(3, alignedPartitions(members, result, describer));
+        assertEquals(2, revocations(members, result));
         assertValidAssignment(members, describer, result);
         assertStable(members, describer, result, assignor);
     }

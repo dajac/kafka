@@ -33,7 +33,9 @@ import static org.apache.kafka.coordinator.group.assignor.Uniform2GroupModel.NON
  *     aligned partitions than its quota releases first the ones most useful to the racks whose
  *     members are below their quotas, then the ones with the most replica racks.</li>
  *     <li><b>Align:</b> the released partitions are handed to the members below their quota
- *     with a maximum flow from replica rack sets to racks, see {@link Uniform2MaxFlow}.</li>
+ *     with a maximum flow from replica rack sets to racks, see {@link Uniform2MaxFlow}. Among
+ *     the partitions sharing the same replica racks, the ones whose previous holder can take
+ *     them back are handed out last, so that they are the ones left over.</li>
  *     <li><b>Leftovers:</b> the partitions that cannot be aligned go back to their previous
  *     holder if it is still below its quota, then to the remaining members below their quota,
  *     the current holders of the topic first, then its other subscribers, each in member id
@@ -55,10 +57,16 @@ final class Uniform2RackAwarePartitionAssigner extends Uniform2PartitionAssigner
 
     /** Per partition of the topic at hand, the member currently holding it, or NONE. */
     private final int[] previousOwner;
+    /** Per unit of the flow, in group then rack order, the participant receiving it. */
+    private final int[] flowReceivers;
+    /** Per participant, while the flow is handed out, the number of leftovers it can still take back. */
+    private final int[] returnable;
 
     Uniform2RackAwarePartitionAssigner(Uniform2GroupModel model, Uniform2ExtraPartitions extras) {
         super(model, extras);
         previousOwner = new int[model.maxPartitionsPerTopic()];
+        flowReceivers = new int[model.maxPartitionsPerTopic()];
+        returnable = new int[model.memberCount];
     }
 
     /**
@@ -258,31 +266,96 @@ final class Uniform2RackAwarePartitionAssigner extends Uniform2PartitionAssigner
     }
 
     /**
-     * Hands the partitions of every group to the participants of every rack as the flow says,
-     * in participant order. The partitions the flow could not place are leftovers.
+     * Hands the partitions of every group to the participants of every rack as the flow says.
+     * The partitions the flow does not place are leftovers, which cost no move when they go back
+     * to their previous holder, so the choice of the partitions handed out within a group
+     * matters: the receivers are chosen first, since they do not depend on it, which leaves in
+     * the deficits what every participant can still take back once the flow is served. The
+     * partitions of a group are then handed out in this order: first those that have to move
+     * anyway, because nobody holds them, or their holder has no deficit left, or their holder
+     * already has as many partitions set aside as its deficit, and only when the flow needs more
+     * the ones set aside, both in ascending order. Whatever is not handed out is left over. The
+     * partitions set aside go back to their holder in {@link #assignLeftovers}; the holder of a
+     * partition handed out in the second pass gets its room for one more leftover back.
+     *
+     * <p>No partition goes through the flow to its own previous holder, so setting one aside
+     * never costs an aligned partition: a holder releases a partition either because it is
+     * misaligned, so the holder is not in one of the racks of the group, or because it has more
+     * aligned partitions than its quota, so the holder has no deficit at all.
      *
      * @return The number of leftovers in the partition buffer.
      */
     private int assignFlow(IntList[] groupPartitions, int[][] flow, IntList[] receiversByRack, int leftoverCount) {
-        int[] rackCursor = new int[model.rackCount];
+        chooseReceivers(flow, receiversByRack);
         IntList participants = scratch.participants;
+        for (int i = 0; i < participants.size(); i++) {
+            returnable[i] = scratch.deficit[i];
+        }
+        int next = 0;
         for (int group = 0; group < groupPartitions.length; group++) {
             IntList partitions = groupPartitions[group];
-            int taken = 0;
+            int end = next + sum(flow[group]);
+            for (int j = 0; j < partitions.size(); j++) {
+                int p = partitions.get(j);
+                int holder = holderParticipant(p);
+                if (holder != NONE && returnable[holder] > 0) {
+                    returnable[holder]--;
+                } else if (next < end) {
+                    scratch.owner[p] = participants.get(flowReceivers[next++]);
+                }
+            }
+            for (int j = 0; j < partitions.size(); j++) {
+                int p = partitions.get(j);
+                if (scratch.owner[p] != NONE) {
+                    continue;
+                }
+                if (next < end) {
+                    returnable[holderParticipant(p)]++;
+                    scratch.owner[p] = participants.get(flowReceivers[next++]);
+                } else {
+                    scratch.partitions[leftoverCount++] = p;
+                }
+            }
+        }
+        return leftoverCount;
+    }
+
+    /**
+     * Chooses the receivers of every unit of the flow, per group then per rack: the participants
+     * of the rack below their quota, in participant order, whose deficits are lowered as they go.
+     */
+    private void chooseReceivers(int[][] flow, IntList[] receiversByRack) {
+        int[] rackCursor = new int[model.rackCount];
+        int next = 0;
+        for (int[] groupFlow : flow) {
             for (int rack = 0; rack < model.rackCount; rack++) {
                 IntList receivers = receiversByRack[rack];
-                for (int j = 0; j < flow[group][rack]; j++) {
+                for (int j = 0; j < groupFlow[rack]; j++) {
                     while (scratch.deficit[receivers.get(rackCursor[rack])] == 0) {
                         rackCursor[rack]++;
                     }
                     int participant = receivers.get(rackCursor[rack]);
-                    scratch.owner[partitions.get(taken++)] = participants.get(participant);
+                    flowReceivers[next++] = participant;
                     scratch.deficit[participant]--;
                 }
             }
-            leftoverCount = addLeftovers(partitions, taken, leftoverCount);
         }
-        return leftoverCount;
+    }
+
+    private static int sum(int[] values) {
+        int total = 0;
+        for (int value : values) {
+            total += value;
+        }
+        return total;
+    }
+
+    /**
+     * @return The participant currently holding the partition, or NONE.
+     */
+    private int holderParticipant(int p) {
+        int m = previousOwner[p];
+        return m == NONE ? NONE : scratch.participantOf(m);
     }
 
     private int addLeftovers(IntList partitions, int from, int leftoverCount) {
@@ -294,17 +367,17 @@ final class Uniform2RackAwarePartitionAssigner extends Uniform2PartitionAssigner
 
     /**
      * Leftovers cannot be aligned: they go back to their previous holder if it still has a
-     * deficit, then to the remaining deficits in participant order.
+     * deficit, then to the remaining deficits in participant order. The flow leaves over, as far
+     * as it can, partitions whose holder can take them back, so most leftovers cost no move.
      */
     private void assignLeftovers(int t, int leftoverCount) {
         Arrays.sort(scratch.partitions, 0, leftoverCount);
         int remaining = 0;
         for (int j = 0; j < leftoverCount; j++) {
             int p = scratch.partitions[j];
-            int m = previousOwner[p];
-            int participant = m == NONE ? NONE : scratch.participantOf(m);
+            int participant = holderParticipant(p);
             if (participant != NONE && scratch.deficit[participant] > 0) {
-                scratch.owner[p] = m;
+                scratch.owner[p] = previousOwner[p];
                 scratch.deficit[participant]--;
             } else {
                 scratch.partitions[remaining++] = p;
