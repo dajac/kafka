@@ -17,10 +17,13 @@
 package org.apache.kafka.coordinator.group.assignor.uniform2;
 
 import org.apache.kafka.common.Uuid;
+import org.apache.kafka.coordinator.common.runtime.CoordinatorMetadataImage;
 import org.apache.kafka.coordinator.group.api.assignor.PartitionAssignorException;
 import org.apache.kafka.coordinator.group.api.assignor.SubscribedTopicDescriber;
 import org.apache.kafka.coordinator.group.modern.Assignment;
 import org.apache.kafka.coordinator.group.modern.MemberSubscriptionAndAssignmentImpl;
+import org.apache.kafka.coordinator.group.modern.SubscribedTopicDescriberImpl;
+import org.apache.kafka.coordinator.group.modern.TopicIds;
 
 import org.junit.jupiter.api.Test;
 
@@ -104,6 +107,36 @@ public class GroupModelTest {
         assertEquals(1, model.topicIndex().indexOf(T2));
         assertEquals(2, model.topicIndex().indexOf(T3));
         assertEquals(NONE, model.topicIndex().indexOf(UNKNOWN_TOPIC));
+    }
+
+    @Test
+    public void testSubscriptionsAreReadThroughTheTopicNames() {
+        // The coordinator gives the subscribed topic ids of a member as a view over its
+        // subscribed topic names, which resolves the ids while iterating, skips the names of
+        // deleted topics and supports neither toArray nor the other bulk operations.
+        CoordinatorMetadataImage image = new TestMetadataImageBuilder()
+            .addTopic(T1, "topic-1", 1, 3, 1)
+            .addTopic(T2, "topic-2", 1, 3, 1)
+            .buildImage();
+        SubscribedTopicDescriber describer = new SubscribedTopicDescriberImpl(image);
+        Set<Uuid> bothTopics = new TopicIds(Set.of("topic-2", "topic-1", "deleted"), image);
+        Set<Uuid> secondTopic = new TopicIds(Set.of("topic-2", "deleted"), image);
+
+        Map<String, MemberSubscriptionAndAssignmentImpl> members = new TreeMap<>();
+        members.put("A", member(bothTopics, Assignment.EMPTY));
+        members.put("B", member(bothTopics, Assignment.EMPTY));
+        GroupModel model = model(members, describer, false);
+        assertTrue(model.homogeneous());
+        assertEquals(2, model.topicCount());
+        assertArrayEquals(new Uuid[]{T1, T2}, model.topicIds());
+
+        members.put("B", member(secondTopic, Assignment.EMPTY));
+        model = model(members, describer, false);
+        assertFalse(model.homogeneous());
+        assertEquals(2, model.topicCount());
+        assertArrayEquals(new Uuid[]{T1, T2}, model.topicIds());
+        assertArrayEquals(new int[]{0}, model.subscribers()[0]);
+        assertArrayEquals(new int[]{0, 1}, model.subscribers()[1]);
     }
 
     @Test

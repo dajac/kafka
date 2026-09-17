@@ -28,6 +28,7 @@ import org.apache.kafka.coordinator.group.modern.Assignment;
 import org.apache.kafka.coordinator.group.modern.GroupSpecImpl;
 import org.apache.kafka.coordinator.group.modern.MemberSubscriptionAndAssignmentImpl;
 import org.apache.kafka.coordinator.group.modern.SubscribedTopicDescriberImpl;
+import org.apache.kafka.coordinator.group.modern.TopicIds;
 
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.params.ParameterizedTest;
@@ -154,6 +155,57 @@ public class Uniform2AssignorTest {
         expected.put(MEMBER_A, mkAssignment(mkTopicAssignment(TOPIC_1, 0, 1), mkTopicAssignment(TOPIC_2, 0)));
         expected.put(MEMBER_B, mkAssignment(mkTopicAssignment(TOPIC_1, 2), mkTopicAssignment(TOPIC_2, 1, 2)));
         assertAssignment(expected, result);
+    }
+
+    @Test
+    public void testHomogeneousSubscriptionsAreReadThroughTheTopicNames() {
+        // The coordinator gives the subscribed topic ids of a member as a view over its
+        // subscribed topic names, which resolves the ids while iterating and supports neither
+        // toArray nor the other bulk operations. The assignment is the one of the same group
+        // subscribed by ids, see testFirstAssignmentSpreadsEveryTopic.
+        CoordinatorMetadataImage image = new TestMetadataImageBuilder()
+            .addTopic(TOPIC_1, "topic-1", 3, 4, 2)
+            .addTopic(TOPIC_2, "topic-2", 3, 4, 2)
+            .buildImage();
+        Set<Uuid> subscription = new TopicIds(Set.of("topic-1", "topic-2"), image);
+        Map<String, MemberSubscriptionAndAssignmentImpl> members = new TreeMap<>();
+        members.put(MEMBER_A, member(subscription, Assignment.EMPTY));
+        members.put(MEMBER_B, member(subscription, Assignment.EMPTY));
+
+        GroupAssignment result = assignor.assign(
+            new GroupSpecImpl(members, HOMOGENEOUS, Map.of()),
+            new SubscribedTopicDescriberImpl(image)
+        );
+
+        Map<String, Map<Uuid, Set<Integer>>> expected = new HashMap<>();
+        expected.put(MEMBER_A, mkAssignment(mkTopicAssignment(TOPIC_1, 0, 1), mkTopicAssignment(TOPIC_2, 0)));
+        expected.put(MEMBER_B, mkAssignment(mkTopicAssignment(TOPIC_1, 2), mkTopicAssignment(TOPIC_2, 1, 2)));
+        assertAssignment(expected, result);
+    }
+
+    @Test
+    public void testHeterogeneousSubscriptionsAreReadThroughTheTopicNames() {
+        CoordinatorMetadataImage image = new TestMetadataImageBuilder()
+            .addTopic(TOPIC_1, "topic-1", 3, 4, 2)
+            .addTopic(TOPIC_2, "topic-2", 3, 4, 2)
+            .buildImage();
+        Map<String, MemberSubscriptionAndAssignmentImpl> members = new TreeMap<>();
+        members.put(MEMBER_A, member(new TopicIds(Set.of("topic-1", "topic-2"), image), Assignment.EMPTY));
+        members.put(MEMBER_B, member(new TopicIds(Set.of("topic-2"), image), Assignment.EMPTY));
+
+        GroupAssignment result = assignor.assign(
+            new GroupSpecImpl(members, HETEROGENEOUS, Map.of()),
+            new SubscribedTopicDescriberImpl(image)
+        );
+
+        // A is the only subscriber of topic 1 and takes its three partitions, so the extra
+        // partition of topic 2 goes to B, which has the lower load.
+        MemberAssignment a = result.members().get(MEMBER_A);
+        MemberAssignment b = result.members().get(MEMBER_B);
+        assertEquals(Set.of(0, 1, 2), a.partitions().get(TOPIC_1));
+        assertEquals(1, a.partitions().get(TOPIC_2).size());
+        assertFalse(b.partitions().containsKey(TOPIC_1));
+        assertEquals(2, b.partitions().get(TOPIC_2).size());
     }
 
     @Test

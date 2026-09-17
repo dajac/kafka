@@ -20,6 +20,7 @@ import org.apache.kafka.common.Uuid;
 import org.apache.kafka.common.metadata.PartitionRecord;
 import org.apache.kafka.common.metadata.RegisterBrokerRecord;
 import org.apache.kafka.common.metadata.TopicRecord;
+import org.apache.kafka.coordinator.common.runtime.CoordinatorMetadataImage;
 import org.apache.kafka.coordinator.common.runtime.KRaftCoordinatorMetadataImage;
 import org.apache.kafka.coordinator.group.modern.SubscribedTopicDescriberImpl;
 import org.apache.kafka.image.MetadataDelta;
@@ -71,8 +72,18 @@ public final class TestMetadataImageBuilder {
         return this;
     }
 
-    public SubscribedTopicDescriberImpl buildDescriber() {
+    /**
+     * @return The image of the brokers and topics added so far.
+     */
+    public CoordinatorMetadataImage buildImage() {
         MetadataImage image = delta.apply(new MetadataProvenance(0, 0, 0L, true));
-        return new SubscribedTopicDescriberImpl(new KRaftCoordinatorMetadataImage(image));
+        return new KRaftCoordinatorMetadataImage(image);
+    }
+
+    /**
+     * @return A describer of the image of the brokers and topics added so far.
+     */
+    public SubscribedTopicDescriberImpl buildDescriber() {
+        return new SubscribedTopicDescriberImpl(buildImage());
     }
 }
