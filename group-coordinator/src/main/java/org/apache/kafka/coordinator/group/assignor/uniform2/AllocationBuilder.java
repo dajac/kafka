@@ -25,16 +25,15 @@ import java.util.Arrays;
 import static org.apache.kafka.coordinator.group.assignor.uniform2.GroupModel.NONE;
 
 /**
- * Decides which subscribers get the extra partitions of every topic, in the three phases
- * described in {@link AssignmentBuilder}: claims, fill and even out. The allocations of
- * the members follow from the result.
+ * Builds the {@link Allocations}: decides which subscribers get the extra partitions of every
+ * topic, in the three phases described in {@link AssignmentBuilder}: claims, fill and even out.
  */
-final class ExtraPartitionAssigner {
+final class AllocationBuilder {
     private final GroupModel model;
     private final GroupModel.Owners owners;
     private final GroupModel.Cohorts cohorts;
     private final GroupModel.Racks racks;
-    private final ExtraPartitions extras;
+    private final Allocations allocations;
     /**
      * The loads, with the members of every cohort sorted by load. Built once the claims are
      * settled, since the claims set the initial order, and used by the two following phases.
@@ -52,12 +51,12 @@ final class ExtraPartitionAssigner {
      */
     private final IntArrayList[] backedCandidates;
 
-    ExtraPartitionAssigner(GroupModel model) {
+    AllocationBuilder(GroupModel model) {
         this.model = model;
         this.owners = model.owners();
         this.cohorts = model.cohorts();
         this.racks = model.racks();
-        extras = new ExtraPartitions(model);
+        allocations = new Allocations(model);
         cursors = new int[model.maxCohortsPerTopic()];
         backedCandidates = new IntArrayList[model.topicCount()];
     }
@@ -65,7 +64,7 @@ final class ExtraPartitionAssigner {
     /**
      * @return The extra partitions, every one of them having a receiver.
      */
-    ExtraPartitions assign() {
+    Allocations build() {
         int[] load = new int[model.memberCount()];
         for (int m = 0; m < model.memberCount(); m++) {
             load[m] = cohorts.baseLoad()[cohorts.memberCohort()[m]];
@@ -74,7 +73,7 @@ final class ExtraPartitionAssigner {
         loads = new Loads(model, load);
         fill();
         evenOut();
-        return extras;
+        return allocations;
     }
 
     /**
@@ -108,7 +107,7 @@ final class ExtraPartitionAssigner {
             }
             for (int i = 0; i < count; i++) {
                 int m = (int) claimants[i];
-                extras.add(m, t);
+                allocations.addExtra(m, t);
                 load[m]++;
             }
         }
@@ -122,7 +121,7 @@ final class ExtraPartitionAssigner {
      */
     private void fill() {
         for (int t = 0; t < model.topicCount(); t++) {
-            int needed = model.extraPartitionCount()[t] - extras.receiverCount(t);
+            int needed = model.extraPartitionCount()[t] - allocations.extraReceiverCount(t);
             if (needed == 0) {
                 continue;
             }
@@ -217,9 +216,9 @@ final class ExtraPartitionAssigner {
         int bestReceiver = NONE;
         boolean bestBacked = true;
         int bestLoad = Integer.MAX_VALUE;
-        boolean hasFree = extras.freeCountOf(giver) > 0;
-        int[] topics = extras.topicsOf(giver);
-        int count = extras.countOf(giver);
+        boolean hasFree = allocations.freeExtraCount(giver) > 0;
+        int[] topics = allocations.topicsOf(giver);
+        int count = allocations.extraCount(giver);
         // Whether every extra partition seen so far in this call was found without a receiver.
         boolean leading = true;
         for (int i = scanStart[giver]; i < count; i++) {
@@ -291,7 +290,7 @@ final class ExtraPartitionAssigner {
         for (int i = start; i < cohorts.topicCohortStart()[t + 1]; i++) {
             int[] order = loads.order(cohorts.topicCohorts()[i]);
             int at = cursors[i - start];
-            while (at < order.length && extras.has(order[at], t)) {
+            while (at < order.length && allocations.hasExtra(order[at], t)) {
                 at++;
             }
             cursors[i - start] = at;
@@ -353,7 +352,7 @@ final class ExtraPartitionAssigner {
      */
     private int rackSpare(int m, int t) {
         int rack = racks.memberRack()[m];
-        return racks.supply()[t][rack] - cohorts.rackSubscribers()[t][rack] * model.basePartitionCount()[t] - extras.countInRack(t, rack);
+        return racks.supply()[t][rack] - cohorts.rackSubscribers()[t][rack] * model.basePartitionCount()[t] - allocations.extraCountInRack(t, rack);
     }
 
     private int cohortCount(int t) {
@@ -361,7 +360,7 @@ final class ExtraPartitionAssigner {
     }
 
     private int movableCount(int m, boolean backedAllowed) {
-        return backedAllowed ? extras.countOf(m) : extras.freeCountOf(m);
+        return backedAllowed ? allocations.extraCount(m) : allocations.freeExtraCount(m);
     }
 
     /**
@@ -372,7 +371,7 @@ final class ExtraPartitionAssigner {
     }
 
     private void give(int m, int t) {
-        extras.add(m, t);
+        allocations.addExtra(m, t);
         loads.increment(m);
         if (backedCandidates[t] != null) {
             backedCandidates[t].removeValue(m);
@@ -380,7 +379,7 @@ final class ExtraPartitionAssigner {
     }
 
     private void take(int m, int t) {
-        extras.remove(m, t);
+        allocations.removeExtra(m, t);
         loads.decrement(m);
         if (model.isBacked(m, t)) {
             addBackedCandidate(m, t);

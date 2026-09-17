@@ -73,8 +73,8 @@ final class RackAwarePartitionAssigner extends PartitionAssigner {
     private final int[] returnable;
     private final GroupModel.Racks racks;
 
-    RackAwarePartitionAssigner(GroupModel model, ExtraPartitions extras) {
-        super(model, extras);
+    RackAwarePartitionAssigner(GroupModel model, Allocations allocations) {
+        super(model, allocations);
         this.racks = model.racks();
         previousOwner = new int[model.maxPartitionsPerTopic()];
         flowReceivers = new int[model.maxPartitionsPerTopic()];
@@ -126,7 +126,7 @@ final class RackAwarePartitionAssigner extends PartitionAssigner {
         for (int i = owners.start()[t]; i < owners.start()[t + 1]; i++) {
             int m = owners.member()[i];
             Set<Integer> current = owners.partitions()[i];
-            int allocation = extras.allocation(m, t);
+            int allocation = allocations.allocation(m, t);
             long rackBit = 1L << racks.memberRack()[m];
             int aligned = 0;
             for (int p : current) {
@@ -186,14 +186,14 @@ final class RackAwarePartitionAssigner extends PartitionAssigner {
                     aligned++;
                 }
             }
-            scratch.deficit[scratch.participant(m)] = Math.max(0, extras.allocation(m, t) - aligned);
+            scratch.deficit[scratch.participant(m)] = Math.max(0, allocations.allocation(m, t) - aligned);
         }
         // Receivers owning nothing need their whole allocation.
         int count = receiverCount(t);
         for (int i = 0; i < count; i++) {
             int m = receiverAt(t, i);
             if (scratch.participantOf(m) == NONE) {
-                demand[racks.memberRack()[m]] += extras.allocation(m, t);
+                demand[racks.memberRack()[m]] += allocations.allocation(m, t);
             }
         }
         IntArrayList participants = scratch.participants;

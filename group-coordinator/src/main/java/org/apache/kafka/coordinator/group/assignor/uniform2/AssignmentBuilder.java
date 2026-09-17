@@ -249,8 +249,8 @@ import java.util.Map;
  *
  * <p><b>Structure.</b> The code follows the phases. {@link GroupModel} normalizes the
  * input: members and topics numbered, subscribers, current partitions, base and extra partition
- * counts, cohorts and racks. {@link ExtraPartitionAssigner} runs the claims, fill and
- * even out phases on {@link ExtraPartitions}, tracking loads with {@link Loads}.
+ * counts, cohorts and racks. {@link AllocationBuilder} builds the {@link Allocations} through
+ * the claims, fill and even out phases, tracking loads with {@link Loads}.
  * {@link PartitionAssigner} runs the partition phase, with
  * {@link RackAwarePartitionAssigner} taking over when racks are in use, and
  * {@link AssignmentResult} builds the group assignment.
@@ -275,10 +275,10 @@ public final class AssignmentBuilder {
         if (model.topicCount() == 0) {
             return new GroupAssignment(Map.of());
         }
-        ExtraPartitions extras = new ExtraPartitionAssigner(model).assign();
+        Allocations allocations = new AllocationBuilder(model).build();
         PartitionAssigner partitionAssigner = model.usesRacks()
-            ? new RackAwarePartitionAssigner(model, extras)
-            : new PartitionAssigner(model, extras);
+            ? new RackAwarePartitionAssigner(model, allocations)
+            : new PartitionAssigner(model, allocations);
         return partitionAssigner.assign();
     }
 }

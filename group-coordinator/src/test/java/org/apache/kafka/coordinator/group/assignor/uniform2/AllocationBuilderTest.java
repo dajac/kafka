@@ -43,7 +43,7 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
  * Tests of the claims, fill and even out phases described in {@link AssignmentBuilder}.
  * Every expectation is worked out by hand in the comments.
  */
-public class ExtraPartitionAssignerTest {
+public class AllocationBuilderTest {
     // Topics and members are sorted by id, so these ids fix the indices: T1 is topic 0, T2 is
     // topic 1, and so on, while member "A" has index A, member "B" index B, and so on.
     private static final Uuid T1 = new Uuid(1L, 1L);
@@ -91,12 +91,12 @@ public class ExtraPartitionAssignerTest {
     /**
      * Runs the three phases and checks that every extra partition of every topic has a receiver.
      */
-    private static ExtraPartitions assign(GroupModel model) {
-        ExtraPartitions extras = new ExtraPartitionAssigner(model).assign();
+    private static Allocations assign(GroupModel model) {
+        Allocations allocations = new AllocationBuilder(model).build();
         for (int t = 0; t < model.topicCount(); t++) {
-            assertEquals(model.extraPartitionCount()[t], extras.receiverCount(t), "extra partitions of topic " + t + " with a receiver");
+            assertEquals(model.extraPartitionCount()[t], allocations.extraReceiverCount(t), "extra partitions of topic " + t + " with a receiver");
         }
-        return extras;
+        return allocations;
     }
 
     /**
@@ -105,7 +105,7 @@ public class ExtraPartitionAssignerTest {
      */
     private static void assertExtraPartitions(
         GroupModel model,
-        ExtraPartitions extras,
+        Allocations allocations,
         int topic,
         int... owners
     ) {
@@ -115,8 +115,8 @@ public class ExtraPartitionAssignerTest {
         }
         for (int m = 0; m < model.memberCount(); m++) {
             boolean has = expected.contains(m);
-            assertEquals(has, extras.has(m, topic), "member " + model.memberIds()[m] + " has an extra partition of topic " + topic);
-            assertEquals(model.basePartitionCount()[topic] + (has ? 1 : 0), extras.allocation(m, topic),
+            assertEquals(has, allocations.hasExtra(m, topic), "member " + model.memberIds()[m] + " has an extra partition of topic " + topic);
+            assertEquals(model.basePartitionCount()[topic] + (has ? 1 : 0), allocations.allocation(m, topic),
                 "allocation of member " + model.memberIds()[m] + " for topic " + topic);
         }
     }
@@ -124,12 +124,12 @@ public class ExtraPartitionAssignerTest {
     /**
      * Asserts the load of every member: the sum of its allocations over its topics.
      */
-    private static void assertLoads(GroupModel model, ExtraPartitions extras, int... expectedLoads) {
+    private static void assertLoads(GroupModel model, Allocations allocations, int... expectedLoads) {
         assertEquals(model.memberCount(), expectedLoads.length);
         for (int m = 0; m < model.memberCount(); m++) {
             int load = 0;
             for (int t : model.memberTopics()[m]) {
-                load += extras.allocation(m, t);
+                load += allocations.allocation(m, t);
             }
             assertEquals(expectedLoads[m], load, "load of member " + model.memberIds()[m]);
         }
@@ -154,15 +154,15 @@ public class ExtraPartitionAssignerTest {
         members.put("C", member(Set.of(T1, T2), Assignment.EMPTY));
         GroupModel model = model(members, describer(5, 4), false);
 
-        ExtraPartitions extras = assign(model);
+        Allocations allocations = assign(model);
 
-        assertLoads(model, extras, 3, 3, 3);
+        assertLoads(model, allocations, 3, 3, 3);
         // Ties between equally loaded members go to the first member in the load order of the
         // cohort: A receives the first extra partition of T1 and moves to the end of the order,
         // which becomes C, B, A, so C receives the second one and the order becomes B, C, A. The
         // extra partition of T2 then goes to B.
-        assertExtraPartitions(model, extras, 0, A, C);
-        assertExtraPartitions(model, extras, 1, B);
+        assertExtraPartitions(model, allocations, 0, A, C);
+        assertExtraPartitions(model, allocations, 1, B);
     }
 
     /**
@@ -186,14 +186,14 @@ public class ExtraPartitionAssignerTest {
         members.put("D", member(Set.of(T1, T2), Assignment.EMPTY));
         GroupModel model = model(members, describer(5, 4), false);
 
-        ExtraPartitions extras = assign(model);
+        Allocations allocations = assign(model);
 
-        assertExtraPartitions(model, extras, 0, A);
-        assertExtraPartitions(model, extras, 1);
-        assertLoads(model, extras, 3, 2, 2, 2);
+        assertExtraPartitions(model, allocations, 0, A);
+        assertExtraPartitions(model, allocations, 1);
+        assertLoads(model, allocations, 3, 2, 2, 2);
         // The extra partition kept by A lets it keep one of its current partitions.
         assertTrue(model.isBacked(A, 0));
-        assertEquals(0, extras.freeCountOf(A));
+        assertEquals(0, allocations.freeExtraCount(A));
     }
 
     /**
@@ -216,11 +216,11 @@ public class ExtraPartitionAssignerTest {
         members.put("C", member(Set.of(T1, T2), new Assignment(Map.of(T1, Set.of(3)))));
         GroupModel model = model(members, describer(4, 4), false);
 
-        ExtraPartitions extras = assign(model);
+        Allocations allocations = assign(model);
 
-        assertExtraPartitions(model, extras, 0, A);
-        assertExtraPartitions(model, extras, 1, B);
-        assertLoads(model, extras, 3, 3, 2);
+        assertExtraPartitions(model, allocations, 0, A);
+        assertExtraPartitions(model, allocations, 1, B);
+        assertLoads(model, allocations, 3, 3, 2);
     }
 
     /**
@@ -242,11 +242,11 @@ public class ExtraPartitionAssignerTest {
         members.put("B", member(Set.of(T1, T2), Assignment.EMPTY));
         GroupModel model = model(members, describer(3, 3), false);
 
-        ExtraPartitions extras = assign(model);
+        Allocations allocations = assign(model);
 
-        assertExtraPartitions(model, extras, 0, B);
-        assertExtraPartitions(model, extras, 1, A);
-        assertLoads(model, extras, 3, 3);
+        assertExtraPartitions(model, allocations, 0, B);
+        assertExtraPartitions(model, allocations, 1, A);
+        assertLoads(model, allocations, 3, 3);
     }
 
     /**
@@ -262,11 +262,11 @@ public class ExtraPartitionAssignerTest {
         members.put("B", member(Set.of(T1, T2), new Assignment(Map.of(T2, Set.of(1)))));
         GroupModel model = model(members, describer(3, 2), false);
 
-        ExtraPartitions extras = assign(model);
+        Allocations allocations = assign(model);
 
-        assertExtraPartitions(model, extras, 0, A);
-        assertExtraPartitions(model, extras, 1);
-        assertLoads(model, extras, 3, 2);
+        assertExtraPartitions(model, allocations, 0, A);
+        assertExtraPartitions(model, allocations, 1);
+        assertLoads(model, allocations, 3, 2);
     }
 
     /**
@@ -295,14 +295,14 @@ public class ExtraPartitionAssignerTest {
         members.put("C", member(Set.of(T3), Assignment.EMPTY));
         GroupModel model = model(members, describer(3, 3, 1), false);
 
-        ExtraPartitions extras = assign(model);
+        Allocations allocations = assign(model);
 
         assertTrue(model.isBacked(A, 0));
         assertFalse(model.isBacked(A, 1));
-        assertExtraPartitions(model, extras, 0, A);
-        assertExtraPartitions(model, extras, 1, B);
-        assertExtraPartitions(model, extras, 2, C);
-        assertLoads(model, extras, 3, 3, 1);
+        assertExtraPartitions(model, allocations, 0, A);
+        assertExtraPartitions(model, allocations, 1, B);
+        assertExtraPartitions(model, allocations, 2, C);
+        assertLoads(model, allocations, 3, 3, 1);
     }
 
     /**
@@ -330,14 +330,14 @@ public class ExtraPartitionAssignerTest {
         members.put("C", member(topics, Assignment.EMPTY));
         GroupModel model = model(members, describer(4, 4, 4, 4, 4), false);
 
-        ExtraPartitions extras = assign(model);
+        Allocations allocations = assign(model);
 
-        assertExtraPartitions(model, extras, 0, C);
-        assertExtraPartitions(model, extras, 1, A);
-        assertExtraPartitions(model, extras, 2, A);
-        assertExtraPartitions(model, extras, 3, B);
-        assertExtraPartitions(model, extras, 4, B);
-        assertLoads(model, extras, 7, 7, 6);
+        assertExtraPartitions(model, allocations, 0, C);
+        assertExtraPartitions(model, allocations, 1, A);
+        assertExtraPartitions(model, allocations, 2, A);
+        assertExtraPartitions(model, allocations, 3, B);
+        assertExtraPartitions(model, allocations, 4, B);
+        assertLoads(model, allocations, 7, 7, 6);
     }
 
     /**
@@ -364,13 +364,13 @@ public class ExtraPartitionAssignerTest {
         members.put("C", member(Set.of(T2, T4), Assignment.EMPTY));
         GroupModel model = model(members, describer, false);
 
-        ExtraPartitions extras = assign(model);
+        Allocations allocations = assign(model);
 
-        assertExtraPartitions(model, extras, 0, A);
-        assertExtraPartitions(model, extras, 1, B);
-        assertExtraPartitions(model, extras, 2);
-        assertExtraPartitions(model, extras, 3);
-        assertLoads(model, extras, 4, 3, 2);
+        assertExtraPartitions(model, allocations, 0, A);
+        assertExtraPartitions(model, allocations, 1, B);
+        assertExtraPartitions(model, allocations, 2);
+        assertExtraPartitions(model, allocations, 3);
+        assertLoads(model, allocations, 4, 3, 2);
 
         // The full assignor reaches the same loads, and the assignment has every property.
         GroupAssignment result = new Uniform2Assignor(false).assign(spec(members), describer);
@@ -420,18 +420,18 @@ public class ExtraPartitionAssignerTest {
         members.put("B", member(Set.of(T1, T2, T3), Assignment.EMPTY));
         GroupModel model = model(members, describer(4, 0, 3), false);
 
-        ExtraPartitions extras = assign(model);
+        Allocations allocations = assign(model);
 
-        assertExtraPartitions(model, extras, 0);
-        assertEquals(2, extras.allocation(A, 0));
-        assertEquals(2, extras.allocation(B, 0));
-        assertExtraPartitions(model, extras, 1);
-        assertEquals(0, extras.allocation(A, 1));
-        assertEquals(0, extras.allocation(B, 1));
-        assertExtraPartitions(model, extras, 2, A);
-        assertEquals(2, extras.allocation(A, 2));
-        assertEquals(1, extras.allocation(B, 2));
-        assertLoads(model, extras, 4, 3);
+        assertExtraPartitions(model, allocations, 0);
+        assertEquals(2, allocations.allocation(A, 0));
+        assertEquals(2, allocations.allocation(B, 0));
+        assertExtraPartitions(model, allocations, 1);
+        assertEquals(0, allocations.allocation(A, 1));
+        assertEquals(0, allocations.allocation(B, 1));
+        assertExtraPartitions(model, allocations, 2, A);
+        assertEquals(2, allocations.allocation(A, 2));
+        assertEquals(1, allocations.allocation(B, 2));
+        assertLoads(model, allocations, 4, 3);
     }
 
     /**
@@ -458,11 +458,11 @@ public class ExtraPartitionAssignerTest {
         members.put("D", member(Set.of(T1, T2, T3), new Assignment(Map.of(T1, Set.of(2, 3)))));
         GroupModel model = model(members, describer(5, 5, 5), false);
 
-        ExtraPartitions extras = assign(model);
+        Allocations allocations = assign(model);
 
-        assertExtraPartitions(model, extras, 0, D);
-        assertExtraPartitions(model, extras, 1, B);
-        assertExtraPartitions(model, extras, 2, A);
-        assertLoads(model, extras, 4, 4, 3, 4);
+        assertExtraPartitions(model, allocations, 0, D);
+        assertExtraPartitions(model, allocations, 1, B);
+        assertExtraPartitions(model, allocations, 2, A);
+        assertLoads(model, allocations, 4, 4, 3, 4);
     }
 }

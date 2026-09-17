@@ -44,14 +44,14 @@ import static org.apache.kafka.coordinator.group.assignor.uniform2.GroupModel.NO
 class PartitionAssigner {
     final GroupModel model;
     final GroupModel.Owners owners;
-    final ExtraPartitions extras;
+    final Allocations allocations;
     final TopicScratch scratch;
     private final AssignmentResult result;
 
-    PartitionAssigner(GroupModel model, ExtraPartitions extras) {
+    PartitionAssigner(GroupModel model, Allocations allocations) {
         this.model = model;
         this.owners = model.owners();
-        this.extras = extras;
+        this.allocations = allocations;
         scratch = new TopicScratch(model.memberCount(), model.maxPartitionsPerTopic());
         result = new AssignmentResult(model);
     }
@@ -97,7 +97,7 @@ class PartitionAssigner {
         int owned = 0;
         for (int i = owners.start()[t]; i < owners.start()[t + 1]; i++) {
             int count = owners.validCount()[i];
-            if (count != owners.partitions()[i].size() || count != extras.allocation(owners.member()[i], t)) {
+            if (count != owners.partitions()[i].size() || count != allocations.allocation(owners.member()[i], t)) {
                 return false;
             }
             owned += count;
@@ -119,7 +119,7 @@ class PartitionAssigner {
         for (int i = owners.start()[t]; i < owners.start()[t + 1]; i++) {
             int m = owners.member()[i];
             Set<Integer> current = owners.partitions()[i];
-            int allocation = extras.allocation(m, t);
+            int allocation = allocations.allocation(m, t);
             int count = 0;
             for (int p : current) {
                 if (p >= 0 && p < partitionCount) {
@@ -156,8 +156,8 @@ class PartitionAssigner {
         if (model.basePartitionCount()[t] > 0) {
             return model.subscribers()[t].length;
         }
-        extras.sortReceivers(t);
-        return extras.receiverCount(t);
+        allocations.sortExtraReceivers(t);
+        return allocations.extraReceiverCount(t);
     }
 
     /**
@@ -165,11 +165,11 @@ class PartitionAssigner {
      *         {@link #receiverCount}.
      */
     int receiverAt(int t, int i) {
-        return model.basePartitionCount()[t] > 0 ? model.subscribers()[t][i] : extras.receiverAt(t, i);
+        return model.basePartitionCount()[t] > 0 ? model.subscribers()[t][i] : allocations.extraReceiverAt(t, i);
     }
 
     private void recordDeficit(int t, int m) {
-        int allocation = extras.allocation(m, t);
+        int allocation = allocations.allocation(m, t);
         int participant = scratch.participantOf(m);
         int kept = participant == NONE ? 0 : scratch.kept[participant];
         if (allocation > kept) {

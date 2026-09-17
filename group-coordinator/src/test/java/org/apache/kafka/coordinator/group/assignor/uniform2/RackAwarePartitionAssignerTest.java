@@ -93,8 +93,8 @@ public class RackAwarePartitionAssignerTest {
     ) {
         GroupModel model = new GroupModel(spec(members), describer, true);
         assertTrue(model.usesRacks());
-        ExtraPartitions extras = new ExtraPartitionAssigner(model).assign();
-        return new RackAwarePartitionAssigner(model, extras).assign();
+        Allocations allocations = new AllocationBuilder(model).build();
+        return new RackAwarePartitionAssigner(model, allocations).assign();
     }
 
     private static Assignment holding(Integer... partitions) {
@@ -426,9 +426,9 @@ public class RackAwarePartitionAssignerTest {
 
         GroupModel model = new GroupModel(spec(racked), describer, false);
         assertFalse(model.usesRacks());
-        GroupAssignment withRacks = new PartitionAssigner(model, new ExtraPartitionAssigner(model).assign()).assign();
+        GroupAssignment withRacks = new PartitionAssigner(model, new AllocationBuilder(model).build()).assign();
         GroupModel unrackedModel = new GroupModel(spec(unracked), describer, false);
-        GroupAssignment withoutRacks = new PartitionAssigner(unrackedModel, new ExtraPartitionAssigner(unrackedModel).assign()).assign();
+        GroupAssignment withoutRacks = new PartitionAssigner(unrackedModel, new AllocationBuilder(unrackedModel).build()).assign();
 
         assertEquals(withoutRacks, withRacks);
         assertEquals(Set.of(0, 1), partitions(withRacks, A));

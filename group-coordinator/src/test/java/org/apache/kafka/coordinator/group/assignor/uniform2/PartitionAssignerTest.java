@@ -44,7 +44,7 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
 /**
  * Tests of the partition phase without racks, see {@link PartitionAssigner}: which
  * partition ids every member gets once the allocations are known. The allocations come from
- * {@link ExtraPartitionAssigner}, and every expectation is worked out by hand in the
+ * {@link AllocationBuilder}, and every expectation is worked out by hand in the
  * comments.
  */
 public class PartitionAssignerTest {
@@ -81,8 +81,8 @@ public class PartitionAssignerTest {
     ) {
         GroupModel model = new GroupModel(spec(members), describer, false);
         assertFalse(model.usesRacks());
-        ExtraPartitions extras = new ExtraPartitionAssigner(model).assign();
-        return new PartitionAssigner(model, extras).assign();
+        Allocations allocations = new AllocationBuilder(model).build();
+        return new PartitionAssigner(model, allocations).assign();
     }
 
     private static Assignment holding(Uuid topicId, Integer... partitions) {

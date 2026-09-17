@@ -19,7 +19,9 @@ package org.apache.kafka.coordinator.group.assignor.uniform2;
 import java.util.Arrays;
 
 /**
- * Which member gets each extra partition of each topic.
+ * The allocations of the members for the topics. Every subscriber of a topic gets its base
+ * partitions, so the allocations follow from which subscribers get the extra partitions, which
+ * is what is recorded here, see {@link #allocation}.
  *
  * <p>The relation is kept both per topic, the receivers of its extra partitions, and per member,
  * the topics of which it gets an extra partition in ascending order. Whether a member gets an
@@ -28,7 +30,7 @@ import java.util.Arrays;
  * those not backed by a current partition, is maintained too. When racks are in use, the number
  * of extra partitions per topic and rack is also maintained.
  */
-final class ExtraPartitions {
+final class Allocations {
     private final GroupModel model;
     private final GroupModel.Racks racks;
     /**
@@ -66,7 +68,7 @@ final class ExtraPartitions {
      */
     private final long[] bits;
 
-    ExtraPartitions(GroupModel model) {
+    Allocations(GroupModel model) {
         this.model = model;
         this.racks = model.racks();
         receiverStart = new int[model.topicCount() + 1];
@@ -85,7 +87,7 @@ final class ExtraPartitions {
     /**
      * @return Whether the member gets an extra partition of the topic.
      */
-    boolean has(int member, int topic) {
+    boolean hasExtra(int member, int topic) {
         int bit = model.bitIndex(member, topic);
         return (bits[bit >>> 6] & (1L << bit)) != 0;
     }
@@ -95,7 +97,7 @@ final class ExtraPartitions {
      *         gets an extra partition.
      */
     int allocation(int member, int topic) {
-        return model.basePartitionCount()[topic] + (has(member, topic) ? 1 : 0);
+        return model.basePartitionCount()[topic] + (hasExtra(member, topic) ? 1 : 0);
     }
 
     /**
@@ -103,7 +105,7 @@ final class ExtraPartitions {
      *
      * @throws IllegalStateException If every extra partition of the topic already has a receiver.
      */
-    void add(int member, int topic) {
+    void addExtra(int member, int topic) {
         if (receiverCount[topic] == model.extraPartitionCount()[topic]) {
             throw new IllegalStateException("Every extra partition of topic " + model.topicIds()[topic] + " has a receiver");
         }
@@ -137,7 +139,7 @@ final class ExtraPartitions {
     /**
      * Takes the extra partition of the topic back from the member, which must have one.
      */
-    void remove(int member, int topic) {
+    void removeExtra(int member, int topic) {
         int start = receiverStart[topic];
         int end = start + receiverCount[topic];
         for (int i = start; i < end; i++) {
@@ -165,34 +167,34 @@ final class ExtraPartitions {
     /**
      * @return The number of extra partitions of the topic that have a receiver.
      */
-    int receiverCount(int topic) {
+    int extraReceiverCount(int topic) {
         return receiverCount[topic];
     }
 
     /**
      * @return The {@code i}-th receiver of an extra partition of the topic.
      */
-    int receiverAt(int topic, int i) {
+    int extraReceiverAt(int topic, int i) {
         return receivers[receiverStart[topic] + i];
     }
 
     /**
      * Sorts the receivers of the topic by ascending member index, for deterministic iteration.
      */
-    void sortReceivers(int topic) {
+    void sortExtraReceivers(int topic) {
         Arrays.sort(receivers, receiverStart[topic], receiverStart[topic] + receiverCount[topic]);
     }
 
     /**
      * @return The number of extra partitions of the member.
      */
-    int countOf(int member) {
+    int extraCount(int member) {
         return countPerMember[member];
     }
 
     /**
      * @return The topics of which the member gets an extra partition, ascending. Only the first
-     *         {@link #countOf} entries are valid, the array is live, and it is null while the
+     *         {@link #extraCount} entries are valid, the array is live, and it is null while the
      *         member has no extra partition.
      */
     int[] topicsOf(int member) {
@@ -203,14 +205,14 @@ final class ExtraPartitions {
      * @return The number of extra partitions of the member that are not backed by a current
      *         partition.
      */
-    int freeCountOf(int member) {
+    int freeExtraCount(int member) {
         return freeCountPerMember[member];
     }
 
     /**
      * @return The number of extra partitions of the topic given to members of the rack.
      */
-    int countInRack(int topic, int rack) {
+    int extraCountInRack(int topic, int rack) {
         return countPerRack[topic][rack];
     }
 }
