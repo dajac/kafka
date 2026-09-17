@@ -31,13 +31,21 @@ import java.util.Arrays;
 final class Loads {
     private final GroupModel model;
     private final GroupModel.Cohorts cohorts;
-    /** Per member, its load: the number of partitions it gets with the current extra partitions. */
+    /**
+     * Per member, its load: the number of partitions it gets with the current extra partitions.
+     */
     final int[] load;
-    /** Per cohort, its members by ascending load. */
+    /**
+     * Per cohort, its members by ascending load.
+     */
     private final int[][] cohortOrder;
-    /** Per member, its position in the order of its cohort. */
+    /**
+     * Per member, its position in the order of its cohort.
+     */
     private final int[] position;
-    /** Per cohort, the first position of the members with a given load above the base load. */
+    /**
+     * Per cohort, the first position of the members with a given load above the base load.
+     */
     private final int[][] bucketStart;
 
     /**

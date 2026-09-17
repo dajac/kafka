@@ -345,7 +345,7 @@ public class RackAwarePartitionAssignerTest {
     @Test
     public void testSettledButMisalignedTopicIsRealigned() {
         // 6 partitions for 3 members in 3 racks holding 2 each: the allocations are met, but every
-        // partition is held by the member of the one rack without a replica of it. Everything
+        // partition is owned by the member of the one rack without a replica of it. Everything
         // is released and realigned, so every partition moves.
         SubscribedTopicDescriber describer = describer(6);
         Map<String, MemberSubscriptionAndAssignmentImpl> members = new TreeMap<>();

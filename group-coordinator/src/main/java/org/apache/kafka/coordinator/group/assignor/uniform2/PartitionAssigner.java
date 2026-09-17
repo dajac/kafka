@@ -32,7 +32,7 @@ import static org.apache.kafka.coordinator.group.assignor.uniform2.GroupModel.NO
  * releases the rest. The partitions nobody kept are handed out, in ascending order, to the
  * members below their allocation: the current owners first, then the other subscribers, each in
  * ascending member order. A topic in which every owner already has exactly its allocation, and the
- * owners together hold every partition, is emitted as is. A member whose partitions of a topic
+ * owners together own every partition, is emitted as is. A member whose partitions of a topic
  * did not change gets its current set back rather than a copy.
  *
  * <p>{@link RackAwarePartitionAssigner} replaces the per topic assignment when racks are
@@ -58,7 +58,7 @@ class PartitionAssigner {
         for (int t = 0; t < model.topicCount(); t++) {
             int partitionCount = model.partitionCounts()[t];
             if (partitionCount == 0) {
-                // Anything currently held in a topic without partitions is stale.
+                // Anything currently owned in a topic without partitions is stale.
                 for (int i = owners.start()[t]; i < owners.start()[t + 1]; i++) {
                     result.markChanged(owners.member()[i]);
                 }
@@ -85,22 +85,22 @@ class PartitionAssigner {
     }
 
     /**
-     * A topic is settled when every current owner holds exactly its allocation, all its current
-     * partitions exist, and the owners together hold every partition, so that nothing has to
+     * A topic is settled when every current owner owns exactly its allocation, all its current
+     * partitions exist, and the owners together own every partition, so that nothing has to
      * move and the topic is emitted as is. This relies on the current assignment being
-     * consistent, every partition being held once, which the target assignment maintained by
+     * consistent, every partition being owned once, which the target assignment maintained by
      * the coordinator guarantees.
      */
     boolean isSettled(int t) {
-        int held = 0;
+        int owned = 0;
         for (int i = owners.start()[t]; i < owners.start()[t + 1]; i++) {
             int count = owners.validCount()[i];
             if (count != owners.partitions()[i].size() || count != extras.allocation(owners.member()[i], t)) {
                 return false;
             }
-            held += count;
+            owned += count;
         }
-        return held == model.partitionCounts()[t];
+        return owned == model.partitionCounts()[t];
     }
 
     private void emitSettled(int t) {
@@ -145,7 +145,7 @@ class PartitionAssigner {
 
     /**
      * The members that may receive partitions of the topic are all its subscribers, or only the
-     * recipients of an extra partition when the base is zero. The recipients are sorted here, so
+     * receivers of an extra partition when the base is zero. The receivers are sorted here, so
      * that {@link #receiverAt} follows member order in both cases.
      *
      * @return The number of members that may receive partitions of the topic.
@@ -154,15 +154,16 @@ class PartitionAssigner {
         if (model.basePartitionCount()[t] > 0) {
             return model.subscribers()[t].length;
         }
-        extras.sortRecipients(t);
-        return extras.recipientCount(t);
+        extras.sortReceivers(t);
+        return extras.receiverCount(t);
     }
 
     /**
-     * @return The {@code i}-th member that may receive partitions of the topic, see {@link #receiverCount}.
+     * @return The {@code i}-th member that may receive partitions of the topic, see
+     *         {@link #receiverCount}.
      */
     int receiverAt(int t, int i) {
-        return model.basePartitionCount()[t] > 0 ? model.subscribers()[t][i] : extras.recipientAt(t, i);
+        return model.basePartitionCount()[t] > 0 ? model.subscribers()[t][i] : extras.receiverAt(t, i);
     }
 
     private void recordDeficit(int t, int m) {
@@ -177,7 +178,7 @@ class PartitionAssigner {
     /**
      * The unassigned partitions, in ascending order, fill the deficits in participant order.
      * The allocations add up to the partition count, so the deficits and the unassigned partitions
-     * match exactly unless a partition is currently held by several members, in which case
+     * match exactly unless a partition is currently owned by several members, in which case
      * some partitions are left over.
      */
     private void fillDeficits(int t) {
@@ -211,12 +212,12 @@ class PartitionAssigner {
     }
 
     /**
-     * @return The exception for a current assignment in which a partition is held by several
+     * @return The exception for a current assignment in which a partition is owned by several
      *         members, which the algorithm relies on never happening.
      */
     PartitionAssignorException inconsistentAssignment(int t) {
         return new PartitionAssignorException("The current assignment of topic " + model.topicIds()[t]
-            + " is inconsistent: a partition is held by several members.");
+            + " is inconsistent: a partition is owned by several members.");
     }
 
     /**
@@ -285,19 +286,33 @@ class PartitionAssigner {
      * when a participant is added, so {@link #clear} only has to forget the participants.
      */
     static final class TopicScratch {
-        /** Per partition, the member it is assigned to, or NONE. */
+        /**
+         * Per partition, the member it is assigned to, or NONE.
+         */
         final int[] owner;
-        /** A buffer of partition ids. */
+        /**
+         * A buffer of partition ids.
+         */
         final int[] partitions;
-        /** The participants, in order of appearance. */
+        /**
+         * The participants, in order of appearance.
+         */
         final IntList participants;
-        /** Per member, its participant index, or NONE. */
+        /**
+         * Per member, its participant index, or NONE.
+         */
         private final int[] participantOfMember;
-        /** Per participant, the number of its current partitions it keeps. */
+        /**
+         * Per participant, the number of its current partitions it keeps.
+         */
         final int[] kept;
-        /** Per participant, the number of partitions it still has to receive. */
+        /**
+         * Per participant, the number of partitions it still has to receive.
+         */
         final int[] deficit;
-        /** Per participant, the number of partitions assigned to it, counted when emitting. */
+        /**
+         * Per participant, the number of partitions assigned to it, counted when emitting.
+         */
         final int[] count;
         /**
          * Per participant, whether its final partitions are exactly its current ones: set when it
@@ -305,7 +320,9 @@ class PartitionAssigner {
          * partition afterwards, so that emitting can return its current set without comparing.
          */
         final boolean[] keptAll;
-        /** Per participant, its current partitions, or null when it holds none. */
+        /**
+         * Per participant, its current partitions, or null when it owns none.
+         */
         final Set<Integer>[] currentPartitions;
 
         @SuppressWarnings({"unchecked", "rawtypes"})

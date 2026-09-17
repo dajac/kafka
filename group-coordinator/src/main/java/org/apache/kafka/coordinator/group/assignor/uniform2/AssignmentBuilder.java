@@ -40,7 +40,7 @@ import java.util.Map;
  *     subscribers of its topic so that their totals get closer by two, without breaking the
  *     spread.</li>
  *     <li><b>Sticky:</b> partitions only move when the properties above require it. When a
- *     member leaves or joins, essentially only the partitions it held or is owed move, plus
+ *     member leaves or joins, essentially only the partitions it owned or is owed move, plus
  *     the few that keep the other members balanced when the change of allocations leaves them
  *     uneven. An assignment that already has the properties is returned as is, down to the
  *     same partition set instances, so unchanged members are cheap to recognize. The balance
@@ -64,19 +64,29 @@ import java.util.Map;
  *     together with the ids of the base partitions.</li>
  *     <li>The <i>allocation</i> of a subscriber for a topic is its number of base partitions, plus
  *     one if it gets an extra partition.</li>
- *     <li>The <i>load</i> of a member is the sum of its allocations, that is the number of partitions
- *     it will be assigned. It is its <i>base load</i>, the base partitions of all its topics
- *     added up, plus the number of extra partitions it gets.</li>
+ *     <li>The <i>load</i> of a member is the sum of its allocations, that is the number of
+ *     partitions it will be assigned. It is its <i>base load</i>, the base partitions of all its
+ *     topics added up, plus the number of extra partitions it gets.</li>
  *     <li>A <i>cohort</i> is a set of members with the same subscription, and the same rack
  *     when rack awareness is in use. The members of a cohort have the same base load and are
  *     eligible for the same extra partitions. A group where all members have the same
  *     subscription has a single cohort, or one per rack.</li>
- *     <li>The <i>current</i> partitions of a member are the ones it holds in the input.</li>
- *     <li>An extra partition is <i>backed</i> when the member getting it currently holds more
+ *     <li>The <i>current</i> partitions of a member are the ones it owns in the input, and the
+ *     member is their <i>owner</i>. A current partition is <i>stale</i> when its topic no longer
+ *     exists or is no longer subscribed by its owner, or when its id is beyond the partition
+ *     count of the topic; stale partitions are ignored.</li>
+ *     <li>An extra partition is <i>backed</i> when the member getting it currently owns more
  *     partitions of the topic than the base: it lets the member keep one of them. Otherwise
  *     the extra partition is <i>free</i> and giving it to another member costs nothing.</li>
  *     <li>A partition is <i>aligned</i> with a member when one of its replicas is in the rack
- *     of the member.</li>
+ *     of the member. The <i>supply</i> of a rack for a topic is the number of its partitions
+ *     having a replica in the rack.</li>
+ *     <li>In the partition phase, the <i>participants</i> of a topic are its subscribers owning
+ *     or receiving partitions of it. A participant below its allocation is a <i>receiver</i>,
+ *     and the difference is its <i>deficit</i>. The partitions an owner gives up above its
+ *     allocation are <i>released</i>. A released partition that the rack aware flow does not
+ *     place is a <i>leftover</i>, which returns to its owner. In the even out phase, the
+ *     <i>receiver</i> of an extra partition is the member it moves to.</li>
  * </ul>
  *
  * <p><b>Key idea.</b> The algorithm decides allocations before partition ids. The spread property
@@ -86,7 +96,7 @@ import java.util.Map;
  * one topic at a time. Stickiness comes from letting members keep the extra partitions and
  * the partition ids they currently have whenever the allocations allow it.
  *
- * <p><b>Phase 1, claims.</b> For every topic, the subscribers currently holding more
+ * <p><b>Phase 1, claims.</b> For every topic, the subscribers currently owning more
  * partitions than the base claim an extra partition, as it saves them a move. When there are
  * more claims than extra partitions, the least loaded claimants win, ties going to the first
  * member by id. Loads count the extra partitions claimed so far, topics being processed in id
@@ -111,7 +121,7 @@ import java.util.Map;
  * still needed, since each of them costs a partition move. Among the extra partitions of a
  * member, a free one wins over a backed one, then the one going to the least loaded receiver,
  * then the lowest topic. The receiver of a topic is chosen as in the fill phase, except that
- * among the least loaded candidates one currently holding more partitions of the topic than
+ * among the least loaded candidates one currently owning more partitions of the topic than
  * the base wins, the first by id, since the extra partition then costs no move. When all
  * members have the same subscription, every member is eligible for every extra partition and
  * the phase ends with all loads within one of each other. When subscriptions differ, it ends
@@ -129,12 +139,12 @@ import java.util.Map;
  * of a topic did not change gets its current set back, not a copy.
  *
  * <p><b>Example.</b> Members A, B and C subscribe to topic T1 with 5 partitions and topic T2
- * with 4 partitions, and hold nothing yet.
+ * with 4 partitions, and own nothing yet.
  * <pre>
  * T1: 5 / 3 = 1 base partition each, two extra partitions.
  * T2: 4 / 3 = 1 base partition each, one extra partition.
  * Base load 2 for everyone, load order A, B, C.
- * Claims:   nothing is held, so no claim.
+ * Claims:   nothing is owned, so no claim.
  * Fill:     the first extra partition of T1 goes to A (load 3), which moves to the end of the
  *           load order, now C, B, A. The second one goes to C (load 3), and the order becomes
  *           B, C, A. The extra partition of T2 goes to B (load 3).
@@ -148,7 +158,7 @@ import java.util.Map;
  * T1: 5 / 4 = 1 base partition each, one extra partition.
  * T2: 4 / 4 = 1 base partition each, no extra partition.
  * Base load 2 for everyone.
- * Claims:   A and C both hold 2 partitions of T1, more than the base: two claims for one extra
+ * Claims:   A and C both own 2 partitions of T1, more than the base: two claims for one extra
  *           partition. Both are at load 2, A wins by id. Loads: A 3, B 2, C 2, D 2.
  * Fill:     every extra partition has a member.
  * Even out: A is at 3 and the minimum is 2, a gap of one: nothing to do.
@@ -160,10 +170,10 @@ import java.util.Map;
  * Two partitions moved, exactly the two that D is owed. Loads: A 3, B 2, C 2, D 2.
  * </pre>
  * A second example shows the claims and the even out phase working together. Members A and B
- * subscribe to topics T1 and T2 with 3 partitions each, and A currently holds all six.
+ * subscribe to topics T1 and T2 with 3 partitions each, and A currently owns all six.
  * <pre>
  * T1 and T2: 3 / 2 = 1 base partition each, one extra partition each. Base load 2 for both.
- * Claims:   A holds 3 partitions of T1, more than the base: it claims the extra partition
+ * Claims:   A owns 3 partitions of T1, more than the base: it claims the extra partition
  *           (load 3). The same happens for T2 (load 4). B stays at 2.
  * Fill:     every extra partition has a member.
  * Even out: A is at 4 and B at 2, a gap of two, so A must give one. Both of its extra
@@ -183,10 +193,10 @@ import java.util.Map;
  * <ol>
  *     <li><b>Keep:</b> each current owner keeps its current aligned partitions up to its
  *     allocation. Misaligned partitions are released so that they can be realigned, and come back
- *     to their owner later if they cannot be. A owner with more aligned partitions than its
+ *     to their owner later if they cannot be. An owner with more aligned partitions than its
  *     allocation releases first the ones most useful to the racks whose members are below their
  *     allocations, then the ones with the most replica racks, which are the easiest to place.</li>
- *     <li><b>Align:</b> the released partitions are grouped by the set of racks holding their
+ *     <li><b>Align:</b> the released partitions are grouped by the set of racks having their
  *     replicas, and the members below their allocation are grouped by rack. The largest number of
  *     partitions that can be handed to a member in one of their replica racks is found with
  *     a maximum flow from the partition groups, through the racks, to the demand of each
@@ -197,18 +207,18 @@ import java.util.Map;
  *     Within a rack, the partitions go to the members below their allocation, the current owners
  *     of the topic first, then its other subscribers, each in member id order. Within a group,
  *     the partitions handed out are first those that have to move anyway: the ones nobody
- *     holds, and the ones whose previous owner has no deficit left once the flow is served, or
+ *     owns, and the ones whose previous owner has no deficit left once the flow is served, or
  *     already has as many of them set aside as its deficit. The partitions whose owner can
  *     take them back are only handed out when the flow needs more of the group, so that they
  *     are the ones left over.</li>
  *     <li><b>Leftovers:</b> the partitions that cannot be aligned go back to their previous
- *     owner if it is still below its allocation, then to the remaining members below their allocation
- *     in that same order. Thanks to the order of the align step, a leftover goes back to its
- *     owner whenever its group has enough other partitions to hand out.</li>
- *     <li><b>Swap:</b> for each partition still misaligned, look for a partition held by a
+ *     owner if it is still below its allocation, then to the remaining members below their
+ *     allocation in that same order. Thanks to the order of the align step, a leftover goes
+ *     back to its owner whenever its group has enough other partitions to hand out.</li>
+ *     <li><b>Swap:</b> for each partition still misaligned, look for a partition owned by a
  *     member in one of its replica racks which has itself a replica in the rack of the
  *     misaligned owner, and swap the two. Both members keep their allocations. Partitions that
- *     were not previously held by their member are preferred as partners, as swapping them
+ *     were not previously owned by their member are preferred as partners, as swapping them
  *     costs nothing more. This repairs the misalignments left by the greedy keep step.</li>
  * </ol>
  * A settled topic whose partitions are all aligned is emitted as is. With two replicas per
@@ -224,7 +234,7 @@ import java.util.Map;
  * ids, and the output holds the very partition set instances of the input.
  *
  * <p><b>Input assumptions.</b> The current assignment is consistent, every partition being
- * held by at most one member, as guaranteed by the target assignment maintained by the
+ * owned by at most one member, as guaranteed by the target assignment maintained by the
  * coordinator. Current partitions of topics that are no longer subscribed or no longer exist,
  * and partition ids beyond the current partition count of a topic, are stale.
  *

@@ -82,7 +82,7 @@ public final class AssignmentTestUtils {
     }
 
     /**
-     * @return Per topic and partition, the member currently holding it.
+     * @return Per topic and partition, the member currently owning it.
      */
     public static Map<Uuid, Map<Integer, String>> invertedTargetAssignment(Map<String, MemberSubscriptionAndAssignmentImpl> members) {
         Map<Uuid, Map<Integer, String>> inverted = new HashMap<>();

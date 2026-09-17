@@ -242,9 +242,9 @@ public class GroupModelTest {
     public void testBackedTopics() {
         // With four members, T1 has 5 / 4 = 1 base partition, T2 has 4 / 4 = 1 and T3 has 1 / 4 = 0.
         Map<String, MemberSubscriptionAndAssignmentImpl> members = new TreeMap<>();
-        // A holds more than the base partitions of both T1 and T2.
+        // A owns more than the base partitions of both T1 and T2.
         members.put("A", member(Set.of(T1, T2, T3), new Assignment(Map.of(T1, Set.of(0, 1), T2, Set.of(0, 1)))));
-        // B holds exactly the base partitions of T1, and more than the base partitions of T2.
+        // B owns exactly the base partitions of T1, and more than the base partitions of T2.
         members.put("B", member(Set.of(T1, T2, T3), new Assignment(Map.of(T1, Set.of(2), T2, Set.of(2, 3)))));
         // C holds one partition of T3, more than its base of zero.
         members.put("C", member(Set.of(T1, T2, T3), new Assignment(Map.of(T3, Set.of(0)))));

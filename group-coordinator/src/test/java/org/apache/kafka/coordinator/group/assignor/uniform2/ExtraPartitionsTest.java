@@ -91,7 +91,7 @@ public class ExtraPartitionsTest {
         GroupModel model = model();
         ExtraPartitions extras = new ExtraPartitions(model);
         for (int t = 0; t < model.topicCount(); t++) {
-            assertEquals(0, extras.recipientCount(t));
+            assertEquals(0, extras.receiverCount(t));
             for (int m = 0; m < model.memberCount(); m++) {
                 assertFalse(extras.has(m, t));
                 assertEquals(model.basePartitionCount()[t], extras.allocation(m, t));
@@ -111,9 +111,9 @@ public class ExtraPartitionsTest {
         assertTrue(extras.has(A, T1));
         assertFalse(extras.has(B, T1));
         assertFalse(extras.has(A, T2));
-        assertEquals(1, extras.recipientCount(T1));
-        assertEquals(A, extras.recipientAt(T1, 0));
-        assertEquals(0, extras.recipientCount(T2));
+        assertEquals(1, extras.receiverCount(T1));
+        assertEquals(A, extras.receiverAt(T1, 0));
+        assertEquals(0, extras.receiverCount(T2));
         assertTopics(extras, A, T1);
         assertTopics(extras, B);
         assertEquals(2, extras.allocation(A, T1));
@@ -130,11 +130,11 @@ public class ExtraPartitionsTest {
         extras.add(C, T1);
         extras.add(A, T1);
 
-        assertEquals(2, extras.recipientCount(T1));
+        assertEquals(2, extras.receiverCount(T1));
         assertTrue(extras.has(A, T1));
         assertFalse(extras.has(B, T1));
         assertTrue(extras.has(C, T1));
-        assertEquals(Set.of(A, C), Set.of(extras.recipientAt(T1, 0), extras.recipientAt(T1, 1)));
+        assertEquals(Set.of(A, C), Set.of(extras.receiverAt(T1, 0), extras.receiverAt(T1, 1)));
         assertTopics(extras, A, T1);
         assertTopics(extras, B);
         assertTopics(extras, C, T1);
@@ -144,14 +144,14 @@ public class ExtraPartitionsTest {
     }
 
     @Test
-    public void testSortRecipientsOrdersThemByMember() {
+    public void testSortReceiversOrdersThemByMember() {
         ExtraPartitions extras = new ExtraPartitions(model());
         extras.add(C, T3);
         extras.add(A, T3);
-        extras.sortRecipients(T3);
-        assertEquals(2, extras.recipientCount(T3));
-        assertEquals(A, extras.recipientAt(T3, 0));
-        assertEquals(C, extras.recipientAt(T3, 1));
+        extras.sortReceivers(T3);
+        assertEquals(2, extras.receiverCount(T3));
+        assertEquals(A, extras.receiverAt(T3, 0));
+        assertEquals(C, extras.receiverAt(T3, 1));
     }
 
     @Test
@@ -163,8 +163,8 @@ public class ExtraPartitionsTest {
 
         assertFalse(extras.has(A, T1));
         assertTrue(extras.has(B, T1));
-        assertEquals(1, extras.recipientCount(T1));
-        assertEquals(B, extras.recipientAt(T1, 0));
+        assertEquals(1, extras.receiverCount(T1));
+        assertEquals(B, extras.receiverAt(T1, 0));
         assertTopics(extras, A);
         assertTopics(extras, B, T1);
         assertEquals(1, extras.allocation(A, T1));
@@ -173,20 +173,20 @@ public class ExtraPartitionsTest {
         assertEquals(1, extras.freeCountOf(B));
 
         extras.remove(B, T1);
-        assertEquals(0, extras.recipientCount(T1));
+        assertEquals(0, extras.receiverCount(T1));
         assertFalse(extras.has(B, T1));
         assertTopics(extras, B);
         assertEquals(0, extras.freeCountOf(B));
 
         // The extra partitions can be given again.
         extras.add(C, T1);
-        assertEquals(1, extras.recipientCount(T1));
-        assertEquals(C, extras.recipientAt(T1, 0));
+        assertEquals(1, extras.receiverCount(T1));
+        assertEquals(C, extras.receiverAt(T1, 0));
         assertTopics(extras, C, T1);
     }
 
     @Test
-    public void testRemoveARecipientFromTheMiddle() {
+    public void testRemoveAReceiverFromTheMiddle() {
         // Four members and topic 1 with 7 partitions: base 1 and three extra partitions.
         SubscribedTopicDescriber describer = new TestMetadataImageBuilder()
             .addTopic(TOPIC_1, "topic-1", 7, 4, 2)
@@ -199,18 +199,18 @@ public class ExtraPartitionsTest {
         extras.add(B, T1);
         extras.add(C, T1);
         extras.remove(B, T1);
-        assertEquals(2, extras.recipientCount(T1));
+        assertEquals(2, extras.receiverCount(T1));
         assertFalse(extras.has(B, T1));
-        extras.sortRecipients(T1);
-        assertEquals(A, extras.recipientAt(T1, 0));
-        assertEquals(C, extras.recipientAt(T1, 1));
+        extras.sortReceivers(T1);
+        assertEquals(A, extras.receiverAt(T1, 0));
+        assertEquals(C, extras.receiverAt(T1, 1));
 
         extras.add(D, T1);
-        assertEquals(3, extras.recipientCount(T1));
-        extras.sortRecipients(T1);
-        assertEquals(A, extras.recipientAt(T1, 0));
-        assertEquals(C, extras.recipientAt(T1, 1));
-        assertEquals(D, extras.recipientAt(T1, 2));
+        assertEquals(3, extras.receiverCount(T1));
+        extras.sortReceivers(T1);
+        assertEquals(A, extras.receiverAt(T1, 0));
+        assertEquals(C, extras.receiverAt(T1, 1));
+        assertEquals(D, extras.receiverAt(T1, 2));
     }
 
     @Test
@@ -245,9 +245,9 @@ public class ExtraPartitionsTest {
         assertTrue(extras.has(A, T1));
         assertFalse(extras.has(A, T2));
         assertTrue(extras.has(A, T3));
-        assertEquals(0, extras.recipientCount(T2));
-        assertEquals(1, extras.recipientCount(T1));
-        assertEquals(1, extras.recipientCount(T3));
+        assertEquals(0, extras.receiverCount(T2));
+        assertEquals(1, extras.receiverCount(T1));
+        assertEquals(1, extras.receiverCount(T3));
         assertEquals(1, extras.allocation(A, T2));
         assertEquals(2, extras.freeCountOf(A));
 
@@ -261,7 +261,7 @@ public class ExtraPartitionsTest {
         assertEquals(0, extras.freeCountOf(A));
         for (int t = 0; t < 3; t++) {
             assertFalse(extras.has(A, t));
-            assertEquals(0, extras.recipientCount(t));
+            assertEquals(0, extras.receiverCount(t));
         }
     }
 
@@ -289,8 +289,8 @@ public class ExtraPartitionsTest {
             assertFalse(extras.has(B, t));
             assertEquals(2, extras.allocation(A, t));
             assertEquals(1, extras.allocation(B, t));
-            assertEquals(1, extras.recipientCount(t));
-            assertEquals(A, extras.recipientAt(t, 0));
+            assertEquals(1, extras.receiverCount(t));
+            assertEquals(A, extras.receiverAt(t, 0));
         }
         assertEquals(6, extras.freeCountOf(A));
     }
@@ -360,8 +360,8 @@ public class ExtraPartitionsTest {
         extras.remove(A, T1);
         assertEquals(0, extras.countOf(A));
         assertEquals(0, extras.freeCountOf(A));
-        assertEquals(1, extras.recipientCount(T1));
-        assertEquals(C, extras.recipientAt(T1, 0));
+        assertEquals(1, extras.receiverCount(T1));
+        assertEquals(C, extras.receiverAt(T1, 0));
     }
 
     @Test
@@ -425,17 +425,17 @@ public class ExtraPartitionsTest {
         extras.add(C, T1);
         assertEquals(1, extras.countInRack(T1, 0));
         assertEquals(1, extras.countInRack(T1, 1));
-        assertEquals(2, extras.recipientCount(T1));
+        assertEquals(2, extras.receiverCount(T1));
     }
 
     @Test
-    public void testAddRejectsMoreRecipientsThanExtraPartitions() {
+    public void testAddRejectsMoreReceiversThanExtraPartitions() {
         ExtraPartitions extras = new ExtraPartitions(model());
         // Topic 2 has a single extra partition.
         extras.add(A, T2);
 
         assertThrows(IllegalStateException.class, () -> extras.add(B, T2));
-        assertEquals(1, extras.recipientCount(T2));
+        assertEquals(1, extras.receiverCount(T2));
         assertTrue(extras.has(A, T2));
         assertFalse(extras.has(B, T2));
     }
@@ -479,8 +479,8 @@ public class ExtraPartitionsTest {
         assertTrue(extras.has(A, 21));
         assertTrue(extras.has(C, 22));
         assertTopics(extras, B, 20);
-        assertEquals(1, extras.recipientCount(21));
-        assertEquals(A, extras.recipientAt(21, 0));
+        assertEquals(1, extras.receiverCount(21));
+        assertEquals(A, extras.receiverAt(21, 0));
     }
 
     /**

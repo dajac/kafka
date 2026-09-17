@@ -25,7 +25,9 @@ import java.util.Arrays;
  * cheaper than a {@code HashMap<Uuid, Integer>} for the many lookups done per member.
  */
 final class TopicIndex {
-    /** Returned by {@link #indexOf} for an unknown topic. */
+    /**
+     * Returned by {@link #indexOf} for an unknown topic.
+     */
     static final int NONE = -1;
 
     private final long[] mostSignificantBits;

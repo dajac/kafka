@@ -414,7 +414,7 @@ public class Uniform2AssignorTest {
             assertEquals(3, memberAssignment.partitions().get(TOPIC_1).size());
         }
         assertEquals(12, alignedPartitions(membersWithAssignment, result, describer));
-        // D needs three partitions with a replica in rack-1, which are all held by member-0
+        // D needs three partitions with a replica in rack-1, which are all owned by member-0
         // and member-1. Each of them releases one partition, so the third one requires a swap:
         // member-0 gives a second partition to D and takes the partition released by member-2.
         assertEquals(4, revocations(membersWithAssignment, result));

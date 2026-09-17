@@ -38,7 +38,9 @@ final class AssignmentResult {
     private final IntList entryMember;
     private final IntList entryTopic;
     private final List<Set<Integer>> entryPartitions;
-    /** Per member, whether its assignment differs from its current one. */
+    /**
+     * Per member, whether its assignment differs from its current one.
+     */
     private final boolean[] memberChanged;
 
     AssignmentResult(GroupModel model) {

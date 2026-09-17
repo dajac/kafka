@@ -89,12 +89,12 @@ public class ExtraPartitionAssignerTest {
     }
 
     /**
-     * Runs the three phases and checks that every extra partition of every topic has a recipient.
+     * Runs the three phases and checks that every extra partition of every topic has a receiver.
      */
     private static ExtraPartitions assign(GroupModel model) {
         ExtraPartitions extras = new ExtraPartitionAssigner(model).assign();
         for (int t = 0; t < model.topicCount(); t++) {
-            assertEquals(model.extraPartitionCount()[t], extras.recipientCount(t), "extra partitions of topic " + t + " with a recipient");
+            assertEquals(model.extraPartitionCount()[t], extras.receiverCount(t), "extra partitions of topic " + t + " with a receiver");
         }
         return extras;
     }
@@ -137,10 +137,10 @@ public class ExtraPartitionAssignerTest {
 
     /**
      * First example of the class doc. A, B and C subscribe to T1 with 5 partitions and T2 with 4
-     * partitions and hold nothing: 1 base partition each of both topics, two extra partitions for
+     * partitions and own nothing: 1 base partition each of both topics, two extra partitions for
      * T1 and one for T2, a base load of 2 for everyone.
      * <pre>
-     * Claims:   nothing is held, so no claim.
+     * Claims:   nothing is owned, so no claim.
      * Fill:     the extra partitions of T1 go to the two least loaded members; all loads are equal,
      *           so to A and B by id (load 3). The one of T2 goes to C, the least loaded by then.
      * Even out: all loads are 3, nothing to do.
@@ -170,10 +170,10 @@ public class ExtraPartitionAssignerTest {
      * the example. T1 now has 5 / 4 = 1 base partition and one extra partition, T2 has 4 / 4 = 1
      * base partition and none. Base load 2 for everyone.
      * <pre>
-     * Claims:   A and B both hold 2 partitions of T1, more than the base, and claim its only extra
+     * Claims:   A and B both own 2 partitions of T1, more than the base, and claim its only extra
      *           partition. Both are at load 2, so A wins by id (load 3). C holds 2 partitions of
      *           T2, but T2 has no extra partition to claim.
-     * Fill:     every extra partition has a recipient.
+     * Fill:     every extra partition has a receiver.
      * Even out: A is at 3 and everyone else at 2, a gap of one: nothing moves.
      * </pre>
      */
@@ -201,10 +201,10 @@ public class ExtraPartitionAssignerTest {
      * A, B and C subscribe to T1 and T2 with 4 partitions each: 1 base partition and one extra
      * partition per topic, base load 2.
      * <pre>
-     * Claims:   T1: only A holds more than the base partition, it claims the extra partition (load 3).
+     * Claims:   T1: only A owns more than the base partition, it claims the extra partition (load 3).
      *           T2: A and B both hold more than the base partition, for a single extra partition.
      *               B at load 2 wins over A at load 3, although A comes first by id.
-     * Fill:     every extra partition has a recipient.
+     * Fill:     every extra partition has a receiver.
      * Even out: A 3, B 3, C 2: nothing moves.
      * </pre>
      */
@@ -225,11 +225,11 @@ public class ExtraPartitionAssignerTest {
 
     /**
      * Second example of the class doc. A and B subscribe to T1 and T2 with 3 partitions each, and
-     * A holds all six: 1 base partition and one extra partition per topic, base load 2.
+     * A owns all six: 1 base partition and one extra partition per topic, base load 2.
      * <pre>
-     * Claims:   A holds 3 partitions of T1 and claims its extra partition (load 3), then the one
+     * Claims:   A owns 3 partitions of T1 and claims its extra partition (load 3), then the one
      *           of T2 (load 4). B stays at 2.
-     * Fill:     every extra partition has a recipient.
+     * Fill:     every extra partition has a receiver.
      * Even out: A is at 4 and B at 2, a gap of two, so A must give one. Both of its extra
      *           partitions are backed, so the first pass does nothing and the second pass moves
      *           the one of the lowest topic, T1, to B. Loads: A 3, B 3.
@@ -312,7 +312,7 @@ public class ExtraPartitionAssignerTest {
      * <pre>
      * Claims:   A holds all of T1, T2 and T3 and claims their extra partitions (load 8). B holds
      *           all of T4 and T5 and claims theirs (load 7). C holds nothing (load 5).
-     * Fill:     every extra partition has a recipient.
+     * Fill:     every extra partition has a receiver.
      * Even out: all extra partitions are backed, so only the second pass acts. A, the most loaded,
      *           is three above C and gives it one extra partition: the one of T1, the lowest topic
      *           since C is the receiver for all of them. Loads: A 7, B 7, C 6. Nothing else moves.
@@ -349,7 +349,7 @@ public class ExtraPartitionAssignerTest {
      * <pre>
      * Claims:   A holds all of T1 and claims its extra partition (load 4). B holds all of T2 and
      *           claims its extra partition (load 3).
-     * Fill:     every extra partition has a recipient.
+     * Fill:     every extra partition has a receiver.
      * Even out: A is two above C, but C is not subscribed to T1, and B, the only other subscriber
      *           of T1, is one below A. B is one above C. No single move helps: the phase ends at
      *           A 4, B 3, C 2, although moving T1 to B and then T2 to C would reach 3, 3, 3.

@@ -38,10 +38,12 @@ final class ExtraPartitionAssigner {
      * settled, since the claims set the initial order, and used by the two following phases.
      */
     private Loads loads;
-    /** Per cohort of the topic at hand, the scan position in its order, see {@link #bestReceiver}. */
+    /**
+     * Per cohort of the topic at hand, the scan position in its order, see {@link #bestReceiver}.
+     */
     private final int[] cursors;
     /**
-     * Per topic, the members currently holding more partitions of it than the base but not
+     * Per topic, the members currently owning more partitions of it than the base but not
      * getting an extra partition of it: the claimants that lost, plus the members that gave a
      * backed extra partition away. Null when there are none. They are the receivers that cost
      * no move, see {@link #backedReceiver}.
@@ -59,7 +61,7 @@ final class ExtraPartitionAssigner {
     }
 
     /**
-     * @return The extra partitions, every one of them having a recipient.
+     * @return The extra partitions, every one of them having a receiver.
      */
     ExtraPartitions assign() {
         int[] load = new int[model.memberCount()];
@@ -74,7 +76,7 @@ final class ExtraPartitionAssigner {
     }
 
     /**
-     * Phase 1: for every topic, the subscribers currently holding more partitions than the base
+     * Phase 1: for every topic, the subscribers currently owning more partitions than the base
      * partitions claim an extra partition, as it saves them a move. When there are more claims
      * than extra partitions, the least loaded claimants win, ties going to the first member by
      * id. Afterwards, every extra partition given so far is backed.
@@ -114,17 +116,17 @@ final class ExtraPartitionAssigner {
      * Phase 2: for every topic with unclaimed extra partitions, each of them goes to the least
      * loaded subscriber not getting one yet, chosen by {@link #bestReceiver}. A topic only has
      * unclaimed extra partitions when every claimant won one, so no claimant is left out here.
-     * Afterwards, every extra partition has a recipient.
+     * Afterwards, every extra partition has a receiver.
      */
     private void fill() {
         for (int t = 0; t < model.topicCount(); t++) {
-            int needed = model.extraPartitionCount()[t] - extras.recipientCount(t);
+            int needed = model.extraPartitionCount()[t] - extras.receiverCount(t);
             if (needed == 0) {
                 continue;
             }
             Arrays.fill(cursors, 0, cohortCount(t), 0);
             while (needed > 0) {
-                // No subscriber holding more than the base is left without an extra partition
+                // No subscriber owning more than the base is left without an extra partition
                 // here, so there is no backed receiver to look for.
                 int receiver = bestReceiver(t, false);
                 if (receiver == NONE) {
@@ -171,7 +173,8 @@ final class ExtraPartitionAssigner {
                     long key = givers.pop();
                     int giver = (int) key;
                     if (-(int) (key >> 32) != loads.load[giver]) {
-                        // The load changed since the member was queued: queue it again at its place.
+                        // The load changed since the member was queued: queue it again at its
+                        // place.
                         givers.push(giverKey(giver));
                         continue;
                     }
@@ -264,7 +267,7 @@ final class ExtraPartitionAssigner {
     /**
      * Finds the best receiver of an extra partition of the topic among the subscribers not
      * getting one yet: the least loaded, then, when asked to prefer backed receivers, one
-     * currently holding more partitions of the topic than the base, the first by id, since the
+     * currently owning more partitions of the topic than the base, the first by id, since the
      * extra partition then costs no move, then, when racks are in use, the one whose rack has
      * the most spare replicas of the topic, then the one in the first cohort of the topic.
      * Within a cohort, the first member in its load order wins; that order depends only on the
@@ -315,9 +318,9 @@ final class ExtraPartitionAssigner {
     }
 
     /**
-     * @return The first member by id currently holding more partitions of the topic than the
+     * @return The first member by id currently owning more partitions of the topic than the
      *         base, with the given load and not getting an extra partition of the topic, or
-     *         NONE. Such a member keeps a partition it already holds when it gets the extra
+     *         NONE. Such a member keeps a partition it already owns when it gets the extra
      *         partition, which saves a move.
      */
     private int backedReceiver(int t, int receiverLoad) {
@@ -359,7 +362,9 @@ final class ExtraPartitionAssigner {
         return backedAllowed ? extras.countOf(m) : extras.freeCountOf(m);
     }
 
-    /** Orders the givers by descending load, then ascending member. */
+    /**
+     * Orders the givers by descending load, then ascending member.
+     */
     private long giverKey(int m) {
         return ((long) -loads.load[m] << 32) | m;
     }

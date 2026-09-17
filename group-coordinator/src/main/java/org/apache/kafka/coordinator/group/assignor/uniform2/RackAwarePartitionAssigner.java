@@ -28,19 +28,20 @@ import static org.apache.kafka.coordinator.group.assignor.uniform2.GroupModel.NO
  * are the same as without racks; only the choice of partition ids changes, so that as many
  * members as possible get partitions having a replica in their rack. For each topic:
  * <ol>
- *     <li><b>Keep:</b> each current owner keeps its current aligned partitions up to its allocation.
- *     Misaligned partitions are released so that they can be realigned. A owner with more
- *     aligned partitions than its allocation releases first the ones most useful to the racks whose
- *     members are below their allocations, then the ones with the most replica racks.</li>
+ *     <li><b>Keep:</b> each current owner keeps its current aligned partitions up to its
+ *     allocation. Misaligned partitions are released so that they can be realigned. An owner
+ *     with more aligned partitions than its allocation releases first the ones most useful to
+ *     the racks whose members are below their allocations, then the ones with the most replica
+ *     racks.</li>
  *     <li><b>Align:</b> the released partitions are handed to the members below their allocation
  *     with a maximum flow from replica rack sets to racks, see {@link MaxFlow}. Among
  *     the partitions sharing the same replica racks, the ones whose previous owner can take
  *     them back are handed out last, so that they are the ones left over.</li>
  *     <li><b>Leftovers:</b> the partitions that cannot be aligned go back to their previous
- *     owner if it is still below its allocation, then to the remaining members below their allocation,
- *     the current owners of the topic first, then its other subscribers, each in member id
- *     order.</li>
- *     <li><b>Swap:</b> each partition still misaligned is swapped with a partition held by a
+ *     owner if it is still below its allocation, then to the remaining members below their
+ *     allocation, the current owners of the topic first, then its other subscribers, each in
+ *     member id order.</li>
+ *     <li><b>Swap:</b> each partition still misaligned is swapped with a partition owned by a
  *     member in one of its replica racks, when that partition has a replica in the rack of the
  *     misaligned owner.</li>
  * </ol>
@@ -55,11 +56,18 @@ final class RackAwarePartitionAssigner extends PartitionAssigner {
      */
     private static final int MAX_FLOW_GROUPS = 1024;
 
-    /** Per partition of the topic at hand, the member currently holding it, or NONE. */
+    /**
+     * Per partition of the topic at hand, the member currently owning it, or NONE.
+     */
     private final int[] previousOwner;
-    /** Per unit of the flow, in group then rack order, the participant receiving it. */
+    /**
+     * Per unit of the flow, in group then rack order, the participant receiving it.
+     */
     private final int[] flowReceivers;
-    /** Per participant, while the flow is handed out, the number of leftovers it can still take back. */
+    /**
+     * Per participant, while the flow is handed out, the number of leftovers it can still take
+     * back.
+     */
     private final int[] returnable;
     private final GroupModel.Racks racks;
 
@@ -103,11 +111,11 @@ final class RackAwarePartitionAssigner extends PartitionAssigner {
     }
 
     /**
-     * Every current owner keeps its current aligned partitions up to its allocation. When it has too
-     * many, the released ones are those most useful to the racks having a deficit, then the ones
-     * with the most replica racks since they are the easiest to place elsewhere. Misaligned
-     * partitions are released so that they can be realigned, and come back to their owner if
-     * that is not possible.
+     * Every current owner keeps its current aligned partitions up to its allocation. When it
+     * has too many, the released ones are those most useful to the racks having a deficit,
+     * then the ones with the most replica racks since they are the easiest to place elsewhere.
+     * Misaligned partitions are released so that they can be realigned, and come back to their
+     * owner if that is not possible.
      */
     private void keepAlignedPartitions(int t) {
         int partitionCount = model.partitionCounts()[t];
@@ -178,7 +186,7 @@ final class RackAwarePartitionAssigner extends PartitionAssigner {
             }
             scratch.deficit[scratch.participant(m)] = Math.max(0, extras.allocation(m, t) - aligned);
         }
-        // Receivers holding nothing need their whole allocation.
+        // Receivers owning nothing need their whole allocation.
         int count = receiverCount(t);
         for (int i = 0; i < count; i++) {
             int m = receiverAt(t, i);
@@ -274,14 +282,14 @@ final class RackAwarePartitionAssigner extends PartitionAssigner {
      * matters: the receivers are chosen first, since they do not depend on it, which leaves in
      * the deficits what every participant can still take back once the flow is served. The
      * partitions of a group are then handed out in this order: first those that have to move
-     * anyway, because nobody holds them, or their owner has no deficit left, or their owner
+     * anyway, because nobody owns them, or their owner has no deficit left, or their owner
      * already has as many partitions set aside as its deficit, and only when the flow needs more
      * the ones set aside, both in ascending order. Whatever is not handed out is left over. The
      * partitions set aside go back to their owner in {@link #assignLeftovers}; the owner of a
      * partition handed out in the second pass gets its room for one more leftover back.
      *
      * <p>No partition goes through the flow to its own previous owner, so setting one aside
-     * never costs an aligned partition: a owner releases a partition either because it is
+     * never costs an aligned partition: an owner releases a partition either because it is
      * misaligned, so the owner is not in one of the racks of the group, or because it has more
      * aligned partitions than its allocation, so the owner has no deficit at all.
      *
@@ -324,7 +332,8 @@ final class RackAwarePartitionAssigner extends PartitionAssigner {
 
     /**
      * Chooses the receivers of every unit of the flow, per group then per rack: the participants
-     * of the rack below their allocation, in participant order, whose deficits are lowered as they go.
+     * of the rack below their allocation, in participant order, whose deficits are lowered as
+     * they go.
      */
     private void chooseReceivers(int[][] flow, IntList[] receiversByRack) {
         int[] rackCursor = new int[racks.count()];
@@ -353,7 +362,7 @@ final class RackAwarePartitionAssigner extends PartitionAssigner {
     }
 
     /**
-     * @return The participant currently holding the partition, or NONE.
+     * @return The participant currently owning the partition, or NONE.
      */
     private int ownerParticipant(int p) {
         int m = previousOwner[p];
@@ -400,9 +409,9 @@ final class RackAwarePartitionAssigner extends PartitionAssigner {
     }
 
     /**
-     * Swaps every misaligned partition with a partition held by a member of a rack having a
+     * Swaps every misaligned partition with a partition owned by a member of a rack having a
      * replica of it, when the latter has a replica in the rack of the former's member. Partitions
-     * that were not previously held by their member are preferred as partners, since swapping
+     * that were not previously owned by their member are preferred as partners, since swapping
      * them costs nothing more.
      */
     @SuppressWarnings({"unchecked", "rawtypes"})

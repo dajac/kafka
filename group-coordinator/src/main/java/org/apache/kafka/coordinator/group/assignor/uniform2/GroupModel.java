@@ -35,13 +35,18 @@ import java.util.Set;
  * The input of the uniform2 assignor, normalized once per assignment and read by every phase.
  *
  * <p>Members and topics are sorted by id and numbered from zero. Everything below refers to them
- * by index, and every array indexed by member or topic follows that numbering. Lists attached to
- * a member or a topic are stored as compressed rows: the entries of item {@code i} are the values
- * from {@code start[i]} inclusive to {@code start[i + 1]} exclusive. The model does not change
- * once built.
+ * by index, and every array indexed by member or topic follows that numbering. A list per member
+ * or per topic is stored as the rows of one flat array: the entries of item {@code i} are the
+ * values from {@code start[i]} inclusive to {@code start[i + 1]} exclusive, in an array of
+ * starts with one more entry than items.
+ *
+ * <p>The model is built once by its constructor and read by every phase through its accessors.
+ * The arrays are shared, not copied, and nobody writes into them once the model is built.
  */
 final class GroupModel {
-    /** Marks the absence of a member, topic or partition index. */
+    /**
+     * Marks the absence of a member, topic or partition index.
+     */
     static final int NONE = -1;
 
     /**
@@ -51,50 +56,108 @@ final class GroupModel {
      */
     static final int MAX_RACKS = 64;
 
-    /** The number of members. */
-    private final int memberCount;
-    /** The member ids, sorted. */
-    private final String[] memberIds;
-    /** Per member, its current assignment as given in the input. */
-    private final Map<Uuid, Set<Integer>>[] currentAssignments;
     /**
-     * Per member, whether some entries of its current assignment are stale: they refer to topics
-     * that no longer exist or are no longer subscribed, or hold no partition.
+     * The number of members, {@code N}. Members are numbered from 0 to {@code N - 1} in the sorted
+     * order of their ids.
+     */
+    private final int memberCount;
+
+    /**
+     * Per member, its id: length {@code N}, sorted, the index of a member being its position.
+     */
+    private final String[] memberIds;
+
+    /**
+     * Per member, its current assignment as given in the input: length {@code N}, the very map
+     * of the input, never null.
+     */
+    private final Map<Uuid, Set<Integer>>[] currentAssignments;
+
+    /**
+     * Per member, whether some entries of its current assignment are stale: length {@code N}.
+     * An entry is stale when its topic no longer exists or is no longer subscribed by the
+     * member, or when it is empty. Such a member cannot get its current assignment instance
+     * back as is.
      */
     private final boolean[] hasStalePartitions;
 
-    /** The number of subscribed topics. */
+    /**
+     * The number of subscribed topics, {@code T}. Topics are numbered from 0 to {@code T - 1} in
+     * the sorted order of their ids.
+     */
     private final int topicCount;
-    /** The topic ids, sorted. */
+
+    /**
+     * Per topic, its id: length {@code T}, sorted, the index of a topic being its position.
+     */
     private final Uuid[] topicIds;
-    /** Maps topic ids to their index. */
+
+    /**
+     * The index of the topics by id, giving the topic of an entry of a current assignment.
+     */
     private final TopicIndex topicIndex;
-    /** Per topic, its number of partitions. */
+
+    /**
+     * Per topic, its number of partitions: length {@code T}, possibly zero.
+     */
     private final int[] partitionCounts;
-    /** Per topic, the base partitions: the number every subscriber gets. */
+
+    /**
+     * Per topic, its base partitions: length {@code T}, the partition count divided by the
+     * number of subscribers, which every subscriber gets.
+     */
     private final int[] basePartitionCount;
-    /** Per topic, the number of extra partitions, each going to a distinct subscriber. */
+
+    /**
+     * Per topic, its number of extra partitions: length {@code T}, the partition count modulo
+     * the number of subscribers, each going to a distinct subscriber.
+     */
     private final int[] extraPartitionCount;
 
-    /** Whether all members have the same subscription. */
+    /**
+     * Whether all members have the same subscription.
+     */
     private final boolean homogeneous;
-    /** Per topic, its subscribers in ascending order. Every topic shares one array when homogeneous. */
+
+    /**
+     * Per topic, its subscribers in ascending member order: length {@code T}. Every topic shares
+     * one array of all the members when homogeneous.
+     */
     private final int[][] subscribers;
-    /** Per member, its topics in ascending order. Every member shares one array when homogeneous. */
+
+    /**
+     * Per member, its topics in ascending order: length {@code N}. Every member shares one array
+     * of all the topics when homogeneous.
+     */
     private final int[][] memberTopics;
 
-    /** The current owners of the partitions of every topic. */
+    /**
+     * The current owners of the partitions of every topic.
+     */
     private final Owners owners;
-    /** Per member, the number of topics of which it currently owns more than the base partitions. */
+
+    /**
+     * Per member, the number of topics of which it currently owns more than the base
+     * partitions: length {@code N}.
+     */
     private final int[] backedCounts;
+
     /**
      * Per member and topic, whether the member currently owns more than the base partitions of
      * the topic, indexed by {@link #bitIndex}.
      */
     private final long[] backedBits;
-    /** The cohorts: groups of members with the same subscription, and rack when in use. */
+
+    /**
+     * The cohorts: groups of members with the same subscription, and the same rack when racks
+     * are in use.
+     */
     private final Cohorts cohorts;
-    /** The racks of the members and of the partition replicas, when rack awareness is in use. */
+
+    /**
+     * The racks of the members and of the partition replicas, {@link Racks#NONE} when rack
+     * awareness is not in use.
+     */
     private final Racks racks;
 
     @SuppressWarnings({"unchecked", "rawtypes"})
@@ -265,7 +328,7 @@ final class GroupModel {
     }
 
     /**
-     * @return Whether the member currently holds more partitions of the topic than the base
+     * @return Whether the member currently owns more partitions of the topic than the base
      *         partitions, so that an extra partition of the topic lets it keep one of them.
      */
     boolean isBacked(int member, int topic) {
@@ -274,7 +337,8 @@ final class GroupModel {
     }
 
     /**
-     * @return The number of topics of which the member currently holds more than the base partitions.
+     * @return The number of topics of which the member currently owns more than the base
+     *         partitions.
      */
     int backedCount(int member) {
         return backedCounts[member];
@@ -489,7 +553,7 @@ final class GroupModel {
     private record Backed(int[] counts, long[] bits) { }
 
     /**
-     * Counts, per member, the topics of which it holds more than the base partitions, and sets
+     * Counts, per member, the topics of which it owns more than the base partitions, and sets
      * their bits.
      */
     private Backed backed() {

@@ -96,7 +96,7 @@ public class PartitionAssignerTest {
     @Test
     public void testOwnersKeepTheirLowestPartitionsUpToTheirAllocationAndReleaseTheRest() {
         // T1 has 6 partitions for 3 members: a allocation of 2 each. A holds 4 and keeps the two
-        // lowest, 0 and 2, releasing 4 and 5 to C. B holds exactly its allocation.
+        // lowest, 0 and 2, releasing 4 and 5 to C. B owns exactly its allocation.
         SubscribedTopicDescriber describer = describer(6);
         Map<String, MemberSubscriptionAndAssignmentImpl> members = new TreeMap<>();
         members.put(A, member(Set.of(T1), holding(T1, 0, 2, 4, 5)));
@@ -116,7 +116,7 @@ public class PartitionAssignerTest {
     @Test
     public void testReleasedPartitionsGoToOwnersFirstThenToOtherSubscribersInMemberOrder() {
         // T1 has 8 partitions for 4 members: a allocation of 2 each. B holds 3 and releases 2, D holds
-        // 1, A and C hold nothing. Partitions 2, 4, 5, 6 and 7 are handed out in ascending order
+        // 1, A and C own nothing. Partitions 2, 4, 5, 6 and 7 are handed out in ascending order
         // to the members below their allocation, the owners first: D gets 2 before A, which comes
         // first by id but holds nothing, then A gets 4 and 5 and C gets 6 and 7.
         SubscribedTopicDescriber describer = describer(8);
@@ -157,7 +157,7 @@ public class PartitionAssignerTest {
         assertEquals(Map.of(), partitions(result, C));
         assertEquals(Map.of(T1, Set.of(0)), partitions(result, D));
         assertEquals(Map.of(), partitions(result, E));
-        // B and D keep what they hold, C and E hold nothing: all four get their own map back.
+        // B and D keep what they hold, C and E own nothing: all four get their own map back.
         for (String memberId : Set.of(B, C, D, E)) {
             assertSame(members.get(memberId).partitions(), partitions(result, memberId));
         }
