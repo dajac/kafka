@@ -18,6 +18,7 @@ package org.apache.kafka.coordinator.group.assignor.uniform2;
 
 import org.apache.kafka.common.Uuid;
 import org.apache.kafka.common.metadata.PartitionRecord;
+import org.apache.kafka.common.metadata.RegisterBrokerRecord;
 import org.apache.kafka.common.metadata.TopicRecord;
 import org.apache.kafka.coordinator.common.runtime.CoordinatorMetadataImage;
 import org.apache.kafka.coordinator.common.runtime.KRaftCoordinatorMetadataImage;
@@ -30,10 +31,16 @@ import java.util.ArrayList;
 import java.util.List;
 
 /**
- * Builds a metadata image with explicit partition replicas, for the assignor tests.
+ * Builds a metadata image with explicit broker racks and partition replicas, for rack aware
+ * assignor tests.
  */
 public final class TestMetadataImageBuilder {
     private final MetadataDelta delta = new MetadataDelta.Builder().setImage(MetadataImage.EMPTY).build();
+
+    public TestMetadataImageBuilder addBroker(int brokerId, String rack) {
+        delta.replay(new RegisterBrokerRecord().setBrokerId(brokerId).setRack(rack));
+        return this;
+    }
 
     /**
      * Adds a topic with the given replicas per partition.

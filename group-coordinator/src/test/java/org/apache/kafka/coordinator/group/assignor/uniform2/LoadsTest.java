@@ -22,6 +22,8 @@ import org.apache.kafka.coordinator.group.modern.Assignment;
 import org.apache.kafka.coordinator.group.modern.MemberSubscriptionAndAssignmentImpl;
 
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.params.ParameterizedTest;
+import org.junit.jupiter.params.provider.ValueSource;
 
 import java.util.Arrays;
 import java.util.HashSet;
@@ -49,10 +51,15 @@ public class LoadsTest {
     private static final int E = 4;
 
     /**
-     * Topic 1 and topic 2 with the given partition counts.
+     * Topic 1 and topic 2 with the given partition counts, on four brokers in four racks with
+     * two replicas each.
      */
     private static SubscribedTopicDescriber describer(int topic1Partitions, int topic2Partitions) {
-        TestMetadataImageBuilder builder = new TestMetadataImageBuilder();
+        TestMetadataImageBuilder builder = new TestMetadataImageBuilder()
+            .addBroker(0, "rack-0")
+            .addBroker(1, "rack-1")
+            .addBroker(2, "rack-2")
+            .addBroker(3, "rack-3");
         if (topic1Partitions > 0) {
             builder.addTopic(TOPIC_1, "topic-1", topic1Partitions, 4, 2);
         }
@@ -74,7 +81,7 @@ public class LoadsTest {
         for (int m = 0; m < memberCount; m++) {
             members.put(memberId(m), member(Set.of(TOPIC_1, TOPIC_2), Assignment.EMPTY));
         }
-        return new GroupModel(spec(members), describer(topic1Partitions, topic2Partitions));
+        return new GroupModel(spec(members), describer(topic1Partitions, topic2Partitions), false);
     }
 
     /**
@@ -89,7 +96,7 @@ public class LoadsTest {
         members.put("C", member(Set.of(TOPIC_1), Assignment.EMPTY));
         members.put("D", member(Set.of(TOPIC_1), Assignment.EMPTY));
         members.put("E", member(Set.of(TOPIC_2), Assignment.EMPTY));
-        return new GroupModel(spec(members), describer(8, 6));
+        return new GroupModel(spec(members), describer(8, 6), false);
     }
 
     @Test
@@ -223,15 +230,55 @@ public class LoadsTest {
     }
 
     @Test
-    public void testRandomIncrementsAndDecrementsKeepEveryCohortSorted() {
-        // Twelve members with three different subscriptions: three cohorts.
+    public void testPerRackCohorts() {
+        // Members with the same subscription in two racks form one cohort per rack. Topic 1 has
+        // 4 partitions for 4 subscribers: base load 1.
+        Map<String, MemberSubscriptionAndAssignmentImpl> members = new TreeMap<>();
+        members.put("A", member("rack-0", Set.of(TOPIC_1), Assignment.EMPTY));
+        members.put("B", member("rack-1", Set.of(TOPIC_1), Assignment.EMPTY));
+        members.put("C", member("rack-0", Set.of(TOPIC_1), Assignment.EMPTY));
+        members.put("D", member("rack-1", Set.of(TOPIC_1), Assignment.EMPTY));
+        GroupModel model = new GroupModel(spec(members), describer(4, 0), true);
+        assertTrue(model.usesRacks());
+        assertEquals(2, model.cohorts().count());
+        assertArrayEquals(new int[] {0, 1, 0, 1}, model.cohorts().memberCohort());
+        assertArrayEquals(new int[] {1, 1}, model.cohorts().baseLoad());
+
+        int[] load = {2, 1, 1, 2};
+        Loads loads = new Loads(model, load);
+        assertArrayEquals(new int[] {C, A}, loads.order(0));
+        assertArrayEquals(new int[] {B, D}, loads.order(1));
+        assertEquals(1, loads.min());
+        assertSorted(model, loads);
+
+        // Rack 0 is all at 2, the minimum is B in rack 1.
+        loads.increment(C);
+        assertArrayEquals(new int[] {2, 1, 2, 2}, load);
+        assertEquals(1, loads.min());
+        assertSorted(model, loads);
+
+        loads.increment(B);
+        assertEquals(2, loads.min());
+        assertSorted(model, loads);
+
+        loads.decrement(A);
+        assertArrayEquals(new int[] {A, C}, loads.order(0));
+        assertEquals(1, loads.min());
+        assertSorted(model, loads);
+    }
+
+    @ParameterizedTest
+    @ValueSource(booleans = {false, true})
+    public void testRandomIncrementsAndDecrementsKeepEveryCohortSorted(boolean rackAware) {
+        // Twelve members in three racks with three different subscriptions: three cohorts, or
+        // nine when the racks are in use.
         List<Set<Uuid>> subscriptions = List.of(Set.of(TOPIC_1, TOPIC_2), Set.of(TOPIC_1), Set.of(TOPIC_2));
         Map<String, MemberSubscriptionAndAssignmentImpl> members = new TreeMap<>();
         for (int m = 0; m < 12; m++) {
-            members.put(memberId(m), member(subscriptions.get(m % 3), Assignment.EMPTY));
+            members.put(memberId(m), member("rack-" + (m / 4), subscriptions.get(m % 3), Assignment.EMPTY));
         }
-        GroupModel model = new GroupModel(spec(members), describer(10, 9));
-        assertEquals(3, model.cohorts().count());
+        GroupModel model = new GroupModel(spec(members), describer(10, 9), rackAware);
+        assertEquals(rackAware ? 9 : 3, model.cohorts().count());
 
         int[] load = new int[model.memberCount()];
         for (int m = 0; m < model.memberCount(); m++) {

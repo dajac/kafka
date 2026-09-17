@@ -32,8 +32,9 @@ import org.apache.kafka.coordinator.group.modern.TopicIds;
 
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.params.ParameterizedTest;
-import org.junit.jupiter.params.provider.EnumSource;
+import org.junit.jupiter.params.provider.CsvSource;
 
+import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.HashSet;
 import java.util.LinkedHashMap;
@@ -48,6 +49,7 @@ import static org.apache.kafka.coordinator.group.AssignmentTestUtil.mkAssignment
 import static org.apache.kafka.coordinator.group.AssignmentTestUtil.mkTopicAssignment;
 import static org.apache.kafka.coordinator.group.api.assignor.SubscriptionType.HETEROGENEOUS;
 import static org.apache.kafka.coordinator.group.api.assignor.SubscriptionType.HOMOGENEOUS;
+import static org.apache.kafka.coordinator.group.assignor.uniform2.AssignmentTestUtils.alignedPartitions;
 import static org.apache.kafka.coordinator.group.assignor.uniform2.AssignmentTestUtils.assertStable;
 import static org.apache.kafka.coordinator.group.assignor.uniform2.AssignmentTestUtils.assertValidAssignment;
 import static org.apache.kafka.coordinator.group.assignor.uniform2.AssignmentTestUtils.load;
@@ -74,22 +76,40 @@ public class Uniform2AssignorTest {
     private static final String MEMBER_E = "E";
 
     private final Uniform2Assignor assignor = new Uniform2Assignor();
+    private final Uniform2Assignor rackAwareAssignor = new Uniform2Assignor(true);
 
     @ParameterizedTest
-    @EnumSource(SubscriptionType.class)
-    public void testAssignmentReuse(SubscriptionType subscriptionType) {
-        CommonAssignorTests.testAssignmentReuse(assignor, subscriptionType, false);
+    @CsvSource({"HOMOGENEOUS, false", "HOMOGENEOUS, true", "HETEROGENEOUS, false", "HETEROGENEOUS, true"})
+    public void testAssignmentReuse(SubscriptionType subscriptionType, boolean rackAware) {
+        CommonAssignorTests.testAssignmentReuse(rackAware ? rackAwareAssignor : assignor, subscriptionType, rackAware);
     }
 
     @ParameterizedTest
-    @EnumSource(SubscriptionType.class)
-    public void testReassignmentStickiness(SubscriptionType subscriptionType) {
-        CommonAssignorTests.testReassignmentStickiness(assignor, subscriptionType, false);
+    @CsvSource({"HOMOGENEOUS, false", "HOMOGENEOUS, true", "HETEROGENEOUS, false", "HETEROGENEOUS, true"})
+    public void testReassignmentStickiness(SubscriptionType subscriptionType, boolean rackAware) {
+        CommonAssignorTests.testReassignmentStickiness(rackAware ? rackAwareAssignor : assignor, subscriptionType, rackAware);
     }
 
     @Test
-    public void testName() {
+    public void testNameAndConfiguration() {
         assertEquals("uniform2", assignor.name());
+        assertFalse(assignor.rackAwareEnabled());
+        assertTrue(rackAwareAssignor.rackAwareEnabled());
+
+        Uniform2Assignor configured = new Uniform2Assignor();
+        configured.configure(Map.of(Uniform2Assignor.RACK_AWARE_ENABLE_CONFIG, Boolean.TRUE));
+        assertTrue(configured.rackAwareEnabled());
+        configured.configure(Map.of(Uniform2Assignor.RACK_AWARE_ENABLE_CONFIG, Boolean.FALSE));
+        assertFalse(configured.rackAwareEnabled());
+        configured.configure(Map.of(Uniform2Assignor.RACK_AWARE_ENABLE_CONFIG, "true"));
+        assertTrue(configured.rackAwareEnabled());
+        configured.configure(Map.of(Uniform2Assignor.RACK_AWARE_ENABLE_CONFIG, "false"));
+        assertFalse(configured.rackAwareEnabled());
+        configured.configure(Map.of(Uniform2Assignor.RACK_AWARE_ENABLE_CONFIG, " TRUE "));
+        assertTrue(configured.rackAwareEnabled());
+        // An absent key resets the default.
+        configured.configure(Map.of());
+        assertFalse(configured.rackAwareEnabled());
     }
 
     @Test
@@ -356,6 +376,103 @@ public class Uniform2AssignorTest {
     }
 
     @Test
+    public void testRackAwarenessIsIgnoredWhenDisabled() {
+        SubscribedTopicDescriber describer = rackDescriber(6);
+        Map<String, MemberSubscriptionAndAssignmentImpl> racked = new TreeMap<>();
+        Map<String, MemberSubscriptionAndAssignmentImpl> unracked = new TreeMap<>();
+        for (int i = 0; i < 3; i++) {
+            String memberId = "member-" + i;
+            racked.put(memberId, member("rack-" + i, Set.of(TOPIC_1), Assignment.EMPTY));
+            unracked.put(memberId, member(Set.of(TOPIC_1), Assignment.EMPTY));
+        }
+        GroupAssignment withRacks = assignor.assign(new GroupSpecImpl(racked, HOMOGENEOUS, Map.of()), describer);
+        GroupAssignment withoutRacks = assignor.assign(new GroupSpecImpl(unracked, HOMOGENEOUS, Map.of()), describer);
+        assertEquals(withoutRacks, withRacks);
+    }
+
+    @Test
+    public void testRackAwarenessRequiresARackForEveryMember() {
+        SubscribedTopicDescriber describer = rackDescriber(6);
+        Map<String, MemberSubscriptionAndAssignmentImpl> partiallyRacked = new TreeMap<>();
+        Map<String, MemberSubscriptionAndAssignmentImpl> unracked = new TreeMap<>();
+        for (int i = 0; i < 3; i++) {
+            String memberId = "member-" + i;
+            partiallyRacked.put(memberId, member(i == 1 ? null : "rack-" + i, Set.of(TOPIC_1), Assignment.EMPTY));
+            unracked.put(memberId, member(Set.of(TOPIC_1), Assignment.EMPTY));
+        }
+        GroupAssignment partial = rackAwareAssignor.assign(new GroupSpecImpl(partiallyRacked, HOMOGENEOUS, Map.of()), describer);
+        GroupAssignment none = rackAwareAssignor.assign(new GroupSpecImpl(unracked, HOMOGENEOUS, Map.of()), describer);
+        assertEquals(none, partial);
+    }
+
+    @Test
+    public void testRackAwareAssignmentIsFullyAlignedWithTwoReplicasAndThreeRacks() {
+        SubscribedTopicDescriber describer = rackDescriber(6);
+        Map<String, MemberSubscriptionAndAssignmentImpl> members = new TreeMap<>();
+        for (int i = 0; i < 3; i++) {
+            members.put("member-" + i, member("rack-" + i, Set.of(TOPIC_1), Assignment.EMPTY));
+        }
+        GroupAssignment result = rackAwareAssignor.assign(new GroupSpecImpl(members, HOMOGENEOUS, Map.of()), describer);
+
+        for (MemberAssignment memberAssignment : result.members().values()) {
+            assertEquals(2, memberAssignment.partitions().get(TOPIC_1).size());
+        }
+        assertEquals(6, alignedPartitions(members, result, describer));
+    }
+
+    @Test
+    public void testRackAwareAssignmentRealignsAfterReplicasMove() {
+        // Partition i initially has replicas on brokers i and i + 1.
+        SubscribedTopicDescriber before = rackDescriber(3);
+        Map<String, MemberSubscriptionAndAssignmentImpl> members = new TreeMap<>();
+        for (int i = 0; i < 3; i++) {
+            members.put("member-" + i, member("rack-" + i, Set.of(TOPIC_1), Assignment.EMPTY));
+        }
+        GroupAssignment aligned = rackAwareAssignor.assign(new GroupSpecImpl(members, HOMOGENEOUS, Map.of()), before);
+        assertEquals(3, alignedPartitions(members, aligned, before));
+
+        // The replicas of every partition move to the two other brokers.
+        SubscribedTopicDescriber after = new TestMetadataImageBuilder()
+            .addBroker(0, "rack-0").addBroker(1, "rack-1").addBroker(2, "rack-2")
+            .addTopic(TOPIC_1, "topic-1", List.of(List.of(1, 2), List.of(2, 0), List.of(0, 1)))
+            .buildDescriber();
+        Map<String, MemberSubscriptionAndAssignmentImpl> membersWithAssignment = withAssignment(members, aligned);
+        assertEquals(0, alignedPartitions(membersWithAssignment, aligned, after));
+
+        GroupAssignment realigned = rackAwareAssignor.assign(
+            new GroupSpecImpl(membersWithAssignment, HOMOGENEOUS, invertedTargetAssignment(membersWithAssignment)), after);
+        assertEquals(3, alignedPartitions(membersWithAssignment, realigned, after));
+        for (MemberAssignment memberAssignment : realigned.members().values()) {
+            assertEquals(1, memberAssignment.partitions().get(TOPIC_1).size());
+        }
+    }
+
+    @Test
+    public void testRackAwareMemberJoinKeepsFullAlignment() {
+        SubscribedTopicDescriber describer = rackDescriber(12);
+        Map<String, MemberSubscriptionAndAssignmentImpl> members = new TreeMap<>();
+        for (int i = 0; i < 3; i++) {
+            members.put("member-" + i, member("rack-" + i, Set.of(TOPIC_1), Assignment.EMPTY));
+        }
+        GroupAssignment initial = rackAwareAssignor.assign(new GroupSpecImpl(members, HOMOGENEOUS, Map.of()), describer);
+        assertEquals(12, alignedPartitions(members, initial, describer));
+
+        Map<String, MemberSubscriptionAndAssignmentImpl> membersWithAssignment = withAssignment(members, initial);
+        membersWithAssignment.put(MEMBER_D, member("rack-1", Set.of(TOPIC_1), Assignment.EMPTY));
+        GroupAssignment result = rackAwareAssignor.assign(
+            new GroupSpecImpl(membersWithAssignment, HOMOGENEOUS, invertedTargetAssignment(membersWithAssignment)), describer);
+
+        for (MemberAssignment memberAssignment : result.members().values()) {
+            assertEquals(3, memberAssignment.partitions().get(TOPIC_1).size());
+        }
+        assertEquals(12, alignedPartitions(membersWithAssignment, result, describer));
+        // D needs three partitions with a replica in rack-1, which are all owned by member-0
+        // and member-1. Each of them releases one partition, so the third one requires a swap:
+        // member-0 gives a second partition to D and takes the partition released by member-2.
+        assertEquals(4, revocations(membersWithAssignment, result));
+    }
+
+    @Test
     public void testGroupSpecMemberOrderDoesNotMatter() {
         SubscribedTopicDescriber describer = describer(7, 5);
         List<String> ids = List.of("m1", "m2", "m3", "m4");
@@ -523,6 +640,106 @@ public class Uniform2AssignorTest {
     }
 
     @Test
+    public void testMemberChangesRack() {
+        // Six partitions for three members in three racks, fully aligned: 0 and 3 have a replica
+        // in rack-0, 1 and 4 in rack-1, 2 and 5 in rack-2. C moves from rack-2 to rack-1: its
+        // partitions 2 and 5 only have replicas in rack-2 and rack-0, so they are misaligned
+        // and no member of rack-1 is below its allocation. They are swapped with the partitions of
+        // A, the member of rack-0, which have a replica in rack-1: C takes 0 and 3, A takes 2
+        // and 5, and the allocations do not change. B is untouched.
+        SubscribedTopicDescriber describer = rackDescriber(6);
+        Map<String, MemberSubscriptionAndAssignmentImpl> members = new TreeMap<>();
+        members.put(MEMBER_A, member("rack-0", Set.of(TOPIC_1), new Assignment(mkAssignment(mkTopicAssignment(TOPIC_1, 0, 3)))));
+        members.put(MEMBER_B, member("rack-1", Set.of(TOPIC_1), new Assignment(mkAssignment(mkTopicAssignment(TOPIC_1, 1, 4)))));
+        members.put(MEMBER_C, member("rack-1", Set.of(TOPIC_1), new Assignment(mkAssignment(mkTopicAssignment(TOPIC_1, 2, 5)))));
+
+        GroupAssignment result = rackAwareAssignor.assign(spec(members), describer);
+
+        Map<String, Map<Uuid, Set<Integer>>> expected = new HashMap<>();
+        expected.put(MEMBER_A, mkAssignment(mkTopicAssignment(TOPIC_1, 2, 5)));
+        expected.put(MEMBER_B, mkAssignment(mkTopicAssignment(TOPIC_1, 1, 4)));
+        expected.put(MEMBER_C, mkAssignment(mkTopicAssignment(TOPIC_1, 0, 3)));
+        assertAssignment(expected, result);
+        assertEquals(6, alignedPartitions(members, result, describer));
+        assertEquals(4, revocations(members, result));
+        assertSame(members.get(MEMBER_B).partitions(), result.members().get(MEMBER_B).partitions());
+        assertValidAssignment(members, describer, result);
+        assertStable(members, describer, result, rackAwareAssignor);
+    }
+
+    @Test
+    public void testReplicasMoveRealignWithoutChangingAllocations() {
+        // Six partitions for three members in three racks, fully aligned. The replicas of every
+        // partition then move to the two other brokers, so that every partition is misaligned.
+        // Every member keeps an allocation of 2 and gets two aligned partitions instead.
+        SubscribedTopicDescriber before = rackDescriber(6);
+        Map<String, MemberSubscriptionAndAssignmentImpl> members = new TreeMap<>();
+        members.put(MEMBER_A, member("rack-0", Set.of(TOPIC_1), new Assignment(mkAssignment(mkTopicAssignment(TOPIC_1, 0, 3)))));
+        members.put(MEMBER_B, member("rack-1", Set.of(TOPIC_1), new Assignment(mkAssignment(mkTopicAssignment(TOPIC_1, 1, 4)))));
+        members.put(MEMBER_C, member("rack-2", Set.of(TOPIC_1), new Assignment(mkAssignment(mkTopicAssignment(TOPIC_1, 2, 5)))));
+        GroupAssignment unchanged = rackAwareAssignor.assign(spec(members), before);
+        assertEquals(6, alignedPartitions(members, unchanged, before));
+        assertEquals(0, revocations(members, unchanged));
+
+        // Partition i now has replicas on brokers i + 1 and i + 2.
+        TestMetadataImageBuilder builder = new TestMetadataImageBuilder()
+            .addBroker(0, "rack-0").addBroker(1, "rack-1").addBroker(2, "rack-2");
+        List<List<Integer>> replicas = new ArrayList<>();
+        for (int i = 0; i < 6; i++) {
+            replicas.add(List.of((i + 1) % 3, (i + 2) % 3));
+        }
+        SubscribedTopicDescriber after = builder.addTopic(TOPIC_1, "topic-1", replicas).buildDescriber();
+        assertEquals(0, alignedPartitions(members, unchanged, after));
+
+        GroupAssignment result = rackAwareAssignor.assign(spec(members), after);
+
+        for (String memberId : members.keySet()) {
+            assertEquals(2, load(result, memberId), memberId);
+        }
+        assertEquals(6, alignedPartitions(members, result, after));
+        assertEquals(6, revocations(members, result));
+        assertValidAssignment(members, after, result);
+        assertStable(members, after, result, rackAwareAssignor);
+    }
+
+    @Test
+    public void testRackAwarenessFallsBackWithMoreThan64Racks() {
+        // 65 members in 65 distinct racks: rack awareness cannot be used and the result is the
+        // one of the plain algorithm.
+        SubscribedTopicDescriber describer = rackDescriber(130);
+        Map<String, MemberSubscriptionAndAssignmentImpl> members = new TreeMap<>();
+        for (int i = 0; i < 65; i++) {
+            members.put(String.format("member-%02d", i), member("rack-" + i, Set.of(TOPIC_1), Assignment.EMPTY));
+        }
+        GroupAssignment rackAware = rackAwareAssignor.assign(spec(members), describer);
+        GroupAssignment plain = assignor.assign(spec(members), describer);
+        assertEquals(plain, rackAware);
+        for (String memberId : members.keySet()) {
+            assertEquals(2, load(rackAware, memberId), memberId);
+        }
+        assertValidAssignment(members, describer, rackAware);
+    }
+
+    @Test
+    public void testRackAwarenessFallsBackWithASingleRack() {
+        // All members are in rack-0: nothing can be aligned differently, so the misaligned but
+        // settled assignment is returned as is, like the plain algorithm does.
+        SubscribedTopicDescriber describer = rackDescriber(6);
+        Map<String, MemberSubscriptionAndAssignmentImpl> members = new TreeMap<>();
+        members.put(MEMBER_A, member("rack-0", Set.of(TOPIC_1), new Assignment(mkAssignment(mkTopicAssignment(TOPIC_1, 1, 4)))));
+        members.put(MEMBER_B, member("rack-0", Set.of(TOPIC_1), new Assignment(mkAssignment(mkTopicAssignment(TOPIC_1, 2, 5)))));
+        members.put(MEMBER_C, member("rack-0", Set.of(TOPIC_1), new Assignment(mkAssignment(mkTopicAssignment(TOPIC_1, 0, 3)))));
+
+        GroupAssignment rackAware = rackAwareAssignor.assign(spec(members), describer);
+        GroupAssignment plain = assignor.assign(spec(members), describer);
+
+        assertEquals(plain, rackAware);
+        for (String memberId : members.keySet()) {
+            assertSame(members.get(memberId).partitions(), rackAware.members().get(memberId).partitions());
+        }
+    }
+
+    @Test
     public void testFewerPartitionsThanMembers() {
         // One topic with 2 partitions for 4 members: two members get one partition, the others
         // get nothing but are still part of the assignment.
@@ -606,7 +823,7 @@ public class Uniform2AssignorTest {
     }
 
     /**
-     * Topics 1 and 2 with the given partition counts (0 means absent).
+     * Topics 1 and 2 with the given partition counts (0 means absent), without rack info.
      */
     private static SubscribedTopicDescriber describer(int topic1Partitions, int topic2Partitions) {
         TestMetadataImageBuilder builder = new TestMetadataImageBuilder();
@@ -615,4 +832,14 @@ public class Uniform2AssignorTest {
         return builder.buildDescriber();
     }
 
+    /**
+     * Topic 1 with the given number of partitions on 3 brokers in 3 racks with 2 replicas:
+     * partition i has replicas in rack-(i % 3) and rack-((i + 1) % 3).
+     */
+    private static SubscribedTopicDescriber rackDescriber(int partitions) {
+        return new TestMetadataImageBuilder()
+            .addBroker(0, "rack-0").addBroker(1, "rack-1").addBroker(2, "rack-2")
+            .addTopic(TOPIC_1, "topic-1", partitions, 3, 2)
+            .buildDescriber();
+    }
 }
