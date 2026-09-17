@@ -31,7 +31,7 @@ import java.util.Map;
 import java.util.Set;
 import java.util.TreeMap;
 
-import static org.apache.kafka.coordinator.group.assignor.uniform2.TopicIndex.NONE;
+import static org.apache.kafka.coordinator.group.assignor.uniform2.util.UuidIndex.NONE;
 import static org.apache.kafka.coordinator.group.assignor.uniform2.AssignmentTestUtils.member;
 import static org.apache.kafka.coordinator.group.assignor.uniform2.AssignmentTestUtils.spec;
 import static org.junit.jupiter.api.Assertions.assertArrayEquals;

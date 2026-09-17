@@ -14,21 +14,21 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
  */
-package org.apache.kafka.coordinator.group.assignor.uniform2;
+package org.apache.kafka.coordinator.group.assignor.uniform2.util;
 
 import org.apache.kafka.common.Uuid;
 
 import java.util.Arrays;
 
 /**
- * Maps topic ids to dense indices, with open addressing on the two longs of the id. It is much
- * cheaper than a {@code HashMap<Uuid, Integer>} for the many lookups done per member.
+ * The dense indices of a fixed set of {@link Uuid}s, with open addressing on the two longs of an
+ * id. It is much cheaper than a {@code HashMap<Uuid, Integer>} for lookups done in large numbers.
  */
-final class TopicIndex {
+public final class UuidIndex {
     /**
-     * Returned by {@link #indexOf} for an unknown topic.
+     * Returned by {@link #indexOf} for an unknown id.
      */
-    static final int NONE = -1;
+    public static final int NONE = -1;
 
     private final long[] mostSignificantBits;
     private final long[] leastSignificantBits;
@@ -36,34 +36,34 @@ final class TopicIndex {
     private final int mask;
 
     /**
-     * @param topicIds The topics, which get the indices {@code 0} to {@code topicIds.length - 1}.
+     * @param ids The ids, which get the indices {@code 0} to {@code ids.length - 1}.
      */
-    TopicIndex(Uuid[] topicIds) {
-        int capacity = Integer.highestOneBit(Math.max(2, topicIds.length * 2 - 1)) << 1;
+    public UuidIndex(Uuid[] ids) {
+        int capacity = Integer.highestOneBit(Math.max(2, ids.length * 2 - 1)) << 1;
         mostSignificantBits = new long[capacity];
         leastSignificantBits = new long[capacity];
         indices = new int[capacity];
         Arrays.fill(indices, NONE);
         mask = capacity - 1;
-        for (int t = 0; t < topicIds.length; t++) {
-            long msb = topicIds[t].getMostSignificantBits();
-            long lsb = topicIds[t].getLeastSignificantBits();
+        for (int i = 0; i < ids.length; i++) {
+            long msb = ids[i].getMostSignificantBits();
+            long lsb = ids[i].getLeastSignificantBits();
             int slot = slot(msb, lsb);
             while (indices[slot] != NONE) {
                 slot = (slot + 1) & mask;
             }
             mostSignificantBits[slot] = msb;
             leastSignificantBits[slot] = lsb;
-            indices[slot] = t;
+            indices[slot] = i;
         }
     }
 
     /**
-     * @return The index of the topic, or {@link #NONE} if it is unknown.
+     * @return The index of the id, or {@link #NONE} if it is unknown.
      */
-    int indexOf(Uuid topicId) {
-        long msb = topicId.getMostSignificantBits();
-        long lsb = topicId.getLeastSignificantBits();
+    public int indexOf(Uuid id) {
+        long msb = id.getMostSignificantBits();
+        long lsb = id.getLeastSignificantBits();
         int slot = slot(msb, lsb);
         while (true) {
             int index = indices[slot];

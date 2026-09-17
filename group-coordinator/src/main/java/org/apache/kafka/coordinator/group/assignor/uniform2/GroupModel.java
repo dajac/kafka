@@ -22,6 +22,7 @@ import org.apache.kafka.coordinator.group.api.assignor.PartitionAssignorExceptio
 import org.apache.kafka.coordinator.group.api.assignor.SubscribedTopicDescriber;
 import org.apache.kafka.coordinator.group.api.assignor.SubscriptionType;
 import org.apache.kafka.coordinator.group.assignor.uniform2.util.IntArrayList;
+import org.apache.kafka.coordinator.group.assignor.uniform2.util.UuidIndex;
 
 import java.util.ArrayList;
 import java.util.Arrays;
@@ -96,7 +97,7 @@ final class GroupModel {
     /**
      * The index of the topics by id, giving the topic of an entry of a current assignment.
      */
-    private final TopicIndex topicIndex;
+    private final UuidIndex topicIndex;
 
     /**
      * Per topic, its number of partitions: length {@code T}, possibly zero.
@@ -175,7 +176,7 @@ final class GroupModel {
 
         topicIds = subscribedTopicIds(groupSpec);
         topicCount = topicIds.length;
-        topicIndex = new TopicIndex(topicIds);
+        topicIndex = new UuidIndex(topicIds);
         partitionCounts = partitionCounts(describer);
 
         Subscriptions subscriptions = homogeneous ? homogeneousSubscriptions() : heterogeneousSubscriptions(groupSpec);
@@ -245,7 +246,7 @@ final class GroupModel {
     /**
      * @return The index of the topics by id.
      */
-    TopicIndex topicIndex() {
+    UuidIndex topicIndex() {
         return topicIndex;
     }
 
@@ -435,7 +436,7 @@ final class GroupModel {
             buffer.clear();
             for (Uuid topicId : groupSpec.memberSubscription(memberIds[m]).subscribedTopicIds()) {
                 int t = topicIndex.indexOf(topicId);
-                if (t != TopicIndex.NONE) {
+                if (t != UuidIndex.NONE) {
                     buffer.add(t);
                 }
             }
@@ -719,7 +720,7 @@ final class GroupModel {
         for (int m = 0; m < memberCount; m++) {
             for (Map.Entry<Uuid, Set<Integer>> entry : currentAssignments[m].entrySet()) {
                 int t = topicIndex.indexOf(entry.getKey());
-                if (t == TopicIndex.NONE || !isSubscribed(m, t) || entry.getValue().isEmpty()) {
+                if (t == UuidIndex.NONE || !isSubscribed(m, t) || entry.getValue().isEmpty()) {
                     hasStalePartitions[m] = true;
                     continue;
                 }

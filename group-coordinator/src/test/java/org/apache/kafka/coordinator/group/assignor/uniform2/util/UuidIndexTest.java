@@ -14,7 +14,7 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
  */
-package org.apache.kafka.coordinator.group.assignor.uniform2;
+package org.apache.kafka.coordinator.group.assignor.uniform2.util;
 
 import org.apache.kafka.common.Uuid;
 
@@ -22,39 +22,39 @@ import org.junit.jupiter.api.Test;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 
-public class TopicIndexTest {
+public class UuidIndexTest {
     private static final Uuid TOPIC_1 = new Uuid(1L, 1L);
     private static final Uuid TOPIC_2 = new Uuid(1L, 2L);
     private static final Uuid TOPIC_3 = new Uuid(1L, 3L);
 
     @Test
     public void testNoTopics() {
-        TopicIndex index = new TopicIndex(new Uuid[0]);
-        assertEquals(TopicIndex.NONE, index.indexOf(TOPIC_1));
-        assertEquals(TopicIndex.NONE, index.indexOf(Uuid.ZERO_UUID));
+        UuidIndex index = new UuidIndex(new Uuid[0]);
+        assertEquals(UuidIndex.NONE, index.indexOf(TOPIC_1));
+        assertEquals(UuidIndex.NONE, index.indexOf(Uuid.ZERO_UUID));
     }
 
     @Test
     public void testSingleTopic() {
-        TopicIndex index = new TopicIndex(new Uuid[] {TOPIC_1});
+        UuidIndex index = new UuidIndex(new Uuid[] {TOPIC_1});
         assertEquals(0, index.indexOf(TOPIC_1));
-        assertEquals(TopicIndex.NONE, index.indexOf(TOPIC_2));
+        assertEquals(UuidIndex.NONE, index.indexOf(TOPIC_2));
         // Ids sharing one of the two longs with the topic are still unknown.
-        assertEquals(TopicIndex.NONE, index.indexOf(new Uuid(1L, 5L)));
-        assertEquals(TopicIndex.NONE, index.indexOf(new Uuid(5L, 1L)));
+        assertEquals(UuidIndex.NONE, index.indexOf(new Uuid(1L, 5L)));
+        assertEquals(UuidIndex.NONE, index.indexOf(new Uuid(5L, 1L)));
     }
 
     @Test
     public void testTwoTopics() {
-        TopicIndex index = new TopicIndex(new Uuid[] {TOPIC_1, TOPIC_2});
+        UuidIndex index = new UuidIndex(new Uuid[] {TOPIC_1, TOPIC_2});
         assertEquals(0, index.indexOf(TOPIC_1));
         assertEquals(1, index.indexOf(TOPIC_2));
-        assertEquals(TopicIndex.NONE, index.indexOf(TOPIC_3));
+        assertEquals(UuidIndex.NONE, index.indexOf(TOPIC_3));
     }
 
     @Test
     public void testIndexIsThePositionInTheInput() {
-        TopicIndex index = new TopicIndex(new Uuid[] {TOPIC_3, TOPIC_1, TOPIC_2});
+        UuidIndex index = new UuidIndex(new Uuid[] {TOPIC_3, TOPIC_1, TOPIC_2});
         assertEquals(0, index.indexOf(TOPIC_3));
         assertEquals(1, index.indexOf(TOPIC_1));
         assertEquals(2, index.indexOf(TOPIC_2));
@@ -62,7 +62,7 @@ public class TopicIndexTest {
 
     @Test
     public void testLookupWithAnEqualInstance() {
-        TopicIndex index = new TopicIndex(new Uuid[] {TOPIC_1, TOPIC_2});
+        UuidIndex index = new UuidIndex(new Uuid[] {TOPIC_1, TOPIC_2});
         assertEquals(0, index.indexOf(new Uuid(1L, 1L)));
         assertEquals(1, index.indexOf(new Uuid(1L, 2L)));
     }
@@ -73,10 +73,10 @@ public class TopicIndexTest {
         for (int i = 0; i < topics.length; i++) {
             topics[i] = new Uuid(1000L + i, 7L * i);
         }
-        TopicIndex index = new TopicIndex(topics);
+        UuidIndex index = new UuidIndex(topics);
         for (int i = 0; i < topics.length; i++) {
             assertEquals(i, index.indexOf(topics[i]));
-            assertEquals(TopicIndex.NONE, index.indexOf(new Uuid(1000L + i, 7L * i + 1)));
+            assertEquals(UuidIndex.NONE, index.indexOf(new Uuid(1000L + i, 7L * i + 1)));
         }
     }
 
@@ -88,13 +88,13 @@ public class TopicIndexTest {
         for (int i = 0; i < topics.length; i++) {
             topics[i] = new Uuid(i, i ^ 7L);
         }
-        TopicIndex index = new TopicIndex(topics);
+        UuidIndex index = new UuidIndex(topics);
         for (int i = 0; i < topics.length; i++) {
             assertEquals(i, index.indexOf(topics[i]));
         }
         // An unknown id hashing to the same slot probes past every colliding id.
-        assertEquals(TopicIndex.NONE, index.indexOf(new Uuid(100L, 100L ^ 7L)));
-        assertEquals(TopicIndex.NONE, index.indexOf(new Uuid(0L, 1L)));
+        assertEquals(UuidIndex.NONE, index.indexOf(new Uuid(100L, 100L ^ 7L)));
+        assertEquals(UuidIndex.NONE, index.indexOf(new Uuid(0L, 1L)));
     }
 
     @Test
@@ -105,12 +105,12 @@ public class TopicIndexTest {
             topics[100 + i] = new Uuid(i, i ^ 13L);
             topics[200 + i] = new Uuid(500L + i, 31L * i);
         }
-        TopicIndex index = new TopicIndex(topics);
+        UuidIndex index = new UuidIndex(topics);
         for (int i = 0; i < topics.length; i++) {
             assertEquals(i, index.indexOf(topics[i]));
         }
-        assertEquals(TopicIndex.NONE, index.indexOf(new Uuid(100L, 100L ^ 7L)));
-        assertEquals(TopicIndex.NONE, index.indexOf(new Uuid(100L, 100L ^ 13L)));
-        assertEquals(TopicIndex.NONE, index.indexOf(new Uuid(600L, 0L)));
+        assertEquals(UuidIndex.NONE, index.indexOf(new Uuid(100L, 100L ^ 7L)));
+        assertEquals(UuidIndex.NONE, index.indexOf(new Uuid(100L, 100L ^ 13L)));
+        assertEquals(UuidIndex.NONE, index.indexOf(new Uuid(600L, 0L)));
     }
 }
