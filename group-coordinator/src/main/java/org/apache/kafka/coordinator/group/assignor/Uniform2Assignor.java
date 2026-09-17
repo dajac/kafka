@@ -42,6 +42,11 @@ import java.util.Map;
  *
  * The same algorithm is used for homogeneous and heterogeneous subscriptions.
  *
+ * <p>The assignor is not registered as a built-in assignor yet: a coordinator enables it by
+ * naming its class in {@code group.consumer.assignors}. Rack awareness is disabled by default
+ * and enabled with {@link #RACK_AWARE_ENABLE_CONFIG} in the coordinator configuration, which is
+ * passed to {@link #configure}.
+ *
  * @see AssignmentBuilder
  */
 public class Uniform2Assignor implements ConsumerGroupPartitionAssignor, Configurable {
