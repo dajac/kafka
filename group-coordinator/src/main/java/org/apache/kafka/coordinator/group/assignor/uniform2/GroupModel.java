@@ -122,16 +122,9 @@ final class GroupModel {
     private final boolean homogeneous;
 
     /**
-     * Per topic, its subscribers in ascending member order: length {@code T}. Every topic shares
-     * one array of all the members when homogeneous.
+     * The subscriptions, per topic and per member.
      */
-    private final int[][] subscribers;
-
-    /**
-     * Per member, its topics in ascending order: length {@code N}. Every member shares one array
-     * of all the topics when homogeneous.
-     */
-    private final int[][] memberTopics;
+    private final Subscriptions subscriptions;
 
     /**
      * The current owners of the partitions of every topic.
@@ -139,16 +132,9 @@ final class GroupModel {
     private final Owners owners;
 
     /**
-     * Per member, the number of topics of which it currently owns more than the base
-     * partitions: length {@code N}.
+     * Per member, the topics of which it currently owns more than the base partitions.
      */
-    private final int[] backedCounts;
-
-    /**
-     * Per member and topic, whether the member currently owns more than the base partitions of
-     * the topic, indexed by {@link #bitIndex}.
-     */
-    private final long[] backedBits;
+    private final Backed backed;
 
     /**
      * The cohorts: groups of members with the same subscription, and the same rack when racks
@@ -179,13 +165,11 @@ final class GroupModel {
         topicIndex = new UuidIndex(topicIds);
         partitionCounts = partitionCounts(describer);
 
-        Subscriptions subscriptions = homogeneous ? homogeneousSubscriptions() : heterogeneousSubscriptions(groupSpec);
-        subscribers = subscriptions.subscribers;
-        memberTopics = subscriptions.memberTopics;
+        subscriptions = homogeneous ? homogeneousSubscriptions() : heterogeneousSubscriptions(groupSpec);
         basePartitionCount = new int[topicCount];
         extraPartitionCount = new int[topicCount];
         for (int t = 0; t < topicCount; t++) {
-            int subscriberCount = subscribers[t].length;
+            int subscriberCount = subscriptions.subscribers()[t].length;
             basePartitionCount[t] = partitionCounts[t] / subscriberCount;
             extraPartitionCount[t] = partitionCounts[t] % subscriberCount;
         }
@@ -196,9 +180,7 @@ final class GroupModel {
         currentAssignments = (Map<Uuid, Set<Integer>>[]) new Map[memberCount];
         hasStalePartitions = new boolean[memberCount];
         owners = owners(groupSpec);
-        Backed backed = backed();
-        backedCounts = backed.counts;
-        backedBits = backed.bits;
+        backed = backed();
     }
 
     /**
@@ -282,14 +264,14 @@ final class GroupModel {
      * @return Per topic, its subscribers in ascending order.
      */
     int[][] subscribers() {
-        return subscribers;
+        return subscriptions.subscribers();
     }
 
     /**
      * @return Per member, its topics in ascending order.
      */
     int[][] memberTopics() {
-        return memberTopics;
+        return subscriptions.memberTopics();
     }
 
     /**
@@ -326,7 +308,7 @@ final class GroupModel {
      * @return Whether the member is subscribed to the topic.
      */
     boolean isSubscribed(int member, int topic) {
-        return homogeneous || Arrays.binarySearch(memberTopics[member], topic) >= 0;
+        return homogeneous || Arrays.binarySearch(subscriptions.memberTopics()[member], topic) >= 0;
     }
 
     /**
@@ -335,7 +317,7 @@ final class GroupModel {
      */
     boolean isBacked(int member, int topic) {
         int bit = bitIndex(member, topic);
-        return (backedBits[bit >>> 6] & (1L << bit)) != 0;
+        return (backed.bits()[bit >>> 6] & (1L << bit)) != 0;
     }
 
     /**
@@ -343,7 +325,7 @@ final class GroupModel {
      *         partitions.
      */
     int backedCount(int member) {
-        return backedCounts[member];
+        return backed.counts()[member];
     }
 
     /**
@@ -468,6 +450,14 @@ final class GroupModel {
         return subscribers;
     }
 
+    /**
+     * The subscriptions, both ways.
+     *
+     * @param subscribers   Per topic, its subscribers in ascending member order: length {@code T}.
+     *                      Every topic shares one array of all the members when homogeneous.
+     * @param memberTopics  Per member, its topics in ascending order: length {@code N}. Every
+     *                      member shares one array of all the topics when homogeneous.
+     */
     private record Subscriptions(int[][] subscribers, int[][] memberTopics) { }
 
     /**
@@ -552,6 +542,13 @@ final class GroupModel {
         return new Cohorts(count, groups.memberCohort(), groups.rack(), baseLoad, size, groups.topics(), topicCohortStart, topicCohorts, rackSubscribers);
     }
 
+    /**
+     * The topics of which the members currently own more than the base partitions.
+     *
+     * @param counts    Per member, the number of such topics: length {@code N}.
+     * @param bits      Per member and topic, whether the member owns more than the base
+     *                  partitions of the topic, indexed by {@link #bitIndex}.
+     */
     private record Backed(int[] counts, long[] bits) { }
 
     /**
@@ -645,7 +642,7 @@ final class GroupModel {
         int[] memberCohort = new int[memberCount];
         int[] rack = new int[count];
         int[][] topics = new int[count][];
-        int[] allTopics = memberTopics[0];
+        int[] allTopics = subscriptions.memberTopics()[0];
         for (int c = 0; c < count; c++) {
             rack[c] = c;
             topics[c] = allTopics;
@@ -664,12 +661,12 @@ final class GroupModel {
         int[] memberCohort = new int[memberCount];
         for (int m = 0; m < memberCount; m++) {
             int rack = usesRacks ? racks.memberRack()[m] : 0;
-            CohortKey key = new CohortKey(memberTopics[m], rack);
+            CohortKey key = new CohortKey(subscriptions.memberTopics()[m], rack);
             Integer c = cohortIndex.get(key);
             if (c == null) {
                 c = cohortIndex.size();
                 cohortIndex.put(key, c);
-                topics.add(memberTopics[m]);
+                topics.add(subscriptions.memberTopics()[m]);
                 cohortRacks.add(rack);
             }
             memberCohort[m] = c;
