@@ -249,35 +249,19 @@ public final class AssignmentBuilder {
     private final GroupSpec groupSpec;
     private final SubscribedTopicDescriber subscribedTopicDescriber;
     private final boolean rackAwareEnabled;
-    private final long maxBitsetBits;
 
     public AssignmentBuilder(
         GroupSpec groupSpec,
         SubscribedTopicDescriber subscribedTopicDescriber,
         boolean rackAwareEnabled
     ) {
-        this(groupSpec, subscribedTopicDescriber, rackAwareEnabled, GroupModel.MAX_BITSET_BITS);
-    }
-
-    /**
-     * @param maxBitsetBits The largest number of members times topics for which the model uses
-     *                      bitsets, see {@link GroupModel#MAX_BITSET_BITS}. Tests pass
-     *                      other values to force either representation.
-     */
-    public AssignmentBuilder(
-        GroupSpec groupSpec,
-        SubscribedTopicDescriber subscribedTopicDescriber,
-        boolean rackAwareEnabled,
-        long maxBitsetBits
-    ) {
         this.groupSpec = groupSpec;
         this.subscribedTopicDescriber = subscribedTopicDescriber;
         this.rackAwareEnabled = rackAwareEnabled;
-        this.maxBitsetBits = maxBitsetBits;
     }
 
     public GroupAssignment build() {
-        GroupModel model = new GroupModel(groupSpec, subscribedTopicDescriber, rackAwareEnabled, maxBitsetBits);
+        GroupModel model = new GroupModel(groupSpec, subscribedTopicDescriber, rackAwareEnabled);
         if (model.topicCount == 0) {
             return new GroupAssignment(Map.of());
         }

@@ -47,19 +47,6 @@ final class GroupModel {
     /** Rack awareness handles at most this many racks, one bit per rack in a long. */
     static final int MAX_RACKS = 64;
 
-    /**
-     * The largest number of members times topics for which the relations between members and
-     * topics that the phases look up constantly are kept as bitsets, see {@link #isBacked} and
-     * {@link ExtraPartitions#has}: 4 million bits, 512 KB per bitset. Below it, a bitset
-     * is cheap to allocate and clear for every assignment and answers in constant time, where a
-     * binary search in the sorted topics of a member costs a dozen comparisons in a group with
-     * many topics. Above it, the bitsets would weigh on every assignment while buying little:
-     * such a group has many members, so each of them has few extra partitions and a short
-     * search, and with 10,000 members and 10,000 topics each bitset would take 12.5 MB, where
-     * the sorted arrays only hold the pairs actually related.
-     */
-    static final long MAX_BITSET_BITS = 1L << 22;
-
     /** The number of members. */
     final int memberCount;
     /** The member ids, sorted. */
@@ -84,8 +71,6 @@ final class GroupModel {
     final int[] basePartitionCount;
     /** Per topic, the number of extra partitions, each going to a distinct subscriber. */
     final int[] extraPartitionCount;
-    /** Whether the group is small enough for bitsets over its topics and members, see {@link #MAX_BITSET_BITS}. */
-    final boolean usesBitsets;
 
     /** Whether all members have the same subscription. */
     final boolean homogeneous;
@@ -105,13 +90,11 @@ final class GroupModel {
      * partition count of the topic. The others are dropped.
      */
     final int[] holderValidCount;
-    /** Per member, the compressed row of its backed topics in {@link #backedTopics}. */
-    final int[] backedStart;
-    /** Per member, the topics of which it currently holds more than the base partitions, ascending. */
-    final int[] backedTopics;
+    /** Per member, the number of topics of which it currently holds more than the base partitions. */
+    private final int[] backedCounts;
     /**
      * Per member and topic, whether the member currently holds more than the base partitions of
-     * the topic, indexed by {@link #bitIndex}, or null when the group is too large for a bitset.
+     * the topic, indexed by {@link #bitIndex}.
      */
     private final long[] backedBits;
 
@@ -145,25 +128,11 @@ final class GroupModel {
     /** Per topic and rack, the number of subscribers of the topic in the rack, when in use. */
     final int[][] rackSubscribers;
 
-    GroupModel(
-        GroupSpec groupSpec,
-        SubscribedTopicDescriber describer,
-        boolean rackAwareEnabled
-    ) {
-        this(groupSpec, describer, rackAwareEnabled, MAX_BITSET_BITS);
-    }
-
-    /**
-     * @param maxBitsetBits The largest number of members times topics for which bitsets are used,
-     *                      {@link #MAX_BITSET_BITS} in production. Tests pass other values to
-     *                      exercise both representations on the same group.
-     */
     @SuppressWarnings({"unchecked", "rawtypes"})
     GroupModel(
         GroupSpec groupSpec,
         SubscribedTopicDescriber describer,
-        boolean rackAwareEnabled,
-        long maxBitsetBits
+        boolean rackAwareEnabled
     ) {
         homogeneous = groupSpec.subscriptionType() == SubscriptionType.HOMOGENEOUS;
 
@@ -175,7 +144,6 @@ final class GroupModel {
         topicCount = topicIds.length;
         topicIndex = new TopicIndex(topicIds);
         partitionCounts = partitionCounts(describer);
-        usesBitsets = (long) memberCount * topicCount <= maxBitsetBits;
 
         Subscriptions subscriptions = homogeneous ? homogeneousSubscriptions() : heterogeneousSubscriptions(groupSpec);
         subscribers = subscriptions.subscribers;
@@ -215,8 +183,7 @@ final class GroupModel {
         holderPartitions = holders.partitions;
         holderValidCount = holders.validCount;
         Backed backed = backed();
-        backedStart = backed.start;
-        backedTopics = backed.topics;
+        backedCounts = backed.counts;
         backedBits = backed.bits;
     }
 
@@ -232,23 +199,21 @@ final class GroupModel {
      *         partitions, so that an extra partition of the topic lets it keep one of them.
      */
     boolean isBacked(int member, int topic) {
-        if (backedBits != null) {
-            int bit = bitIndex(member, topic);
-            return (backedBits[bit >>> 6] & (1L << bit)) != 0;
-        }
-        return Arrays.binarySearch(backedTopics, backedStart[member], backedStart[member + 1], topic) >= 0;
+        int bit = bitIndex(member, topic);
+        return (backedBits[bit >>> 6] & (1L << bit)) != 0;
     }
 
     /**
      * @return The number of topics of which the member currently holds more than the base partitions.
      */
     int backedCount(int member) {
-        return backedStart[member + 1] - backedStart[member];
+        return backedCounts[member];
     }
 
     /**
-     * @return A cleared bitset with one bit per topic and member, indexed by {@link #bitIndex}.
-     *         Only for groups small enough for one, see {@link #MAX_BITSET_BITS}.
+     * @return A cleared bitset with one bit per topic and member, indexed by {@link #bitIndex}:
+     *         a word per 64 pairs, so 12.5 MB for 10,000 members subscribed to 10,000 topics,
+     *         and a few kilobytes for the groups commonly seen.
      */
     long[] newBitset() {
         return new long[(int) (((long) memberCount * topicCount + 63) >>> 6)];
@@ -427,40 +392,26 @@ final class GroupModel {
         return new CohortIndex(baseLoad, size, topicCohortStart, topicCohorts, rackSubscribers);
     }
 
-    private record Backed(int[] start, int[] topics, long[] bits) { }
+    private record Backed(int[] counts, long[] bits) { }
 
     /**
-     * Indexes, per member, the topics of which it holds more than the base partitions, and sets
-     * their bits when the group uses bitsets.
+     * Counts, per member, the topics of which it holds more than the base partitions, and sets
+     * their bits.
      */
     private Backed backed() {
-        int[] start = new int[memberCount + 1];
-        for (int t = 0; t < topicCount; t++) {
-            for (int i = holderStart[t]; i < holderStart[t + 1]; i++) {
-                if (holderValidCount[i] > basePartitionCount[t]) {
-                    start[holderMember[i] + 1]++;
-                }
-            }
-        }
-        for (int m = 0; m < memberCount; m++) {
-            start[m + 1] += start[m];
-        }
-        int[] topics = new int[start[memberCount]];
-        long[] bits = usesBitsets ? newBitset() : null;
-        int[] fill = Arrays.copyOf(start, memberCount);
+        int[] counts = new int[memberCount];
+        long[] bits = newBitset();
         for (int t = 0; t < topicCount; t++) {
             for (int i = holderStart[t]; i < holderStart[t + 1]; i++) {
                 if (holderValidCount[i] > basePartitionCount[t]) {
                     int m = holderMember[i];
-                    topics[fill[m]++] = t;
-                    if (bits != null) {
-                        int bit = bitIndex(m, t);
-                        bits[bit >>> 6] |= 1L << bit;
-                    }
+                    counts[m]++;
+                    int bit = bitIndex(m, t);
+                    bits[bit >>> 6] |= 1L << bit;
                 }
             }
         }
-        return new Backed(start, topics, bits);
+        return new Backed(counts, bits);
     }
 
     private record Racks(int count, int[] memberRack, long[][] partitionRacks, int[][] supply) {

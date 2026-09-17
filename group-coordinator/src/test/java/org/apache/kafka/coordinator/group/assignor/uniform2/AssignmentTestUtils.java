@@ -65,14 +65,6 @@ public final class AssignmentTestUtils {
     }
 
     /**
-     * @return The bitset threshold making a {@link GroupModel} use bitsets, or not, whatever
-     *         the size of the group, see {@link GroupModel#MAX_BITSET_BITS}.
-     */
-    public static long maxBitsetBits(boolean bitsets) {
-        return bitsets ? Long.MAX_VALUE : 0;
-    }
-
-    /**
      * @return A group spec for the members, with the subscription type derived from their
      *         subscriptions and the inverted target assignment derived from their partitions.
      */

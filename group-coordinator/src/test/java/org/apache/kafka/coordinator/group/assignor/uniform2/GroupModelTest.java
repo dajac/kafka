@@ -23,8 +23,6 @@ import org.apache.kafka.coordinator.group.modern.Assignment;
 import org.apache.kafka.coordinator.group.modern.MemberSubscriptionAndAssignmentImpl;
 
 import org.junit.jupiter.api.Test;
-import org.junit.jupiter.params.ParameterizedTest;
-import org.junit.jupiter.params.provider.ValueSource;
 
 import java.util.HashSet;
 import java.util.LinkedHashMap;
@@ -34,7 +32,6 @@ import java.util.Set;
 import java.util.TreeMap;
 
 import static org.apache.kafka.coordinator.group.assignor.uniform2.TopicIndex.NONE;
-import static org.apache.kafka.coordinator.group.assignor.uniform2.AssignmentTestUtils.maxBitsetBits;
 import static org.apache.kafka.coordinator.group.assignor.uniform2.AssignmentTestUtils.member;
 import static org.apache.kafka.coordinator.group.assignor.uniform2.AssignmentTestUtils.spec;
 import static org.junit.jupiter.api.Assertions.assertArrayEquals;
@@ -241,9 +238,8 @@ public class GroupModelTest {
         }
     }
 
-    @ParameterizedTest(name = "bitsets={0}")
-    @ValueSource(booleans = {false, true})
-    public void testBackedTopics(boolean bitsets) {
+    @Test
+    public void testBackedTopics() {
         // With four members, T1 has 5 / 4 = 1 base partition, T2 has 4 / 4 = 1 and T3 has 1 / 4 = 0.
         Map<String, MemberSubscriptionAndAssignmentImpl> members = new TreeMap<>();
         // A holds more than the base partitions of both T1 and T2.
@@ -254,8 +250,7 @@ public class GroupModelTest {
         members.put("C", member(Set.of(T1, T2, T3), new Assignment(Map.of(T3, Set.of(0)))));
         members.put("D", member(Set.of(T1, T2, T3), Assignment.EMPTY));
 
-        GroupModel model = new GroupModel(spec(members), describer(5, 4, 1), false, maxBitsetBits(bitsets));
-        assertEquals(bitsets, model.usesBitsets);
+        GroupModel model = new GroupModel(spec(members), describer(5, 4, 1), false);
 
         assertTrue(model.isBacked(0, 0));
         assertTrue(model.isBacked(0, 1));
@@ -273,13 +268,10 @@ public class GroupModelTest {
         assertEquals(1, model.backedCount(1));
         assertEquals(1, model.backedCount(2));
         assertEquals(0, model.backedCount(3));
-        assertArrayEquals(new int[]{0, 2, 3, 4, 4}, model.backedStart);
-        assertArrayEquals(new int[]{0, 1, 1, 2}, model.backedTopics);
     }
 
-    @ParameterizedTest(name = "bitsets={0}")
-    @ValueSource(booleans = {false, true})
-    public void testBackedTopicsBeyondOneWordOfTheBitset(boolean bitsets) {
+    @Test
+    public void testBackedTopicsBeyondOneWordOfTheBitset() {
         // Thirty topics with 4 partitions each for three members: base 1, so a member holding two
         // partitions of a topic is backed for it. The 90 member and topic pairs are more than a
         // word of the bitset holds: with the topic first and three members, topic 21 of A is pair
@@ -297,8 +289,7 @@ public class GroupModelTest {
         members.put("B", member(topics, new Assignment(Map.of(topicIds[20], Set.of(0, 1), topicIds[21], Set.of(2, 3)))));
         // C holds a single partition of topic 22, its base, so it is only backed for topic 29.
         members.put("C", member(topics, new Assignment(Map.of(topicIds[22], Set.of(0), topicIds[29], Set.of(0, 1)))));
-        GroupModel model = new GroupModel(spec(members), builder.buildDescriber(), false, maxBitsetBits(bitsets));
-        assertEquals(bitsets, model.usesBitsets);
+        GroupModel model = new GroupModel(spec(members), builder.buildDescriber(), false);
         assertEquals(30, model.topicCount);
 
         Set<Integer> backed = Set.of(0, 21, 100 + 20, 100 + 21, 200 + 29);
@@ -307,21 +298,9 @@ public class GroupModelTest {
                 assertEquals(backed.contains(m * 100 + t), model.isBacked(m, t), "member " + m + " topic " + t);
             }
         }
-        assertArrayEquals(new int[] {0, 2, 4, 5}, model.backedStart);
-        assertArrayEquals(new int[] {0, 21, 20, 21, 29}, model.backedTopics);
-    }
-
-    @Test
-    public void testBitsetsAreUsedUpToTheThreshold() {
-        // Two members and three topics: six member and topic pairs.
-        Map<String, MemberSubscriptionAndAssignmentImpl> members = new TreeMap<>();
-        members.put("A", member(Set.of(T1, T2, T3), Assignment.EMPTY));
-        members.put("B", member(Set.of(T1, T2, T3), Assignment.EMPTY));
-        SubscribedTopicDescriber describer = describer(1, 1, 1);
-
-        assertTrue(model(members, describer, false).usesBitsets);
-        assertTrue(new GroupModel(spec(members), describer, false, 6).usesBitsets);
-        assertFalse(new GroupModel(spec(members), describer, false, 5).usesBitsets);
+        assertEquals(2, model.backedCount(0));
+        assertEquals(2, model.backedCount(1));
+        assertEquals(1, model.backedCount(2));
     }
 
     @Test
@@ -466,6 +445,7 @@ public class GroupModelTest {
         assertFalse(model.isBacked(0, 0));
         assertEquals(0, model.backedCount(0));
         assertFalse(model.hasDroppedPartitions[0]);
-        assertArrayEquals(new int[]{0, 0, 0, 0}, model.backedStart);
+        assertEquals(0, model.backedCount(1));
+        assertEquals(0, model.backedCount(2));
     }
 }

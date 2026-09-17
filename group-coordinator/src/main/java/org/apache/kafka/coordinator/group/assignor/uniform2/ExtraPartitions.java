@@ -23,9 +23,8 @@ import java.util.Arrays;
  *
  * <p>The relation is kept both per topic, the recipients of its extra partitions, and per member,
  * the topics of which it gets an extra partition in ascending order. Whether a member gets an
- * extra partition of a topic is answered by a bitset over the members and topics when the group
- * is small enough for one, see {@link GroupModel#MAX_BITSET_BITS}, and by a binary
- * search in the topics of the member otherwise. The per member count of free extra partitions,
+ * extra partition of a topic is answered by a bitset over the members and topics, see
+ * {@link GroupModel#newBitset}. The per member count of free extra partitions,
  * those not backed by a current partition, is maintained too. When racks are in use, the number
  * of extra partitions per topic and rack is also maintained.
  */
@@ -47,7 +46,7 @@ final class ExtraPartitions {
     private final int[][] countPerRack;
     /**
      * Per member and topic, whether the member gets an extra partition of the topic, indexed by
-     * {@link GroupModel#bitIndex}, or null when the group is too large for a bitset.
+     * {@link GroupModel#bitIndex}.
      */
     private final long[] bits;
 
@@ -63,19 +62,15 @@ final class ExtraPartitions {
         countPerMember = new int[model.memberCount];
         freeCountPerMember = new int[model.memberCount];
         countPerRack = model.usesRacks ? new int[model.topicCount][model.rackCount] : null;
-        bits = model.usesBitsets ? model.newBitset() : null;
+        bits = model.newBitset();
     }
 
     /**
      * @return Whether the member gets an extra partition of the topic.
      */
     boolean has(int member, int topic) {
-        if (bits != null) {
-            int bit = model.bitIndex(member, topic);
-            return (bits[bit >>> 6] & (1L << bit)) != 0;
-        }
-        return countPerMember[member] > 0
-            && Arrays.binarySearch(topicsPerMember[member], 0, countPerMember[member], topic) >= 0;
+        int bit = model.bitIndex(member, topic);
+        return (bits[bit >>> 6] & (1L << bit)) != 0;
     }
 
     /**
@@ -115,10 +110,8 @@ final class ExtraPartitions {
         }
         System.arraycopy(topics, at, topics, at + 1, count - at);
         topics[at] = topic;
-        if (bits != null) {
-            int bit = model.bitIndex(member, topic);
-            bits[bit >>> 6] |= 1L << bit;
-        }
+        int bit = model.bitIndex(member, topic);
+        bits[bit >>> 6] |= 1L << bit;
         if (countPerRack != null) {
             countPerRack[topic][model.memberRack[member]]++;
         }
@@ -142,10 +135,8 @@ final class ExtraPartitions {
         int at = Arrays.binarySearch(topics, 0, count, topic);
         System.arraycopy(topics, at + 1, topics, at, count - at - 1);
         countPerMember[member]--;
-        if (bits != null) {
-            int bit = model.bitIndex(member, topic);
-            bits[bit >>> 6] &= ~(1L << bit);
-        }
+        int bit = model.bitIndex(member, topic);
+        bits[bit >>> 6] &= ~(1L << bit);
         if (!model.isBacked(member, topic)) {
             freeCountPerMember[member]--;
         }

@@ -22,8 +22,6 @@ import org.apache.kafka.coordinator.group.modern.Assignment;
 import org.apache.kafka.coordinator.group.modern.MemberSubscriptionAndAssignmentImpl;
 
 import org.junit.jupiter.api.Test;
-import org.junit.jupiter.params.ParameterizedTest;
-import org.junit.jupiter.params.provider.ValueSource;
 
 import java.util.Arrays;
 import java.util.HashSet;
@@ -33,7 +31,6 @@ import java.util.TreeMap;
 
 import static org.apache.kafka.coordinator.group.AssignmentTestUtil.mkAssignment;
 import static org.apache.kafka.coordinator.group.AssignmentTestUtil.mkTopicAssignment;
-import static org.apache.kafka.coordinator.group.assignor.uniform2.AssignmentTestUtils.maxBitsetBits;
 import static org.apache.kafka.coordinator.group.assignor.uniform2.AssignmentTestUtils.member;
 import static org.apache.kafka.coordinator.group.assignor.uniform2.AssignmentTestUtils.spec;
 import static org.junit.jupiter.api.Assertions.assertArrayEquals;
@@ -67,35 +64,31 @@ public class ExtraPartitionsTest {
     }
 
     /**
-     * @param bitsets Whether the model uses bitsets, see {@link GroupModel#MAX_BITSET_BITS}.
      * @return Members A, B and C without current partitions, subscribed to topic 1 with 5
      *         partitions, topic 2 with 4 and topic 3 with 8: bases 1, 1 and 2 and extra
      *         partitions 2, 1 and 2.
      */
-    private static GroupModel model(boolean bitsets) {
+    private static GroupModel model() {
         SubscribedTopicDescriber describer = new TestMetadataImageBuilder()
             .addTopic(TOPIC_1, "topic-1", 5, 4, 2)
             .addTopic(TOPIC_2, "topic-2", 4, 4, 2)
             .addTopic(TOPIC_3, "topic-3", 8, 4, 2)
             .buildDescriber();
-        return new GroupModel(spec(members(3, Set.of(TOPIC_1, TOPIC_2, TOPIC_3))), describer, false, maxBitsetBits(bitsets));
+        return new GroupModel(spec(members(3, Set.of(TOPIC_1, TOPIC_2, TOPIC_3))), describer, false);
     }
 
     @Test
     public void testModelOfTheTests() {
-        GroupModel model = model(true);
-        assertTrue(model.usesBitsets);
-        assertFalse(model(false).usesBitsets);
+        GroupModel model = model();
         assertEquals(3, model.memberCount);
         assertEquals(3, model.topicCount);
         assertArrayEquals(new int[] {1, 1, 2}, model.basePartitionCount);
         assertArrayEquals(new int[] {2, 1, 2}, model.extraPartitionCount);
     }
 
-    @ParameterizedTest(name = "bitset={0}")
-    @ValueSource(booleans = {false, true})
-    public void testNothingIsAssignedInitially(boolean bitset) {
-        GroupModel model = model(bitset);
+    @Test
+    public void testNothingIsAssignedInitially() {
+        GroupModel model = model();
         ExtraPartitions extras = new ExtraPartitions(model);
         for (int t = 0; t < model.topicCount; t++) {
             assertEquals(0, extras.recipientCount(t));
@@ -110,10 +103,9 @@ public class ExtraPartitionsTest {
         }
     }
 
-    @ParameterizedTest(name = "bitset={0}")
-    @ValueSource(booleans = {false, true})
-    public void testAddGivesAnExtraPartitionToTheMember(boolean bitset) {
-        ExtraPartitions extras = new ExtraPartitions(model(bitset));
+    @Test
+    public void testAddGivesAnExtraPartitionToTheMember() {
+        ExtraPartitions extras = new ExtraPartitions(model());
         extras.add(A, T1);
 
         assertTrue(extras.has(A, T1));
@@ -132,10 +124,9 @@ public class ExtraPartitionsTest {
         assertEquals(0, extras.freeCountOf(B));
     }
 
-    @ParameterizedTest(name = "bitset={0}")
-    @ValueSource(booleans = {false, true})
-    public void testSeveralMembersCanHoldExtraPartitionsOfTheSameTopic(boolean bitset) {
-        ExtraPartitions extras = new ExtraPartitions(model(bitset));
+    @Test
+    public void testSeveralMembersCanHoldExtraPartitionsOfTheSameTopic() {
+        ExtraPartitions extras = new ExtraPartitions(model());
         extras.add(C, T1);
         extras.add(A, T1);
 
@@ -152,10 +143,9 @@ public class ExtraPartitionsTest {
         assertEquals(2, extras.quota(C, T1));
     }
 
-    @ParameterizedTest(name = "bitset={0}")
-    @ValueSource(booleans = {false, true})
-    public void testSortRecipientsOrdersThemByMember(boolean bitset) {
-        ExtraPartitions extras = new ExtraPartitions(model(bitset));
+    @Test
+    public void testSortRecipientsOrdersThemByMember() {
+        ExtraPartitions extras = new ExtraPartitions(model());
         extras.add(C, T3);
         extras.add(A, T3);
         extras.sortRecipients(T3);
@@ -164,10 +154,9 @@ public class ExtraPartitionsTest {
         assertEquals(C, extras.recipientAt(T3, 1));
     }
 
-    @ParameterizedTest(name = "bitset={0}")
-    @ValueSource(booleans = {false, true})
-    public void testRemoveTakesTheExtraPartitionBack(boolean bitset) {
-        ExtraPartitions extras = new ExtraPartitions(model(bitset));
+    @Test
+    public void testRemoveTakesTheExtraPartitionBack() {
+        ExtraPartitions extras = new ExtraPartitions(model());
         extras.add(A, T1);
         extras.add(B, T1);
         extras.remove(A, T1);
@@ -196,14 +185,13 @@ public class ExtraPartitionsTest {
         assertTopics(extras, C, T1);
     }
 
-    @ParameterizedTest(name = "bitset={0}")
-    @ValueSource(booleans = {false, true})
-    public void testRemoveARecipientFromTheMiddle(boolean bitset) {
+    @Test
+    public void testRemoveARecipientFromTheMiddle() {
         // Four members and topic 1 with 7 partitions: base 1 and three extra partitions.
         SubscribedTopicDescriber describer = new TestMetadataImageBuilder()
             .addTopic(TOPIC_1, "topic-1", 7, 4, 2)
             .buildDescriber();
-        GroupModel model = new GroupModel(spec(members(4, Set.of(TOPIC_1))), describer, false, maxBitsetBits(bitset));
+        GroupModel model = new GroupModel(spec(members(4, Set.of(TOPIC_1))), describer, false);
         assertArrayEquals(new int[] {3}, model.extraPartitionCount);
 
         ExtraPartitions extras = new ExtraPartitions(model);
@@ -225,10 +213,9 @@ public class ExtraPartitionsTest {
         assertEquals(D, extras.recipientAt(T1, 2));
     }
 
-    @ParameterizedTest(name = "bitset={0}")
-    @ValueSource(booleans = {false, true})
-    public void testTopicsOfStaysSortedWhenTopicsAreAddedOutOfOrder(boolean bitset) {
-        ExtraPartitions extras = new ExtraPartitions(model(bitset));
+    @Test
+    public void testTopicsOfStaysSortedWhenTopicsAreAddedOutOfOrder() {
+        ExtraPartitions extras = new ExtraPartitions(model());
         extras.add(A, T3);
         assertTopics(extras, A, T3);
         extras.add(A, T1);
@@ -246,10 +233,9 @@ public class ExtraPartitionsTest {
         assertTopics(extras, B);
     }
 
-    @ParameterizedTest(name = "bitset={0}")
-    @ValueSource(booleans = {false, true})
-    public void testRemoveFromTheMiddleOfTheTopics(boolean bitset) {
-        ExtraPartitions extras = new ExtraPartitions(model(bitset));
+    @Test
+    public void testRemoveFromTheMiddleOfTheTopics() {
+        ExtraPartitions extras = new ExtraPartitions(model());
         extras.add(A, T1);
         extras.add(A, T2);
         extras.add(A, T3);
@@ -279,9 +265,8 @@ public class ExtraPartitionsTest {
         }
     }
 
-    @ParameterizedTest(name = "bitset={0}")
-    @ValueSource(booleans = {false, true})
-    public void testMemberTopicsGrowBeyondTheInitialCapacity(boolean bitset) {
+    @Test
+    public void testMemberTopicsGrowBeyondTheInitialCapacity() {
         // Six topics with 3 partitions each for two members: base 1 and one extra partition each.
         TestMetadataImageBuilder builder = new TestMetadataImageBuilder();
         Set<Uuid> topics = new HashSet<>();
@@ -290,7 +275,7 @@ public class ExtraPartitionsTest {
             builder.addTopic(topicId, "topic-" + t, 3, 4, 2);
             topics.add(topicId);
         }
-        GroupModel model = new GroupModel(spec(members(2, topics)), builder.buildDescriber(), false, maxBitsetBits(bitset));
+        GroupModel model = new GroupModel(spec(members(2, topics)), builder.buildDescriber(), false);
         assertArrayEquals(new int[] {1, 1, 1, 1, 1, 1}, model.extraPartitionCount);
 
         ExtraPartitions extras = new ExtraPartitions(model);
@@ -310,9 +295,8 @@ public class ExtraPartitionsTest {
         assertEquals(6, extras.freeCountOf(A));
     }
 
-    @ParameterizedTest(name = "bitset={0}")
-    @ValueSource(booleans = {false, true})
-    public void testFreeCountOnlyCountsExtraPartitionsWithoutABackingCurrentPartition(boolean bitset) {
+    @Test
+    public void testFreeCountOnlyCountsExtraPartitionsWithoutABackingCurrentPartition() {
         // Topic 1 with 5 partitions and topic 2 with 4 for three members: base 1 for both. A
         // holds three partitions of topic 1, more than the base, so an extra partition of topic
         // 1 is backed for A. B holds two partitions of topic 2, so an extra partition of topic 2
@@ -328,7 +312,7 @@ public class ExtraPartitionsTest {
             mkTopicAssignment(TOPIC_1, 3), mkTopicAssignment(TOPIC_2, 0, 1)))));
         members.put("C", member(Set.of(TOPIC_1, TOPIC_2), new Assignment(mkAssignment(
             mkTopicAssignment(TOPIC_1, 4), mkTopicAssignment(TOPIC_2, 2)))));
-        GroupModel model = new GroupModel(spec(members), describer, false, maxBitsetBits(bitset));
+        GroupModel model = new GroupModel(spec(members), describer, false);
         assertArrayEquals(new int[] {1, 1}, model.basePartitionCount);
         assertArrayEquals(new int[] {2, 1}, model.extraPartitionCount);
         assertTrue(model.isBacked(A, T1));
@@ -380,10 +364,9 @@ public class ExtraPartitionsTest {
         assertEquals(C, extras.recipientAt(T1, 0));
     }
 
-    @ParameterizedTest(name = "bitset={0}")
-    @ValueSource(booleans = {false, true})
-    public void testQuotaIsTheBasePlusOneWithAnExtraPartition(boolean bitset) {
-        ExtraPartitions extras = new ExtraPartitions(model(bitset));
+    @Test
+    public void testQuotaIsTheBasePlusOneWithAnExtraPartition() {
+        ExtraPartitions extras = new ExtraPartitions(model());
         assertEquals(1, extras.quota(A, T1));
         assertEquals(2, extras.quota(A, T3));
 
@@ -399,9 +382,8 @@ public class ExtraPartitionsTest {
         assertEquals(2, extras.quota(A, T3));
     }
 
-    @ParameterizedTest(name = "bitset={0}")
-    @ValueSource(booleans = {false, true})
-    public void testCountInRack(boolean bitset) {
+    @Test
+    public void testCountInRack() {
         // Members A and C in rack 0 and B in rack 1, topic 1 with 5 partitions and topic 2 with
         // 4: two and one extra partitions.
         SubscribedTopicDescriber describer = new TestMetadataImageBuilder()
@@ -414,7 +396,7 @@ public class ExtraPartitionsTest {
         members.put("A", member("rack-0", Set.of(TOPIC_1, TOPIC_2), Assignment.EMPTY));
         members.put("B", member("rack-1", Set.of(TOPIC_1, TOPIC_2), Assignment.EMPTY));
         members.put("C", member("rack-0", Set.of(TOPIC_1, TOPIC_2), Assignment.EMPTY));
-        GroupModel model = new GroupModel(spec(members), describer, true, maxBitsetBits(bitset));
+        GroupModel model = new GroupModel(spec(members), describer, true);
         assertTrue(model.usesRacks);
         assertEquals(2, model.rackCount);
         assertArrayEquals(new int[] {0, 1, 0}, model.memberRack);
@@ -446,10 +428,9 @@ public class ExtraPartitionsTest {
         assertEquals(2, extras.recipientCount(T1));
     }
 
-    @ParameterizedTest(name = "bitset={0}")
-    @ValueSource(booleans = {false, true})
-    public void testAddRejectsMoreRecipientsThanExtraPartitions(boolean bitset) {
-        ExtraPartitions extras = new ExtraPartitions(model(bitset));
+    @Test
+    public void testAddRejectsMoreRecipientsThanExtraPartitions() {
+        ExtraPartitions extras = new ExtraPartitions(model());
         // Topic 2 has a single extra partition.
         extras.add(A, T2);
 
@@ -459,9 +440,8 @@ public class ExtraPartitionsTest {
         assertFalse(extras.has(B, T2));
     }
 
-    @ParameterizedTest(name = "bitset={0}")
-    @ValueSource(booleans = {false, true})
-    public void testHasWithMoreThanSixtyFourMemberTopicPairs(boolean bitset) {
+    @Test
+    public void testHasWithMoreThanSixtyFourMemberTopicPairs() {
         // Thirty topics with 5 partitions each for three members: base 1 and two extra partitions
         // each, 90 member and topic pairs, more than a single word of the bitset holds.
         TestMetadataImageBuilder builder = new TestMetadataImageBuilder();
@@ -471,7 +451,7 @@ public class ExtraPartitionsTest {
             builder.addTopic(topicId, "topic-" + t, 5, 4, 2);
             topics.add(topicId);
         }
-        GroupModel model = new GroupModel(spec(members(3, topics)), builder.buildDescriber(), false, maxBitsetBits(bitset));
+        GroupModel model = new GroupModel(spec(members(3, topics)), builder.buildDescriber(), false);
         assertEquals(30, model.topicCount);
 
         ExtraPartitions extras = new ExtraPartitions(model);
