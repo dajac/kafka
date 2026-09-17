@@ -14,11 +14,12 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
  */
-package org.apache.kafka.coordinator.group.assignor;
+package org.apache.kafka.coordinator.group.assignor.uniform2;
 
 import org.apache.kafka.common.Uuid;
 import org.apache.kafka.coordinator.group.api.assignor.GroupAssignment;
 import org.apache.kafka.coordinator.group.api.assignor.MemberAssignment;
+import org.apache.kafka.coordinator.group.assignor.AssignorHelpers;
 import org.apache.kafka.coordinator.group.modern.MemberAssignmentImpl;
 
 import java.util.ArrayList;
@@ -32,15 +33,15 @@ import java.util.Set;
  * assignment. A member whose partitions did not change at all gets its current assignment
  * back, the very same instance, so that the caller can recognize unchanged members cheaply.
  */
-final class Uniform2AssignmentResult {
-    private final Uniform2GroupModel model;
+final class AssignmentResult {
+    private final GroupModel model;
     private final IntList entryMember;
     private final IntList entryTopic;
     private final List<Set<Integer>> entryPartitions;
     /** Per member, whether its assignment differs from its current one. */
     private final boolean[] memberChanged;
 
-    Uniform2AssignmentResult(Uniform2GroupModel model) {
+    AssignmentResult(GroupModel model) {
         this.model = model;
         // Most of the current entries are usually emitted unchanged, plus a few new ones.
         int expectedEntries = Math.max(1024, model.holderMember.length + model.memberCount);

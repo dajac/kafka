@@ -14,11 +14,12 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
  */
-package org.apache.kafka.coordinator.group.assignor;
+package org.apache.kafka.coordinator.group.assignor.uniform2;
 
 import org.apache.kafka.coordinator.group.api.assignor.GroupAssignment;
 import org.apache.kafka.coordinator.group.api.assignor.GroupSpec;
 import org.apache.kafka.coordinator.group.api.assignor.SubscribedTopicDescriber;
+import org.apache.kafka.coordinator.group.assignor.Uniform2Assignor;
 
 import java.util.Map;
 
@@ -236,34 +237,34 @@ import java.util.Map;
  * partitions to realign, a maximum flow over a network with one node per distinct replica
  * rack set among the released partitions, and a scan of the partitions for the swaps.
  *
- * <p><b>Structure.</b> The code follows the phases. {@link Uniform2GroupModel} normalizes the
+ * <p><b>Structure.</b> The code follows the phases. {@link GroupModel} normalizes the
  * input: members and topics numbered, subscribers, current partitions, base and extra partition
- * counts, cohorts and racks. {@link Uniform2ExtraPartitionAssigner} runs the claims, fill and
- * even out phases on {@link Uniform2ExtraPartitions}, tracking loads with {@link Uniform2Loads}.
- * {@link Uniform2PartitionAssigner} runs the partition phase, with
- * {@link Uniform2RackAwarePartitionAssigner} taking over when racks are in use, and
- * {@link Uniform2AssignmentResult} builds the group assignment.
+ * counts, cohorts and racks. {@link ExtraPartitionAssigner} runs the claims, fill and
+ * even out phases on {@link ExtraPartitions}, tracking loads with {@link Loads}.
+ * {@link PartitionAssigner} runs the partition phase, with
+ * {@link RackAwarePartitionAssigner} taking over when racks are in use, and
+ * {@link AssignmentResult} builds the group assignment.
  */
-final class Uniform2AssignmentBuilder {
+public final class AssignmentBuilder {
     private final GroupSpec groupSpec;
     private final SubscribedTopicDescriber subscribedTopicDescriber;
     private final boolean rackAwareEnabled;
     private final long maxBitsetBits;
 
-    Uniform2AssignmentBuilder(
+    public AssignmentBuilder(
         GroupSpec groupSpec,
         SubscribedTopicDescriber subscribedTopicDescriber,
         boolean rackAwareEnabled
     ) {
-        this(groupSpec, subscribedTopicDescriber, rackAwareEnabled, Uniform2GroupModel.MAX_BITSET_BITS);
+        this(groupSpec, subscribedTopicDescriber, rackAwareEnabled, GroupModel.MAX_BITSET_BITS);
     }
 
     /**
      * @param maxBitsetBits The largest number of members times topics for which the model uses
-     *                      bitsets, see {@link Uniform2GroupModel#MAX_BITSET_BITS}. Tests pass
+     *                      bitsets, see {@link GroupModel#MAX_BITSET_BITS}. Tests pass
      *                      other values to force either representation.
      */
-    Uniform2AssignmentBuilder(
+    public AssignmentBuilder(
         GroupSpec groupSpec,
         SubscribedTopicDescriber subscribedTopicDescriber,
         boolean rackAwareEnabled,
@@ -275,15 +276,15 @@ final class Uniform2AssignmentBuilder {
         this.maxBitsetBits = maxBitsetBits;
     }
 
-    GroupAssignment build() {
-        Uniform2GroupModel model = new Uniform2GroupModel(groupSpec, subscribedTopicDescriber, rackAwareEnabled, maxBitsetBits);
+    public GroupAssignment build() {
+        GroupModel model = new GroupModel(groupSpec, subscribedTopicDescriber, rackAwareEnabled, maxBitsetBits);
         if (model.topicCount == 0) {
             return new GroupAssignment(Map.of());
         }
-        Uniform2ExtraPartitions extras = new Uniform2ExtraPartitionAssigner(model).assign();
-        Uniform2PartitionAssigner partitionAssigner = model.usesRacks
-            ? new Uniform2RackAwarePartitionAssigner(model, extras)
-            : new Uniform2PartitionAssigner(model, extras);
+        ExtraPartitions extras = new ExtraPartitionAssigner(model).assign();
+        PartitionAssigner partitionAssigner = model.usesRacks
+            ? new RackAwarePartitionAssigner(model, extras)
+            : new PartitionAssigner(model, extras);
         return partitionAssigner.assign();
     }
 }

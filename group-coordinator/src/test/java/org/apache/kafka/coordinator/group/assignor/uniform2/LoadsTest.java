@@ -14,7 +14,7 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
  */
-package org.apache.kafka.coordinator.group.assignor;
+package org.apache.kafka.coordinator.group.assignor.uniform2;
 
 import org.apache.kafka.common.Uuid;
 import org.apache.kafka.coordinator.group.api.assignor.SubscribedTopicDescriber;
@@ -33,14 +33,14 @@ import java.util.Random;
 import java.util.Set;
 import java.util.TreeMap;
 
-import static org.apache.kafka.coordinator.group.assignor.Uniform2TestUtils.member;
-import static org.apache.kafka.coordinator.group.assignor.Uniform2TestUtils.spec;
+import static org.apache.kafka.coordinator.group.assignor.uniform2.AssignmentTestUtils.member;
+import static org.apache.kafka.coordinator.group.assignor.uniform2.AssignmentTestUtils.spec;
 import static org.junit.jupiter.api.Assertions.assertArrayEquals;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertSame;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
-public class Uniform2LoadsTest {
+public class LoadsTest {
     private static final Uuid TOPIC_1 = new Uuid(1L, 1L);
     private static final Uuid TOPIC_2 = new Uuid(1L, 2L);
     // Members are numbered in id order.
@@ -76,12 +76,12 @@ public class Uniform2LoadsTest {
     /**
      * @return A group with a single cohort: members A, B, ... all subscribed to both topics.
      */
-    private static Uniform2GroupModel homogeneousModel(int memberCount, int topic1Partitions, int topic2Partitions) {
+    private static GroupModel homogeneousModel(int memberCount, int topic1Partitions, int topic2Partitions) {
         Map<String, MemberSubscriptionAndAssignmentImpl> members = new TreeMap<>();
         for (int m = 0; m < memberCount; m++) {
             members.put(memberId(m), member(Set.of(TOPIC_1, TOPIC_2), Assignment.EMPTY));
         }
-        return new Uniform2GroupModel(spec(members), describer(topic1Partitions, topic2Partitions), false);
+        return new GroupModel(spec(members), describer(topic1Partitions, topic2Partitions), false);
     }
 
     /**
@@ -89,25 +89,25 @@ public class Uniform2LoadsTest {
      *         only and E to topic 2 only. Topic 1 has 8 partitions for 4 subscribers and topic 2
      *         has 6 partitions for 3 subscribers, so the base loads are 4, 2 and 2.
      */
-    private static Uniform2GroupModel heterogeneousModel() {
+    private static GroupModel heterogeneousModel() {
         Map<String, MemberSubscriptionAndAssignmentImpl> members = new TreeMap<>();
         members.put("A", member(Set.of(TOPIC_1, TOPIC_2), Assignment.EMPTY));
         members.put("B", member(Set.of(TOPIC_1, TOPIC_2), Assignment.EMPTY));
         members.put("C", member(Set.of(TOPIC_1), Assignment.EMPTY));
         members.put("D", member(Set.of(TOPIC_1), Assignment.EMPTY));
         members.put("E", member(Set.of(TOPIC_2), Assignment.EMPTY));
-        return new Uniform2GroupModel(spec(members), describer(8, 6), false);
+        return new GroupModel(spec(members), describer(8, 6), false);
     }
 
     @Test
     public void testOrderListsMembersByAscendingLoad() {
         // Two topics with 6 partitions each for 3 members: base load 4.
-        Uniform2GroupModel model = homogeneousModel(3, 6, 6);
+        GroupModel model = homogeneousModel(3, 6, 6);
         assertEquals(1, model.cohortCount);
         assertEquals(4, model.cohortBaseLoad[0]);
 
         int[] load = {6, 4, 5};
-        Uniform2Loads loads = new Uniform2Loads(model, load);
+        Loads loads = new Loads(model, load);
         assertSame(load, loads.load);
         assertArrayEquals(new int[] {B, C, A}, loads.order(0));
         assertEquals(4, loads.min());
@@ -117,8 +117,8 @@ public class Uniform2LoadsTest {
     @Test
     public void testOrderWithTiesListsEveryMember() {
         // Two topics with 8 partitions each for 4 members: base load 4.
-        Uniform2GroupModel model = homogeneousModel(4, 8, 8);
-        Uniform2Loads loads = new Uniform2Loads(model, new int[] {5, 4, 5, 4});
+        GroupModel model = homogeneousModel(4, 8, 8);
+        Loads loads = new Loads(model, new int[] {5, 4, 5, 4});
         int[] order = loads.order(0);
         assertEquals(4, order.length);
         assertEquals(Set.of(B, D), Set.of(order[0], order[1]));
@@ -131,9 +131,9 @@ public class Uniform2LoadsTest {
     public void testIncrementAndDecrementKeepTheOrderSorted() {
         // Two topics with 6 partitions each for 3 members: base load 4, at most one extra
         // partition per topic, so loads stay between 4 and 6.
-        Uniform2GroupModel model = homogeneousModel(3, 6, 6);
+        GroupModel model = homogeneousModel(3, 6, 6);
         int[] load = {4, 4, 4};
-        Uniform2Loads loads = new Uniform2Loads(model, load);
+        Loads loads = new Loads(model, load);
         int[] order = loads.order(0);
         assertArrayEquals(new int[] {A, B, C}, order);
 
@@ -179,13 +179,13 @@ public class Uniform2LoadsTest {
 
     @Test
     public void testMultipleCohorts() {
-        Uniform2GroupModel model = heterogeneousModel();
+        GroupModel model = heterogeneousModel();
         assertEquals(3, model.cohortCount);
         assertArrayEquals(new int[] {0, 0, 1, 1, 2}, model.memberCohort);
         assertArrayEquals(new int[] {4, 2, 2}, model.cohortBaseLoad);
 
         int[] load = {6, 5, 2, 3, 2};
-        Uniform2Loads loads = new Uniform2Loads(model, load);
+        Loads loads = new Loads(model, load);
         assertArrayEquals(new int[] {B, A}, loads.order(0));
         assertArrayEquals(new int[] {C, D}, loads.order(1));
         assertArrayEquals(new int[] {E}, loads.order(2));
@@ -238,14 +238,14 @@ public class Uniform2LoadsTest {
         members.put("B", member("rack-1", Set.of(TOPIC_1), Assignment.EMPTY));
         members.put("C", member("rack-0", Set.of(TOPIC_1), Assignment.EMPTY));
         members.put("D", member("rack-1", Set.of(TOPIC_1), Assignment.EMPTY));
-        Uniform2GroupModel model = new Uniform2GroupModel(spec(members), describer(4, 0), true);
+        GroupModel model = new GroupModel(spec(members), describer(4, 0), true);
         assertTrue(model.usesRacks);
         assertEquals(2, model.cohortCount);
         assertArrayEquals(new int[] {0, 1, 0, 1}, model.memberCohort);
         assertArrayEquals(new int[] {1, 1}, model.cohortBaseLoad);
 
         int[] load = {2, 1, 1, 2};
-        Uniform2Loads loads = new Uniform2Loads(model, load);
+        Loads loads = new Loads(model, load);
         assertArrayEquals(new int[] {C, A}, loads.order(0));
         assertArrayEquals(new int[] {B, D}, loads.order(1));
         assertEquals(1, loads.min());
@@ -277,14 +277,14 @@ public class Uniform2LoadsTest {
         for (int m = 0; m < 12; m++) {
             members.put(memberId(m), member("rack-" + (m / 4), subscriptions.get(m % 3), Assignment.EMPTY));
         }
-        Uniform2GroupModel model = new Uniform2GroupModel(spec(members), describer(10, 9), rackAware);
+        GroupModel model = new GroupModel(spec(members), describer(10, 9), rackAware);
         assertEquals(rackAware ? 9 : 3, model.cohortCount);
 
         int[] load = new int[model.memberCount];
         for (int m = 0; m < model.memberCount; m++) {
             load[m] = model.cohortBaseLoad[model.memberCohort[m]];
         }
-        Uniform2Loads loads = new Uniform2Loads(model, load);
+        Loads loads = new Loads(model, load);
         assertSorted(model, loads);
 
         Random random = new Random(17);
@@ -313,7 +313,7 @@ public class Uniform2LoadsTest {
      * comparing it with the loads of the cohort sorted, and that the minimum is the smallest
      * load of the group.
      */
-    private static void assertSorted(Uniform2GroupModel model, Uniform2Loads loads) {
+    private static void assertSorted(GroupModel model, Loads loads) {
         for (int c = 0; c < model.cohortCount; c++) {
             int[] order = loads.order(c);
             assertEquals(model.cohortSize[c], order.length, "size of cohort " + c);

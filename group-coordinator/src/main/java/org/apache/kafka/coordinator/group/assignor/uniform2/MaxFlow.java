@@ -14,7 +14,7 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
  */
-package org.apache.kafka.coordinator.group.assignor;
+package org.apache.kafka.coordinator.group.assignor.uniform2;
 
 import java.util.Arrays;
 
@@ -30,10 +30,10 @@ import java.util.Arrays;
  * plain Edmonds-Karp search on a dense capacity matrix is used; its cost grows with the square
  * of the number of nodes, which the caller bounds.
  */
-final class Uniform2MaxFlow {
+final class MaxFlow {
     private static final int NONE = -1;
 
-    private Uniform2MaxFlow() { }
+    private MaxFlow() { }
 
     /**
      * @param groupRacks Per group, the racks of its partitions, one bit per rack.

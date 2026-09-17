@@ -14,7 +14,7 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
  */
-package org.apache.kafka.coordinator.group.assignor;
+package org.apache.kafka.coordinator.group.assignor.uniform2;
 
 import org.apache.kafka.coordinator.group.api.assignor.GroupAssignment;
 import org.apache.kafka.coordinator.group.api.assignor.PartitionAssignorException;
@@ -22,10 +22,10 @@ import org.apache.kafka.coordinator.group.api.assignor.PartitionAssignorExceptio
 import java.util.Arrays;
 import java.util.Set;
 
-import static org.apache.kafka.coordinator.group.assignor.Uniform2GroupModel.NONE;
+import static org.apache.kafka.coordinator.group.assignor.uniform2.GroupModel.NONE;
 
 /**
- * The partition phase of {@link Uniform2AssignmentBuilder}: chooses the partition ids every
+ * The partition phase of {@link AssignmentBuilder}: chooses the partition ids every
  * member gets, one topic at a time, given the quotas.
  *
  * <p>Each current holder keeps its current partitions up to its quota, lowest ids first, and
@@ -35,21 +35,21 @@ import static org.apache.kafka.coordinator.group.assignor.Uniform2GroupModel.NON
  * holders together hold every partition, is emitted as is. A member whose partitions of a topic
  * did not change gets its current set back rather than a copy.
  *
- * <p>{@link Uniform2RackAwarePartitionAssigner} replaces the per topic assignment when racks are
+ * <p>{@link RackAwarePartitionAssigner} replaces the per topic assignment when racks are
  * in use, through the {@link #isSettled} and {@link #assignTopic} hooks, and reuses the loop,
  * the deficits and the emission from this class.
  */
-class Uniform2PartitionAssigner {
-    final Uniform2GroupModel model;
-    final Uniform2ExtraPartitions extras;
+class PartitionAssigner {
+    final GroupModel model;
+    final ExtraPartitions extras;
     final TopicScratch scratch;
-    private final Uniform2AssignmentResult result;
+    private final AssignmentResult result;
 
-    Uniform2PartitionAssigner(Uniform2GroupModel model, Uniform2ExtraPartitions extras) {
+    PartitionAssigner(GroupModel model, ExtraPartitions extras) {
         this.model = model;
         this.extras = extras;
         scratch = new TopicScratch(model.memberCount, model.maxPartitionsPerTopic());
-        result = new Uniform2AssignmentResult(model);
+        result = new AssignmentResult(model);
     }
 
     GroupAssignment assign() {

@@ -14,12 +14,13 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
  */
-package org.apache.kafka.coordinator.group.assignor;
+package org.apache.kafka.coordinator.group.assignor.uniform2;
 
 import org.apache.kafka.common.Uuid;
 import org.apache.kafka.coordinator.group.api.assignor.GroupAssignment;
 import org.apache.kafka.coordinator.group.api.assignor.PartitionAssignorException;
 import org.apache.kafka.coordinator.group.api.assignor.SubscribedTopicDescriber;
+import org.apache.kafka.coordinator.group.assignor.Uniform2Assignor;
 import org.apache.kafka.coordinator.group.modern.Assignment;
 import org.apache.kafka.coordinator.group.modern.MemberSubscriptionAndAssignmentImpl;
 
@@ -29,10 +30,10 @@ import java.util.Map;
 import java.util.Set;
 import java.util.TreeMap;
 
-import static org.apache.kafka.coordinator.group.assignor.Uniform2TestUtils.assertStable;
-import static org.apache.kafka.coordinator.group.assignor.Uniform2TestUtils.assertValidAssignment;
-import static org.apache.kafka.coordinator.group.assignor.Uniform2TestUtils.member;
-import static org.apache.kafka.coordinator.group.assignor.Uniform2TestUtils.spec;
+import static org.apache.kafka.coordinator.group.assignor.uniform2.AssignmentTestUtils.assertStable;
+import static org.apache.kafka.coordinator.group.assignor.uniform2.AssignmentTestUtils.assertValidAssignment;
+import static org.apache.kafka.coordinator.group.assignor.uniform2.AssignmentTestUtils.member;
+import static org.apache.kafka.coordinator.group.assignor.uniform2.AssignmentTestUtils.spec;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertNotSame;
@@ -41,12 +42,12 @@ import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 /**
- * Tests of the partition phase without racks, see {@link Uniform2PartitionAssigner}: which
+ * Tests of the partition phase without racks, see {@link PartitionAssigner}: which
  * partition ids every member gets once the quotas are known. The quotas come from
- * {@link Uniform2ExtraPartitionAssigner}, and every expectation is worked out by hand in the
+ * {@link ExtraPartitionAssigner}, and every expectation is worked out by hand in the
  * comments.
  */
-public class Uniform2PartitionAssignerTest {
+public class PartitionAssignerTest {
     // Topics and members are sorted by id, so T1 is processed before T2 and A before B, and so on.
     private static final Uuid T1 = new Uuid(1L, 1L);
     private static final Uuid T2 = new Uuid(1L, 2L);
@@ -78,10 +79,10 @@ public class Uniform2PartitionAssignerTest {
         Map<String, MemberSubscriptionAndAssignmentImpl> members,
         SubscribedTopicDescriber describer
     ) {
-        Uniform2GroupModel model = new Uniform2GroupModel(spec(members), describer, false);
+        GroupModel model = new GroupModel(spec(members), describer, false);
         assertFalse(model.usesRacks);
-        Uniform2ExtraPartitions extras = new Uniform2ExtraPartitionAssigner(model).assign();
-        return new Uniform2PartitionAssigner(model, extras).assign();
+        ExtraPartitions extras = new ExtraPartitionAssigner(model).assign();
+        return new PartitionAssigner(model, extras).assign();
     }
 
     private static Assignment holding(Uuid topicId, Integer... partitions) {

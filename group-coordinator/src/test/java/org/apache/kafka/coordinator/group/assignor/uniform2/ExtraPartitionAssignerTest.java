@@ -14,11 +14,12 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
  */
-package org.apache.kafka.coordinator.group.assignor;
+package org.apache.kafka.coordinator.group.assignor.uniform2;
 
 import org.apache.kafka.common.Uuid;
 import org.apache.kafka.coordinator.group.api.assignor.GroupAssignment;
 import org.apache.kafka.coordinator.group.api.assignor.SubscribedTopicDescriber;
+import org.apache.kafka.coordinator.group.assignor.Uniform2Assignor;
 import org.apache.kafka.coordinator.group.modern.Assignment;
 import org.apache.kafka.coordinator.group.modern.MemberSubscriptionAndAssignmentImpl;
 
@@ -30,19 +31,19 @@ import java.util.Map;
 import java.util.Set;
 import java.util.TreeMap;
 
-import static org.apache.kafka.coordinator.group.assignor.Uniform2TestUtils.assertValidAssignment;
-import static org.apache.kafka.coordinator.group.assignor.Uniform2TestUtils.load;
-import static org.apache.kafka.coordinator.group.assignor.Uniform2TestUtils.member;
-import static org.apache.kafka.coordinator.group.assignor.Uniform2TestUtils.spec;
+import static org.apache.kafka.coordinator.group.assignor.uniform2.AssignmentTestUtils.assertValidAssignment;
+import static org.apache.kafka.coordinator.group.assignor.uniform2.AssignmentTestUtils.load;
+import static org.apache.kafka.coordinator.group.assignor.uniform2.AssignmentTestUtils.member;
+import static org.apache.kafka.coordinator.group.assignor.uniform2.AssignmentTestUtils.spec;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 /**
- * Tests of the claims, fill and even out phases described in {@link Uniform2AssignmentBuilder}.
+ * Tests of the claims, fill and even out phases described in {@link AssignmentBuilder}.
  * Every expectation is worked out by hand in the comments.
  */
-public class Uniform2ExtraPartitionAssignerTest {
+public class ExtraPartitionAssignerTest {
     // Topics and members are sorted by id, so these ids fix the indices: T1 is topic 0, T2 is
     // topic 1, and so on, while member "A" has index A, member "B" index B, and so on.
     private static final Uuid T1 = new Uuid(1L, 1L);
@@ -79,19 +80,19 @@ public class Uniform2ExtraPartitionAssignerTest {
             .buildDescriber();
     }
 
-    private static Uniform2GroupModel model(
+    private static GroupModel model(
         Map<String, MemberSubscriptionAndAssignmentImpl> members,
         SubscribedTopicDescriber describer,
         boolean rackAwareEnabled
     ) {
-        return new Uniform2GroupModel(spec(members), describer, rackAwareEnabled);
+        return new GroupModel(spec(members), describer, rackAwareEnabled);
     }
 
     /**
      * Runs the three phases and checks that every extra partition of every topic has a recipient.
      */
-    private static Uniform2ExtraPartitions assign(Uniform2GroupModel model) {
-        Uniform2ExtraPartitions extras = new Uniform2ExtraPartitionAssigner(model).assign();
+    private static ExtraPartitions assign(GroupModel model) {
+        ExtraPartitions extras = new ExtraPartitionAssigner(model).assign();
         for (int t = 0; t < model.topicCount; t++) {
             assertEquals(model.extraPartitionCount[t], extras.recipientCount(t), "extra partitions of topic " + t + " with a recipient");
         }
@@ -103,8 +104,8 @@ public class Uniform2ExtraPartitionAssignerTest {
      * quotas follow.
      */
     private static void assertExtraPartitions(
-        Uniform2GroupModel model,
-        Uniform2ExtraPartitions extras,
+        GroupModel model,
+        ExtraPartitions extras,
         int topic,
         int... holders
     ) {
@@ -123,7 +124,7 @@ public class Uniform2ExtraPartitionAssignerTest {
     /**
      * Asserts the load of every member: the sum of its quotas over its topics.
      */
-    private static void assertLoads(Uniform2GroupModel model, Uniform2ExtraPartitions extras, int... expectedLoads) {
+    private static void assertLoads(GroupModel model, ExtraPartitions extras, int... expectedLoads) {
         assertEquals(model.memberCount, expectedLoads.length);
         for (int m = 0; m < model.memberCount; m++) {
             int load = 0;
@@ -151,9 +152,9 @@ public class Uniform2ExtraPartitionAssignerTest {
         members.put("A", member(Set.of(T1, T2), Assignment.EMPTY));
         members.put("B", member(Set.of(T1, T2), Assignment.EMPTY));
         members.put("C", member(Set.of(T1, T2), Assignment.EMPTY));
-        Uniform2GroupModel model = model(members, describer(5, 4), false);
+        GroupModel model = model(members, describer(5, 4), false);
 
-        Uniform2ExtraPartitions extras = assign(model);
+        ExtraPartitions extras = assign(model);
 
         assertLoads(model, extras, 3, 3, 3);
         // Ties between equally loaded members go to the first member in the load order of the
@@ -183,9 +184,9 @@ public class Uniform2ExtraPartitionAssignerTest {
         members.put("B", member(Set.of(T1, T2), new Assignment(Map.of(T1, Set.of(2, 3), T2, Set.of(1)))));
         members.put("C", member(Set.of(T1, T2), new Assignment(Map.of(T1, Set.of(4), T2, Set.of(2, 3)))));
         members.put("D", member(Set.of(T1, T2), Assignment.EMPTY));
-        Uniform2GroupModel model = model(members, describer(5, 4), false);
+        GroupModel model = model(members, describer(5, 4), false);
 
-        Uniform2ExtraPartitions extras = assign(model);
+        ExtraPartitions extras = assign(model);
 
         assertExtraPartitions(model, extras, 0, A);
         assertExtraPartitions(model, extras, 1);
@@ -213,9 +214,9 @@ public class Uniform2ExtraPartitionAssignerTest {
         members.put("A", member(Set.of(T1, T2), new Assignment(Map.of(T1, Set.of(0, 1), T2, Set.of(0, 1)))));
         members.put("B", member(Set.of(T1, T2), new Assignment(Map.of(T1, Set.of(2), T2, Set.of(2, 3)))));
         members.put("C", member(Set.of(T1, T2), new Assignment(Map.of(T1, Set.of(3)))));
-        Uniform2GroupModel model = model(members, describer(4, 4), false);
+        GroupModel model = model(members, describer(4, 4), false);
 
-        Uniform2ExtraPartitions extras = assign(model);
+        ExtraPartitions extras = assign(model);
 
         assertExtraPartitions(model, extras, 0, A);
         assertExtraPartitions(model, extras, 1, B);
@@ -239,9 +240,9 @@ public class Uniform2ExtraPartitionAssignerTest {
         Map<String, MemberSubscriptionAndAssignmentImpl> members = new TreeMap<>();
         members.put("A", member(Set.of(T1, T2), new Assignment(Map.of(T1, Set.of(0, 1, 2), T2, Set.of(0, 1, 2)))));
         members.put("B", member(Set.of(T1, T2), Assignment.EMPTY));
-        Uniform2GroupModel model = model(members, describer(3, 3), false);
+        GroupModel model = model(members, describer(3, 3), false);
 
-        Uniform2ExtraPartitions extras = assign(model);
+        ExtraPartitions extras = assign(model);
 
         assertExtraPartitions(model, extras, 0, B);
         assertExtraPartitions(model, extras, 1, A);
@@ -259,9 +260,9 @@ public class Uniform2ExtraPartitionAssignerTest {
         Map<String, MemberSubscriptionAndAssignmentImpl> members = new TreeMap<>();
         members.put("A", member(Set.of(T1, T2), new Assignment(Map.of(T1, Set.of(0, 1, 2), T2, Set.of(0)))));
         members.put("B", member(Set.of(T1, T2), new Assignment(Map.of(T2, Set.of(1)))));
-        Uniform2GroupModel model = model(members, describer(3, 2), false);
+        GroupModel model = model(members, describer(3, 2), false);
 
-        Uniform2ExtraPartitions extras = assign(model);
+        ExtraPartitions extras = assign(model);
 
         assertExtraPartitions(model, extras, 0, A);
         assertExtraPartitions(model, extras, 1);
@@ -292,9 +293,9 @@ public class Uniform2ExtraPartitionAssignerTest {
         members.put("A", member(Set.of(T1, T2), new Assignment(Map.of(T1, Set.of(0, 1, 2)))));
         members.put("B", member(Set.of(T1, T2, T3), new Assignment(Map.of(T3, Set.of(0)))));
         members.put("C", member(Set.of(T3), Assignment.EMPTY));
-        Uniform2GroupModel model = model(members, describer(3, 3, 1), false);
+        GroupModel model = model(members, describer(3, 3, 1), false);
 
-        Uniform2ExtraPartitions extras = assign(model);
+        ExtraPartitions extras = assign(model);
 
         assertTrue(model.isBacked(A, 0));
         assertFalse(model.isBacked(A, 1));
@@ -327,9 +328,9 @@ public class Uniform2ExtraPartitionAssignerTest {
             T1, Set.of(0, 1, 2, 3), T2, Set.of(0, 1, 2, 3), T3, Set.of(0, 1, 2, 3)))));
         members.put("B", member(topics, new Assignment(Map.of(T4, Set.of(0, 1, 2, 3), T5, Set.of(0, 1, 2, 3)))));
         members.put("C", member(topics, Assignment.EMPTY));
-        Uniform2GroupModel model = model(members, describer(4, 4, 4, 4, 4), false);
+        GroupModel model = model(members, describer(4, 4, 4, 4, 4), false);
 
-        Uniform2ExtraPartitions extras = assign(model);
+        ExtraPartitions extras = assign(model);
 
         assertExtraPartitions(model, extras, 0, C);
         assertExtraPartitions(model, extras, 1, A);
@@ -361,9 +362,9 @@ public class Uniform2ExtraPartitionAssignerTest {
         members.put("A", member(Set.of(T1, T3), new Assignment(Map.of(T1, Set.of(0, 1, 2)))));
         members.put("B", member(Set.of(T1, T2), new Assignment(Map.of(T2, Set.of(0, 1, 2)))));
         members.put("C", member(Set.of(T2, T4), Assignment.EMPTY));
-        Uniform2GroupModel model = model(members, describer, false);
+        GroupModel model = model(members, describer, false);
 
-        Uniform2ExtraPartitions extras = assign(model);
+        ExtraPartitions extras = assign(model);
 
         assertExtraPartitions(model, extras, 0, A);
         assertExtraPartitions(model, extras, 1, B);
@@ -396,7 +397,7 @@ public class Uniform2ExtraPartitionAssignerTest {
         members.put("A", member("r1", Set.of(T1), Assignment.EMPTY));
         members.put("B", member("r2", Set.of(T1), Assignment.EMPTY));
 
-        Uniform2GroupModel model = model(members, mostlyInR1, true);
+        GroupModel model = model(members, mostlyInR1, true);
         assertExtraPartitions(model, assign(model), 0, A);
 
         model = model(members, mostlyInR2, true);
@@ -417,9 +418,9 @@ public class Uniform2ExtraPartitionAssignerTest {
         Map<String, MemberSubscriptionAndAssignmentImpl> members = new TreeMap<>();
         members.put("A", member(Set.of(T1, T2, T3), Assignment.EMPTY));
         members.put("B", member(Set.of(T1, T2, T3), Assignment.EMPTY));
-        Uniform2GroupModel model = model(members, describer(4, 0, 3), false);
+        GroupModel model = model(members, describer(4, 0, 3), false);
 
-        Uniform2ExtraPartitions extras = assign(model);
+        ExtraPartitions extras = assign(model);
 
         assertExtraPartitions(model, extras, 0);
         assertEquals(2, extras.quota(A, 0));
@@ -455,9 +456,9 @@ public class Uniform2ExtraPartitionAssignerTest {
         members.put("B", member(Set.of(T1, T2, T3), Assignment.EMPTY));
         members.put("C", member(Set.of(T1, T2, T3), Assignment.EMPTY));
         members.put("D", member(Set.of(T1, T2, T3), new Assignment(Map.of(T1, Set.of(2, 3)))));
-        Uniform2GroupModel model = model(members, describer(5, 5, 5), false);
+        GroupModel model = model(members, describer(5, 5, 5), false);
 
-        Uniform2ExtraPartitions extras = assign(model);
+        ExtraPartitions extras = assign(model);
 
         assertExtraPartitions(model, extras, 0, D);
         assertExtraPartitions(model, extras, 1, B);

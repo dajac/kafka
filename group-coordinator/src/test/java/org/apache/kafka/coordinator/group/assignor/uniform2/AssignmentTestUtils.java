@@ -14,7 +14,7 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
  */
-package org.apache.kafka.coordinator.group.assignor;
+package org.apache.kafka.coordinator.group.assignor.uniform2;
 
 import org.apache.kafka.common.Uuid;
 import org.apache.kafka.coordinator.group.api.assignor.GroupAssignment;
@@ -22,6 +22,7 @@ import org.apache.kafka.coordinator.group.api.assignor.GroupSpec;
 import org.apache.kafka.coordinator.group.api.assignor.MemberAssignment;
 import org.apache.kafka.coordinator.group.api.assignor.SubscribedTopicDescriber;
 import org.apache.kafka.coordinator.group.api.assignor.SubscriptionType;
+import org.apache.kafka.coordinator.group.assignor.Uniform2Assignor;
 import org.apache.kafka.coordinator.group.modern.Assignment;
 import org.apache.kafka.coordinator.group.modern.GroupSpecImpl;
 import org.apache.kafka.coordinator.group.modern.MemberSubscriptionAndAssignmentImpl;
@@ -44,30 +45,30 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
 
 /**
  * Shared helpers for the uniform2 tests: building groups, and checking the properties that every
- * assignment must have, see {@link Uniform2AssignmentBuilder}.
+ * assignment must have, see {@link AssignmentBuilder}.
  */
-final class Uniform2TestUtils {
-    private Uniform2TestUtils() { }
+public final class AssignmentTestUtils {
+    private AssignmentTestUtils() { }
 
     /**
      * @return A member without rack.
      */
-    static MemberSubscriptionAndAssignmentImpl member(Set<Uuid> topics, Assignment assignment) {
+    public static MemberSubscriptionAndAssignmentImpl member(Set<Uuid> topics, Assignment assignment) {
         return member(null, topics, assignment);
     }
 
     /**
      * @return A member with the given rack, or without one when it is null.
      */
-    static MemberSubscriptionAndAssignmentImpl member(String rack, Set<Uuid> topics, Assignment assignment) {
+    public static MemberSubscriptionAndAssignmentImpl member(String rack, Set<Uuid> topics, Assignment assignment) {
         return new MemberSubscriptionAndAssignmentImpl(Optional.ofNullable(rack), Optional.empty(), topics, assignment);
     }
 
     /**
-     * @return The bitset threshold making a {@link Uniform2GroupModel} use bitsets, or not, whatever
-     *         the size of the group, see {@link Uniform2GroupModel#MAX_BITSET_BITS}.
+     * @return The bitset threshold making a {@link GroupModel} use bitsets, or not, whatever
+     *         the size of the group, see {@link GroupModel#MAX_BITSET_BITS}.
      */
-    static long maxBitsetBits(boolean bitsets) {
+    public static long maxBitsetBits(boolean bitsets) {
         return bitsets ? Long.MAX_VALUE : 0;
     }
 
@@ -75,14 +76,14 @@ final class Uniform2TestUtils {
      * @return A group spec for the members, with the subscription type derived from their
      *         subscriptions and the inverted target assignment derived from their partitions.
      */
-    static GroupSpec spec(Map<String, MemberSubscriptionAndAssignmentImpl> members) {
+    public static GroupSpec spec(Map<String, MemberSubscriptionAndAssignmentImpl> members) {
         return new GroupSpecImpl(members, subscriptionType(members), invertedTargetAssignment(members));
     }
 
     /**
      * @return HOMOGENEOUS when every member has the same subscription, HETEROGENEOUS otherwise.
      */
-    static SubscriptionType subscriptionType(Map<String, MemberSubscriptionAndAssignmentImpl> members) {
+    public static SubscriptionType subscriptionType(Map<String, MemberSubscriptionAndAssignmentImpl> members) {
         Set<Set<Uuid>> subscriptions = new HashSet<>();
         members.values().forEach(m -> subscriptions.add(new HashSet<>(m.subscribedTopicIds())));
         return subscriptions.size() <= 1 ? SubscriptionType.HOMOGENEOUS : SubscriptionType.HETEROGENEOUS;
@@ -91,7 +92,7 @@ final class Uniform2TestUtils {
     /**
      * @return Per topic and partition, the member currently holding it.
      */
-    static Map<Uuid, Map<Integer, String>> invertedTargetAssignment(Map<String, MemberSubscriptionAndAssignmentImpl> members) {
+    public static Map<Uuid, Map<Integer, String>> invertedTargetAssignment(Map<String, MemberSubscriptionAndAssignmentImpl> members) {
         Map<Uuid, Map<Integer, String>> inverted = new HashMap<>();
         members.forEach((memberId, member) -> member.partitions().forEach((topicId, partitions) -> {
             Map<Integer, String> holders = inverted.computeIfAbsent(topicId, k -> new HashMap<>());
@@ -103,7 +104,7 @@ final class Uniform2TestUtils {
     /**
      * @return The members with the given assignment as their current one, in member id order.
      */
-    static Map<String, MemberSubscriptionAndAssignmentImpl> withAssignment(
+    public static Map<String, MemberSubscriptionAndAssignmentImpl> withAssignment(
         Map<String, MemberSubscriptionAndAssignmentImpl> members,
         GroupAssignment assignment
     ) {
@@ -127,7 +128,7 @@ final class Uniform2TestUtils {
      * could move between two subscribers so that their loads get closer by two, and with a
      * single subscription all loads are within one of each other.
      */
-    static void assertValidAssignment(
+    public static void assertValidAssignment(
         Map<String, MemberSubscriptionAndAssignmentImpl> members,
         SubscribedTopicDescriber describer,
         GroupAssignment result
@@ -135,7 +136,7 @@ final class Uniform2TestUtils {
         assertValidAssignment(members, describer, result, "");
     }
 
-    static void assertValidAssignment(
+    public static void assertValidAssignment(
         Map<String, MemberSubscriptionAndAssignmentImpl> members,
         SubscribedTopicDescriber describer,
         GroupAssignment result,
@@ -209,7 +210,7 @@ final class Uniform2TestUtils {
      * Checks that assigning the result again returns the very same partition sets, which the
      * coordinator relies on to recognize unchanged members.
      */
-    static void assertStable(
+    public static void assertStable(
         Map<String, MemberSubscriptionAndAssignmentImpl> members,
         SubscribedTopicDescriber describer,
         GroupAssignment result,
@@ -226,7 +227,7 @@ final class Uniform2TestUtils {
     /**
      * @return The number of partitions of the assignment having a replica in the rack of their member.
      */
-    static int alignedPartitions(
+    public static int alignedPartitions(
         Map<String, MemberSubscriptionAndAssignmentImpl> members,
         GroupAssignment assignment,
         SubscribedTopicDescriber describer
@@ -248,7 +249,7 @@ final class Uniform2TestUtils {
     /**
      * @return The number of current partitions of the members that they do not have in the assignment.
      */
-    static int revocations(Map<String, MemberSubscriptionAndAssignmentImpl> members, GroupAssignment assignment) {
+    public static int revocations(Map<String, MemberSubscriptionAndAssignmentImpl> members, GroupAssignment assignment) {
         int revocations = 0;
         for (Map.Entry<String, MemberSubscriptionAndAssignmentImpl> entry : members.entrySet()) {
             MemberAssignment memberAssignment = assignment.members().get(entry.getKey());
@@ -268,7 +269,7 @@ final class Uniform2TestUtils {
     /**
      * @return The total number of partitions assigned to the member.
      */
-    static int load(GroupAssignment assignment, String memberId) {
+    public static int load(GroupAssignment assignment, String memberId) {
         MemberAssignment memberAssignment = assignment.members().get(memberId);
         if (memberAssignment == null) {
             return 0;

@@ -14,27 +14,27 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
  */
-package org.apache.kafka.coordinator.group.assignor;
+package org.apache.kafka.coordinator.group.assignor.uniform2;
 
 import org.apache.kafka.coordinator.group.api.assignor.PartitionAssignorException;
 
 import java.util.Arrays;
 
-import static org.apache.kafka.coordinator.group.assignor.Uniform2GroupModel.NONE;
+import static org.apache.kafka.coordinator.group.assignor.uniform2.GroupModel.NONE;
 
 /**
  * Decides which subscribers get the extra partitions of every topic, in the three phases
- * described in {@link Uniform2AssignmentBuilder}: claims, fill and even out. The quotas of
+ * described in {@link AssignmentBuilder}: claims, fill and even out. The quotas of
  * the members follow from the result.
  */
-final class Uniform2ExtraPartitionAssigner {
-    private final Uniform2GroupModel model;
-    private final Uniform2ExtraPartitions extras;
+final class ExtraPartitionAssigner {
+    private final GroupModel model;
+    private final ExtraPartitions extras;
     /**
      * The loads, with the members of every cohort sorted by load. Built once the claims are
      * settled, since the claims set the initial order, and used by the two following phases.
      */
-    private Uniform2Loads loads;
+    private Loads loads;
     /** Per cohort of the topic at hand, the scan position in its order, see {@link #bestReceiver}. */
     private final int[] cursors;
     /**
@@ -45,9 +45,9 @@ final class Uniform2ExtraPartitionAssigner {
      */
     private final IntList[] backedCandidates;
 
-    Uniform2ExtraPartitionAssigner(Uniform2GroupModel model) {
+    ExtraPartitionAssigner(GroupModel model) {
         this.model = model;
-        extras = new Uniform2ExtraPartitions(model);
+        extras = new ExtraPartitions(model);
         cursors = new int[model.maxCohortsPerTopic()];
         backedCandidates = new IntList[model.topicCount];
     }
@@ -55,13 +55,13 @@ final class Uniform2ExtraPartitionAssigner {
     /**
      * @return The extra partitions, every one of them having a recipient.
      */
-    Uniform2ExtraPartitions assign() {
+    ExtraPartitions assign() {
         int[] load = new int[model.memberCount];
         for (int m = 0; m < model.memberCount; m++) {
             load[m] = model.cohortBaseLoad[model.memberCohort[m]];
         }
         claim(load);
-        loads = new Uniform2Loads(model, load);
+        loads = new Loads(model, load);
         fill();
         evenOut();
         return extras;
@@ -262,7 +262,7 @@ final class Uniform2ExtraPartitionAssigner {
      * extra partition then costs no move, then, when racks are in use, the one whose rack has
      * the most spare replicas of the topic, then the one in the first cohort of the topic.
      * Within a cohort, the first member in its load order wins; that order depends only on the
-     * input but is not the id order, see {@link Uniform2Loads}. The cursors hold the scan
+     * input but is not the id order, see {@link Loads}. The cursors hold the scan
      * position in the order of each cohort of the topic. Everything before a cursor gets an
      * extra partition of the topic, which stays true when loads change since a member only ever
      * swaps places with a member at or after the cursor, so the cursors only have to be reset

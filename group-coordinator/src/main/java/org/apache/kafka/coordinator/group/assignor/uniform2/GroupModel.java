@@ -14,7 +14,7 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
  */
-package org.apache.kafka.coordinator.group.assignor;
+package org.apache.kafka.coordinator.group.assignor.uniform2;
 
 import org.apache.kafka.common.Uuid;
 import org.apache.kafka.coordinator.group.api.assignor.GroupSpec;
@@ -40,7 +40,7 @@ import java.util.Set;
  * from {@code start[i]} inclusive to {@code start[i + 1]} exclusive. The model does not change
  * once built.
  */
-final class Uniform2GroupModel {
+final class GroupModel {
     /** Marks the absence of a member, topic or partition index. */
     static final int NONE = -1;
 
@@ -50,7 +50,7 @@ final class Uniform2GroupModel {
     /**
      * The largest number of members times topics for which the relations between members and
      * topics that the phases look up constantly are kept as bitsets, see {@link #isBacked} and
-     * {@link Uniform2ExtraPartitions#has}: 4 million bits, 512 KB per bitset. Below it, a bitset
+     * {@link ExtraPartitions#has}: 4 million bits, 512 KB per bitset. Below it, a bitset
      * is cheap to allocate and clear for every assignment and answers in constant time, where a
      * binary search in the sorted topics of a member costs a dozen comparisons in a group with
      * many topics. Above it, the bitsets would weigh on every assignment while buying little:
@@ -145,7 +145,7 @@ final class Uniform2GroupModel {
     /** Per topic and rack, the number of subscribers of the topic in the rack, when in use. */
     final int[][] rackSubscribers;
 
-    Uniform2GroupModel(
+    GroupModel(
         GroupSpec groupSpec,
         SubscribedTopicDescriber describer,
         boolean rackAwareEnabled
@@ -159,7 +159,7 @@ final class Uniform2GroupModel {
      *                      exercise both representations on the same group.
      */
     @SuppressWarnings({"unchecked", "rawtypes"})
-    Uniform2GroupModel(
+    GroupModel(
         GroupSpec groupSpec,
         SubscribedTopicDescriber describer,
         boolean rackAwareEnabled,

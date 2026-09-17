@@ -14,12 +14,13 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
  */
-package org.apache.kafka.coordinator.group.assignor;
+package org.apache.kafka.coordinator.group.assignor.uniform2;
 
 import org.apache.kafka.common.Uuid;
 import org.apache.kafka.coordinator.group.api.assignor.GroupAssignment;
 import org.apache.kafka.coordinator.group.api.assignor.MemberAssignment;
 import org.apache.kafka.coordinator.group.api.assignor.SubscribedTopicDescriber;
+import org.apache.kafka.coordinator.group.assignor.Uniform2Assignor;
 import org.apache.kafka.coordinator.group.modern.Assignment;
 import org.apache.kafka.coordinator.group.modern.MemberAssignmentImpl;
 import org.apache.kafka.coordinator.group.modern.MemberSubscriptionAndAssignmentImpl;
@@ -31,25 +32,25 @@ import java.util.Map;
 import java.util.Set;
 import java.util.TreeMap;
 
-import static org.apache.kafka.coordinator.group.assignor.Uniform2TestUtils.alignedPartitions;
-import static org.apache.kafka.coordinator.group.assignor.Uniform2TestUtils.assertStable;
-import static org.apache.kafka.coordinator.group.assignor.Uniform2TestUtils.assertValidAssignment;
-import static org.apache.kafka.coordinator.group.assignor.Uniform2TestUtils.member;
-import static org.apache.kafka.coordinator.group.assignor.Uniform2TestUtils.revocations;
-import static org.apache.kafka.coordinator.group.assignor.Uniform2TestUtils.spec;
+import static org.apache.kafka.coordinator.group.assignor.uniform2.AssignmentTestUtils.alignedPartitions;
+import static org.apache.kafka.coordinator.group.assignor.uniform2.AssignmentTestUtils.assertStable;
+import static org.apache.kafka.coordinator.group.assignor.uniform2.AssignmentTestUtils.assertValidAssignment;
+import static org.apache.kafka.coordinator.group.assignor.uniform2.AssignmentTestUtils.member;
+import static org.apache.kafka.coordinator.group.assignor.uniform2.AssignmentTestUtils.revocations;
+import static org.apache.kafka.coordinator.group.assignor.uniform2.AssignmentTestUtils.spec;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertSame;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 /**
- * Tests of the partition phase with racks, see {@link Uniform2RackAwarePartitionAssigner}: keep,
+ * Tests of the partition phase with racks, see {@link RackAwarePartitionAssigner}: keep,
  * align, leftovers and swap. Brokers 0, 1 and 2 are in rack-0, rack-1 and rack-2, so with two
  * replicas partition {@code i} has replicas in rack-(i % 3) and rack-((i + 1) % 3). Only the racks
  * of the members count: a replica in a rack without member does not align anything. Every
  * expectation is worked out by hand in the comments.
  */
-public class Uniform2RackAwarePartitionAssignerTest {
+public class RackAwarePartitionAssignerTest {
     private static final Uuid T1 = new Uuid(1L, 1L);
     private static final String A = "A";
     private static final String B = "B";
@@ -90,10 +91,10 @@ public class Uniform2RackAwarePartitionAssignerTest {
         Map<String, MemberSubscriptionAndAssignmentImpl> members,
         SubscribedTopicDescriber describer
     ) {
-        Uniform2GroupModel model = new Uniform2GroupModel(spec(members), describer, true);
+        GroupModel model = new GroupModel(spec(members), describer, true);
         assertTrue(model.usesRacks);
-        Uniform2ExtraPartitions extras = new Uniform2ExtraPartitionAssigner(model).assign();
-        return new Uniform2RackAwarePartitionAssigner(model, extras).assign();
+        ExtraPartitions extras = new ExtraPartitionAssigner(model).assign();
+        return new RackAwarePartitionAssigner(model, extras).assign();
     }
 
     private static Assignment holding(Integer... partitions) {
@@ -423,11 +424,11 @@ public class Uniform2RackAwarePartitionAssignerTest {
         Map<String, MemberSubscriptionAndAssignmentImpl> unracked = new TreeMap<>();
         racked.forEach((memberId, m) -> unracked.put(memberId, member(m.subscribedTopicIds(), new Assignment(m.partitions()))));
 
-        Uniform2GroupModel model = new Uniform2GroupModel(spec(racked), describer, false);
+        GroupModel model = new GroupModel(spec(racked), describer, false);
         assertFalse(model.usesRacks);
-        GroupAssignment withRacks = new Uniform2PartitionAssigner(model, new Uniform2ExtraPartitionAssigner(model).assign()).assign();
-        Uniform2GroupModel unrackedModel = new Uniform2GroupModel(spec(unracked), describer, false);
-        GroupAssignment withoutRacks = new Uniform2PartitionAssigner(unrackedModel, new Uniform2ExtraPartitionAssigner(unrackedModel).assign()).assign();
+        GroupAssignment withRacks = new PartitionAssigner(model, new ExtraPartitionAssigner(model).assign()).assign();
+        GroupModel unrackedModel = new GroupModel(spec(unracked), describer, false);
+        GroupAssignment withoutRacks = new PartitionAssigner(unrackedModel, new ExtraPartitionAssigner(unrackedModel).assign()).assign();
 
         assertEquals(withoutRacks, withRacks);
         assertEquals(Set.of(0, 1), partitions(withRacks, A));

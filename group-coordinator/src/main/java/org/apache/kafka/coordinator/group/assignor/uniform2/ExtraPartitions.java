@@ -14,7 +14,7 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
  */
-package org.apache.kafka.coordinator.group.assignor;
+package org.apache.kafka.coordinator.group.assignor.uniform2;
 
 import java.util.Arrays;
 
@@ -24,13 +24,13 @@ import java.util.Arrays;
  * <p>The relation is kept both per topic, the recipients of its extra partitions, and per member,
  * the topics of which it gets an extra partition in ascending order. Whether a member gets an
  * extra partition of a topic is answered by a bitset over the members and topics when the group
- * is small enough for one, see {@link Uniform2GroupModel#MAX_BITSET_BITS}, and by a binary
+ * is small enough for one, see {@link GroupModel#MAX_BITSET_BITS}, and by a binary
  * search in the topics of the member otherwise. The per member count of free extra partitions,
  * those not backed by a current partition, is maintained too. When racks are in use, the number
  * of extra partitions per topic and rack is also maintained.
  */
-final class Uniform2ExtraPartitions {
-    private final Uniform2GroupModel model;
+final class ExtraPartitions {
+    private final GroupModel model;
     /** Per topic, the compressed row of its recipients in {@link #recipients}, sized to its extra partitions. */
     private final int[] recipientStart;
     /** The recipients of the extra partitions of every topic, in no particular order. */
@@ -47,11 +47,11 @@ final class Uniform2ExtraPartitions {
     private final int[][] countPerRack;
     /**
      * Per member and topic, whether the member gets an extra partition of the topic, indexed by
-     * {@link Uniform2GroupModel#bitIndex}, or null when the group is too large for a bitset.
+     * {@link GroupModel#bitIndex}, or null when the group is too large for a bitset.
      */
     private final long[] bits;
 
-    Uniform2ExtraPartitions(Uniform2GroupModel model) {
+    ExtraPartitions(GroupModel model) {
         this.model = model;
         recipientStart = new int[model.topicCount + 1];
         for (int t = 0; t < model.topicCount; t++) {

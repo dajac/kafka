@@ -14,7 +14,7 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
  */
-package org.apache.kafka.coordinator.group.assignor;
+package org.apache.kafka.coordinator.group.assignor.uniform2;
 
 import org.junit.jupiter.api.Test;
 
@@ -22,58 +22,58 @@ import static org.junit.jupiter.api.Assertions.assertArrayEquals;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
-public class Uniform2MaxFlowTest {
+public class MaxFlowTest {
 
     @Test
     public void testSingleGroupAndRack() {
         // Capped by the demand.
-        assertFlow(new int[][] {{2}}, Uniform2MaxFlow.compute(new long[] {0b1}, new int[] {3}, new int[] {2}));
+        assertFlow(new int[][] {{2}}, MaxFlow.compute(new long[] {0b1}, new int[] {3}, new int[] {2}));
         // Capped by the supply.
-        assertFlow(new int[][] {{3}}, Uniform2MaxFlow.compute(new long[] {0b1}, new int[] {3}, new int[] {5}));
+        assertFlow(new int[][] {{3}}, MaxFlow.compute(new long[] {0b1}, new int[] {3}, new int[] {5}));
         // Exact.
-        assertFlow(new int[][] {{3}}, Uniform2MaxFlow.compute(new long[] {0b1}, new int[] {3}, new int[] {3}));
+        assertFlow(new int[][] {{3}}, MaxFlow.compute(new long[] {0b1}, new int[] {3}, new int[] {3}));
     }
 
     @Test
     public void testGroupOnlyFlowsToTheRacksOfItsMask() {
         // Rack 1 only, although rack 0 has demand too.
-        assertFlow(new int[][] {{0, 2}}, Uniform2MaxFlow.compute(new long[] {0b10}, new int[] {2}, new int[] {2, 2}));
+        assertFlow(new int[][] {{0, 2}}, MaxFlow.compute(new long[] {0b10}, new int[] {2}, new int[] {2, 2}));
         // Racks 0 and 2, not rack 1 which has the largest demand.
-        assertFlow(new int[][] {{1, 0, 1}}, Uniform2MaxFlow.compute(new long[] {0b101}, new int[] {2}, new int[] {1, 5, 1}));
+        assertFlow(new int[][] {{1, 0, 1}}, MaxFlow.compute(new long[] {0b101}, new int[] {2}, new int[] {1, 5, 1}));
         // No rack at all.
-        assertFlow(new int[][] {{0, 0}}, Uniform2MaxFlow.compute(new long[] {0b0}, new int[] {3}, new int[] {2, 2}));
+        assertFlow(new int[][] {{0, 0}}, MaxFlow.compute(new long[] {0b0}, new int[] {3}, new int[] {2, 2}));
     }
 
     @Test
     public void testFlowIsCappedByTheSupply() {
         // Two partitions for a demand of six: rack 0 takes at most one, so the other goes to rack 1.
-        assertFlow(new int[][] {{1, 1}}, Uniform2MaxFlow.compute(new long[] {0b11}, new int[] {2}, new int[] {1, 5}));
+        assertFlow(new int[][] {{1, 1}}, MaxFlow.compute(new long[] {0b11}, new int[] {2}, new int[] {1, 5}));
     }
 
     @Test
     public void testFlowIsCappedByTheDemand() {
-        assertFlow(new int[][] {{1, 2}}, Uniform2MaxFlow.compute(new long[] {0b11}, new int[] {10}, new int[] {1, 2}));
+        assertFlow(new int[][] {{1, 2}}, MaxFlow.compute(new long[] {0b11}, new int[] {10}, new int[] {1, 2}));
     }
 
     @Test
     public void testZeroDemand() {
-        assertFlow(new int[][] {{0, 0}}, Uniform2MaxFlow.compute(new long[] {0b11}, new int[] {3}, new int[] {0, 0}));
+        assertFlow(new int[][] {{0, 0}}, MaxFlow.compute(new long[] {0b11}, new int[] {3}, new int[] {0, 0}));
     }
 
     @Test
     public void testZeroSupply() {
-        assertFlow(new int[][] {{0}, {0}}, Uniform2MaxFlow.compute(new long[] {0b1, 0b1}, new int[] {0, 0}, new int[] {3}));
+        assertFlow(new int[][] {{0}, {0}}, MaxFlow.compute(new long[] {0b1, 0b1}, new int[] {0, 0}, new int[] {3}));
     }
 
     @Test
     public void testNoGroups() {
-        int[][] flow = Uniform2MaxFlow.compute(new long[0], new int[0], new int[] {1, 2});
+        int[][] flow = MaxFlow.compute(new long[0], new int[0], new int[] {1, 2});
         assertEquals(0, flow.length);
     }
 
     @Test
     public void testNoRacks() {
-        int[][] flow = Uniform2MaxFlow.compute(new long[] {0b0}, new int[] {2}, new int[0]);
+        int[][] flow = MaxFlow.compute(new long[] {0b0}, new int[] {2}, new int[0]);
         assertEquals(1, flow.length);
         assertEquals(0, flow[0].length);
     }
@@ -84,7 +84,7 @@ public class Uniform2MaxFlowTest {
         // would leave group 1 without a rack; the maximum flow satisfies both demands.
         assertFlow(
             new int[][] {{0, 1}, {1, 0}},
-            Uniform2MaxFlow.compute(new long[] {0b11, 0b01}, new int[] {1, 1}, new int[] {1, 1})
+            MaxFlow.compute(new long[] {0b11, 0b01}, new int[] {1, 1}, new int[] {1, 1})
         );
     }
 
@@ -94,7 +94,7 @@ public class Uniform2MaxFlowTest {
         // only way to serve every rack is 0 to rack 1, 1 to rack 2 and 2 to rack 0.
         assertFlow(
             new int[][] {{0, 1, 0}, {0, 0, 1}, {1, 0, 0}},
-            Uniform2MaxFlow.compute(new long[] {0b011, 0b110, 0b001}, new int[] {1, 1, 1}, new int[] {1, 1, 1})
+            MaxFlow.compute(new long[] {0b011, 0b110, 0b001}, new int[] {1, 1, 1}, new int[] {1, 1, 1})
         );
     }
 
@@ -106,7 +106,7 @@ public class Uniform2MaxFlowTest {
         long[] groupRacks = {0b011, 0b110, 0b101};
         int[] supply = {2, 2, 2};
         int[] demand = {2, 2, 2};
-        int[][] flow = Uniform2MaxFlow.compute(groupRacks, supply, demand);
+        int[][] flow = MaxFlow.compute(groupRacks, supply, demand);
         assertValidFlow(groupRacks, supply, demand, flow);
         assertEquals(6, totalFlow(flow));
         for (int rack = 0; rack < demand.length; rack++) {
@@ -120,7 +120,7 @@ public class Uniform2MaxFlowTest {
         // partitions to rack 0, which leaves one {0, 1} partition for each of them.
         assertFlow(
             new int[][] {{1, 1, 0}, {0, 2, 0}, {2, 0, 0}},
-            Uniform2MaxFlow.compute(new long[] {0b011, 0b110, 0b101}, new int[] {2, 2, 2}, new int[] {3, 3, 0})
+            MaxFlow.compute(new long[] {0b011, 0b110, 0b101}, new int[] {2, 2, 2}, new int[] {3, 3, 0})
         );
     }
 
@@ -130,7 +130,7 @@ public class Uniform2MaxFlowTest {
         // while the five partitions of rack 2 are not needed.
         assertFlow(
             new int[][] {{2, 0, 0}, {0, 1, 0}, {0, 0, 0}},
-            Uniform2MaxFlow.compute(new long[] {0b001, 0b010, 0b100}, new int[] {2, 1, 5}, new int[] {3, 3, 0})
+            MaxFlow.compute(new long[] {0b001, 0b010, 0b100}, new int[] {2, 1, 5}, new int[] {3, 3, 0})
         );
     }
 

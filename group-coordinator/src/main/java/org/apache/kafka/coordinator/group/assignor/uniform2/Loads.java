@@ -14,7 +14,7 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
  */
-package org.apache.kafka.coordinator.group.assignor;
+package org.apache.kafka.coordinator.group.assignor.uniform2;
 
 import java.util.Arrays;
 
@@ -28,8 +28,8 @@ import java.util.Arrays;
  * bucket moves down over it; a member whose load shrinks swaps with the first member of its
  * bucket and the boundary with the previous bucket moves up over it.
  */
-final class Uniform2Loads {
-    private final Uniform2GroupModel model;
+final class Loads {
+    private final GroupModel model;
     /** Per member, its load: the number of partitions it gets with the current extra partitions. */
     final int[] load;
     /** Per cohort, its members by ascending load. */
@@ -43,7 +43,7 @@ final class Uniform2Loads {
      * @param model The group.
      * @param load  Per member, its load. The array is kept and updated in place.
      */
-    Uniform2Loads(Uniform2GroupModel model, int[] load) {
+    Loads(GroupModel model, int[] load) {
         this.model = model;
         this.load = load;
         cohortOrder = new int[model.cohortCount][];

@@ -14,7 +14,7 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
  */
-package org.apache.kafka.coordinator.group.assignor;
+package org.apache.kafka.coordinator.group.assignor.uniform2;
 
 import org.apache.kafka.common.Uuid;
 import org.apache.kafka.common.metadata.PartitionRecord;
@@ -33,10 +33,10 @@ import java.util.List;
  * Builds a metadata image with explicit broker racks and partition replicas, for rack aware
  * assignor tests.
  */
-final class TestMetadataImageBuilder {
+public final class TestMetadataImageBuilder {
     private final MetadataDelta delta = new MetadataDelta.Builder().setImage(MetadataImage.EMPTY).build();
 
-    TestMetadataImageBuilder addBroker(int brokerId, String rack) {
+    public TestMetadataImageBuilder addBroker(int brokerId, String rack) {
         delta.replay(new RegisterBrokerRecord().setBrokerId(brokerId).setRack(rack));
         return this;
     }
@@ -44,7 +44,7 @@ final class TestMetadataImageBuilder {
     /**
      * Adds a topic with the given replicas per partition.
      */
-    TestMetadataImageBuilder addTopic(Uuid topicId, String name, List<List<Integer>> replicasPerPartition) {
+    public TestMetadataImageBuilder addTopic(Uuid topicId, String name, List<List<Integer>> replicasPerPartition) {
         delta.replay(new TopicRecord().setTopicId(topicId).setName(name));
         for (int i = 0; i < replicasPerPartition.size(); i++) {
             delta.replay(new PartitionRecord()
@@ -59,7 +59,7 @@ final class TestMetadataImageBuilder {
      * Adds a topic whose partition {@code i} has replicas on brokers {@code i % numBrokers},
      * {@code (i + 1) % numBrokers}, ... up to the replication factor.
      */
-    TestMetadataImageBuilder addTopic(Uuid topicId, String name, int numPartitions, int numBrokers, int replicationFactor) {
+    public TestMetadataImageBuilder addTopic(Uuid topicId, String name, int numPartitions, int numBrokers, int replicationFactor) {
         delta.replay(new TopicRecord().setTopicId(topicId).setName(name));
         for (int i = 0; i < numPartitions; i++) {
             List<Integer> replicas = new ArrayList<>();
@@ -71,7 +71,7 @@ final class TestMetadataImageBuilder {
         return this;
     }
 
-    SubscribedTopicDescriberImpl buildDescriber() {
+    public SubscribedTopicDescriberImpl buildDescriber() {
         MetadataImage image = delta.apply(new MetadataProvenance(0, 0, 0L, true));
         return new SubscribedTopicDescriberImpl(new KRaftCoordinatorMetadataImage(image));
     }

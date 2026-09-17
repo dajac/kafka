@@ -14,7 +14,7 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
  */
-package org.apache.kafka.coordinator.group.assignor;
+package org.apache.kafka.coordinator.group.assignor.uniform2;
 
 import org.apache.kafka.common.Uuid;
 import org.apache.kafka.coordinator.group.api.assignor.PartitionAssignorException;
@@ -33,10 +33,10 @@ import java.util.Map;
 import java.util.Set;
 import java.util.TreeMap;
 
-import static org.apache.kafka.coordinator.group.assignor.TopicIndex.NONE;
-import static org.apache.kafka.coordinator.group.assignor.Uniform2TestUtils.maxBitsetBits;
-import static org.apache.kafka.coordinator.group.assignor.Uniform2TestUtils.member;
-import static org.apache.kafka.coordinator.group.assignor.Uniform2TestUtils.spec;
+import static org.apache.kafka.coordinator.group.assignor.uniform2.TopicIndex.NONE;
+import static org.apache.kafka.coordinator.group.assignor.uniform2.AssignmentTestUtils.maxBitsetBits;
+import static org.apache.kafka.coordinator.group.assignor.uniform2.AssignmentTestUtils.member;
+import static org.apache.kafka.coordinator.group.assignor.uniform2.AssignmentTestUtils.spec;
 import static org.junit.jupiter.api.Assertions.assertArrayEquals;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
@@ -45,7 +45,7 @@ import static org.junit.jupiter.api.Assertions.assertSame;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
-public class Uniform2GroupModelTest {
+public class GroupModelTest {
     // Topics and members are sorted by id, so these ids fix the indices: T1 is topic 0, T2 is
     // topic 1 and T3 is topic 2, while A is member 0, B is member 1, and so on.
     private static final Uuid T1 = new Uuid(1L, 1L);
@@ -81,12 +81,12 @@ public class Uniform2GroupModelTest {
             .buildDescriber();
     }
 
-    private static Uniform2GroupModel model(
+    private static GroupModel model(
         Map<String, MemberSubscriptionAndAssignmentImpl> members,
         SubscribedTopicDescriber describer,
         boolean rackAwareEnabled
     ) {
-        return new Uniform2GroupModel(spec(members), describer, rackAwareEnabled);
+        return new GroupModel(spec(members), describer, rackAwareEnabled);
     }
 
     @Test
@@ -97,7 +97,7 @@ public class Uniform2GroupModelTest {
         members.put("A", member(Set.of(T3, T1, T2), Assignment.EMPTY));
         members.put("B", member(Set.of(T3, T1, T2), Assignment.EMPTY));
 
-        Uniform2GroupModel model = model(members, describer(1, 1, 1), false);
+        GroupModel model = model(members, describer(1, 1, 1), false);
 
         assertEquals(3, model.memberCount);
         assertArrayEquals(new String[]{"A", "B", "C"}, model.memberIds);
@@ -119,7 +119,7 @@ public class Uniform2GroupModelTest {
         members.put("B", member(Set.of(T1, T2, T3), Assignment.EMPTY));
         members.put("C", member(Set.of(T1, T2, T3), Assignment.EMPTY));
 
-        Uniform2GroupModel model = model(members, describer(7, 2, 0), false);
+        GroupModel model = model(members, describer(7, 2, 0), false);
 
         assertArrayEquals(new int[]{7, 2, 0}, model.partitionCounts);
         assertArrayEquals(new int[]{2, 0, 0}, model.basePartitionCount);
@@ -143,7 +143,7 @@ public class Uniform2GroupModelTest {
         members.put("B", member(Set.of(T1, T2), Assignment.EMPTY));
         members.put("C", member(Set.of(T1, T2), Assignment.EMPTY));
 
-        Uniform2GroupModel model = model(members, describer(5, 4), false);
+        GroupModel model = model(members, describer(5, 4), false);
 
         assertTrue(model.homogeneous);
         // Every topic has every member and every member has every topic, sharing one array each.
@@ -179,7 +179,7 @@ public class Uniform2GroupModelTest {
         members.put("C", member(Set.of(T1, T2), Assignment.EMPTY));
         members.put("D", member(Set.of(T3), Assignment.EMPTY));
 
-        Uniform2GroupModel model = model(members, describer(4, 6, 3), false);
+        GroupModel model = model(members, describer(4, 6, 3), false);
 
         assertFalse(model.homogeneous);
         // Subscribers per topic and topics per member, both ascending.
@@ -227,7 +227,7 @@ public class Uniform2GroupModelTest {
         members.put("C", member(Set.of(T1, T2), new Assignment(Map.of(T1, Set.of(), T3, Set.of(0)))));
         members.put("D", member(Set.of(T1, T2), Assignment.EMPTY));
 
-        Uniform2GroupModel model = model(members, describer(4, 4), false);
+        GroupModel model = model(members, describer(4, 4), false);
 
         // Holders per topic in ascending member order: T1 has A, T2 has A and B.
         assertArrayEquals(new int[]{0, 1, 3}, model.holderStart);
@@ -254,7 +254,7 @@ public class Uniform2GroupModelTest {
         members.put("C", member(Set.of(T1, T2, T3), new Assignment(Map.of(T3, Set.of(0)))));
         members.put("D", member(Set.of(T1, T2, T3), Assignment.EMPTY));
 
-        Uniform2GroupModel model = new Uniform2GroupModel(spec(members), describer(5, 4, 1), false, maxBitsetBits(bitsets));
+        GroupModel model = new GroupModel(spec(members), describer(5, 4, 1), false, maxBitsetBits(bitsets));
         assertEquals(bitsets, model.usesBitsets);
 
         assertTrue(model.isBacked(0, 0));
@@ -297,7 +297,7 @@ public class Uniform2GroupModelTest {
         members.put("B", member(topics, new Assignment(Map.of(topicIds[20], Set.of(0, 1), topicIds[21], Set.of(2, 3)))));
         // C holds a single partition of topic 22, its base, so it is only backed for topic 29.
         members.put("C", member(topics, new Assignment(Map.of(topicIds[22], Set.of(0), topicIds[29], Set.of(0, 1)))));
-        Uniform2GroupModel model = new Uniform2GroupModel(spec(members), builder.buildDescriber(), false, maxBitsetBits(bitsets));
+        GroupModel model = new GroupModel(spec(members), builder.buildDescriber(), false, maxBitsetBits(bitsets));
         assertEquals(bitsets, model.usesBitsets);
         assertEquals(30, model.topicCount);
 
@@ -320,8 +320,8 @@ public class Uniform2GroupModelTest {
         SubscribedTopicDescriber describer = describer(1, 1, 1);
 
         assertTrue(model(members, describer, false).usesBitsets);
-        assertTrue(new Uniform2GroupModel(spec(members), describer, false, 6).usesBitsets);
-        assertFalse(new Uniform2GroupModel(spec(members), describer, false, 5).usesBitsets);
+        assertTrue(new GroupModel(spec(members), describer, false, 6).usesBitsets);
+        assertFalse(new GroupModel(spec(members), describer, false, 5).usesBitsets);
     }
 
     @Test
@@ -330,7 +330,7 @@ public class Uniform2GroupModelTest {
         members.put("A", member("r1", Set.of(T1, T2), Assignment.EMPTY));
         members.put("B", member("r2", Set.of(T1, T2), Assignment.EMPTY));
 
-        Uniform2GroupModel model = model(members, rackDescriber(), false);
+        GroupModel model = model(members, rackDescriber(), false);
 
         assertFalse(model.usesRacks);
         assertEquals(0, model.rackCount);
@@ -348,7 +348,7 @@ public class Uniform2GroupModelTest {
         members.put("B", member("r2", Set.of(T1, T2), Assignment.EMPTY));
         members.put("C", member(Set.of(T1, T2), Assignment.EMPTY));
 
-        Uniform2GroupModel model = model(members, rackDescriber(), true);
+        GroupModel model = model(members, rackDescriber(), true);
 
         assertFalse(model.usesRacks);
         assertEquals(0, model.rackCount);
@@ -361,7 +361,7 @@ public class Uniform2GroupModelTest {
         members.put("A", member("r1", Set.of(T1, T2), Assignment.EMPTY));
         members.put("B", member("r1", Set.of(T1, T2), Assignment.EMPTY));
 
-        Uniform2GroupModel model = model(members, rackDescriber(), true);
+        GroupModel model = model(members, rackDescriber(), true);
 
         assertFalse(model.usesRacks);
         assertEquals(0, model.rackCount);
@@ -376,7 +376,7 @@ public class Uniform2GroupModelTest {
         assertEquals(0, modelWithOneMemberPerRack(65).rackCount);
     }
 
-    private static Uniform2GroupModel modelWithOneMemberPerRack(int rackCount) {
+    private static GroupModel modelWithOneMemberPerRack(int rackCount) {
         Map<String, MemberSubscriptionAndAssignmentImpl> members = new TreeMap<>();
         for (int i = 0; i < rackCount; i++) {
             members.put(String.format("member-%03d", i), member("rack-" + i, Set.of(T1), Assignment.EMPTY));
@@ -391,7 +391,7 @@ public class Uniform2GroupModelTest {
         members.put("B", member("r2", Set.of(T1, T2), Assignment.EMPTY));
         members.put("C", member("r1", Set.of(T1, T2), Assignment.EMPTY));
 
-        Uniform2GroupModel model = model(members, rackDescriber(), true);
+        GroupModel model = model(members, rackDescriber(), true);
 
         assertTrue(model.usesRacks);
         // Racks are numbered in the order of their first member: r1 is rack 0 and r2 is rack 1.
@@ -428,7 +428,7 @@ public class Uniform2GroupModelTest {
         members.put("D", member("r1", Set.of(T1, T2), Assignment.EMPTY));
 
         // With racks, a cohort has one subscription and one rack: {A, C}, {B} and {D}.
-        Uniform2GroupModel model = model(members, rackDescriber(), true);
+        GroupModel model = model(members, rackDescriber(), true);
         assertTrue(model.usesRacks);
         assertEquals(3, model.cohortCount);
         assertArrayEquals(new int[]{0, 1, 0, 2}, model.memberCohort);
@@ -439,7 +439,7 @@ public class Uniform2GroupModelTest {
         assertArrayEquals(new int[]{0, 1}, model.cohortTopics[2]);
 
         // Without racks, A, B and C form a single cohort.
-        Uniform2GroupModel plain = model(members, rackDescriber(), false);
+        GroupModel plain = model(members, rackDescriber(), false);
         assertEquals(2, plain.cohortCount);
         assertArrayEquals(new int[]{0, 0, 0, 1}, plain.memberCohort);
         assertArrayEquals(new int[]{0, 0}, plain.cohortRack);
@@ -457,7 +457,7 @@ public class Uniform2GroupModelTest {
         members.put("C", member(Set.of(T1), Assignment.EMPTY));
 
         // T1 has 3 partitions for 3 subscribers, so the base is 1.
-        Uniform2GroupModel model = model(members, describer(3), false);
+        GroupModel model = model(members, describer(3), false);
 
         assertArrayEquals(new int[]{0, 2}, model.holderStart);
         assertArrayEquals(new int[]{0, 1}, model.holderMember);

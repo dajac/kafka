@@ -22,6 +22,7 @@ import org.apache.kafka.coordinator.group.api.assignor.GroupAssignment;
 import org.apache.kafka.coordinator.group.api.assignor.GroupSpec;
 import org.apache.kafka.coordinator.group.api.assignor.PartitionAssignorException;
 import org.apache.kafka.coordinator.group.api.assignor.SubscribedTopicDescriber;
+import org.apache.kafka.coordinator.group.assignor.uniform2.AssignmentBuilder;
 
 import java.util.Map;
 
@@ -41,7 +42,7 @@ import java.util.Map;
  *
  * The same algorithm is used for homogeneous and heterogeneous subscriptions.
  *
- * @see Uniform2AssignmentBuilder
+ * @see AssignmentBuilder
  */
 public class Uniform2Assignor implements ConsumerGroupPartitionAssignor, Configurable {
     public static final String NAME = "uniform2";
@@ -95,6 +96,6 @@ public class Uniform2Assignor implements ConsumerGroupPartitionAssignor, Configu
         if (groupSpec.memberIds().isEmpty())
             return new GroupAssignment(Map.of());
 
-        return new Uniform2AssignmentBuilder(groupSpec, subscribedTopicDescriber, rackAwareEnabled).build();
+        return new AssignmentBuilder(groupSpec, subscribedTopicDescriber, rackAwareEnabled).build();
     }
 }

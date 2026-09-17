@@ -14,17 +14,17 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
  */
-package org.apache.kafka.coordinator.group.assignor;
+package org.apache.kafka.coordinator.group.assignor.uniform2;
 
 import java.util.Arrays;
 import java.util.Map;
 import java.util.Set;
 import java.util.TreeMap;
 
-import static org.apache.kafka.coordinator.group.assignor.Uniform2GroupModel.NONE;
+import static org.apache.kafka.coordinator.group.assignor.uniform2.GroupModel.NONE;
 
 /**
- * The partition phase when racks are in use, see {@link Uniform2AssignmentBuilder}. The quotas
+ * The partition phase when racks are in use, see {@link AssignmentBuilder}. The quotas
  * are the same as without racks; only the choice of partition ids changes, so that as many
  * members as possible get partitions having a replica in their rack. For each topic:
  * <ol>
@@ -33,7 +33,7 @@ import static org.apache.kafka.coordinator.group.assignor.Uniform2GroupModel.NON
  *     aligned partitions than its quota releases first the ones most useful to the racks whose
  *     members are below their quotas, then the ones with the most replica racks.</li>
  *     <li><b>Align:</b> the released partitions are handed to the members below their quota
- *     with a maximum flow from replica rack sets to racks, see {@link Uniform2MaxFlow}. Among
+ *     with a maximum flow from replica rack sets to racks, see {@link MaxFlow}. Among
  *     the partitions sharing the same replica racks, the ones whose previous holder can take
  *     them back are handed out last, so that they are the ones left over.</li>
  *     <li><b>Leftovers:</b> the partitions that cannot be aligned go back to their previous
@@ -47,7 +47,7 @@ import static org.apache.kafka.coordinator.group.assignor.Uniform2GroupModel.NON
  * A settled topic is only emitted as is when all its partitions are aligned, since it may
  * otherwise be realigned by swaps.
  */
-final class Uniform2RackAwarePartitionAssigner extends Uniform2PartitionAssigner {
+final class RackAwarePartitionAssigner extends PartitionAssigner {
     /**
      * The flow network takes one node per distinct replica rack set among the released
      * partitions. Beyond this many, the remaining partitions are treated as leftovers, which
@@ -62,7 +62,7 @@ final class Uniform2RackAwarePartitionAssigner extends Uniform2PartitionAssigner
     /** Per participant, while the flow is handed out, the number of leftovers it can still take back. */
     private final int[] returnable;
 
-    Uniform2RackAwarePartitionAssigner(Uniform2GroupModel model, Uniform2ExtraPartitions extras) {
+    RackAwarePartitionAssigner(GroupModel model, ExtraPartitions extras) {
         super(model, extras);
         previousOwner = new int[model.maxPartitionsPerTopic()];
         flowReceivers = new int[model.maxPartitionsPerTopic()];
@@ -223,7 +223,7 @@ final class Uniform2RackAwarePartitionAssigner extends Uniform2PartitionAssigner
                 leftoverCount = addLeftovers(entry.getValue(), 0, leftoverCount);
             }
         }
-        int[][] flow = Uniform2MaxFlow.compute(groupRacks, supply, demand);
+        int[][] flow = MaxFlow.compute(groupRacks, supply, demand);
         return assignFlow(groupPartitions, flow, receiversByRack, leftoverCount);
     }
 
