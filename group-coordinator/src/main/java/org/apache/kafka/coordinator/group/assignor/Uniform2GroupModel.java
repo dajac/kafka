@@ -47,6 +47,18 @@ final class Uniform2GroupModel {
     /** Rack awareness handles at most this many racks, one bit per rack in a long. */
     static final int MAX_RACKS = 64;
 
+    /**
+     * The largest number of members times topics for which the relations between members and
+     * topics that the phases look up constantly are kept as bitsets, see
+     * {@link Uniform2ExtraPartitions#has}: 16 million bits, 2 MB. Below it, a bitset is cheap to
+     * allocate and clear for every assignment and answers in constant time, where a binary
+     * search in the sorted topics of a member costs a dozen comparisons in a group with many
+     * topics. Above it, a bitset would stop fitting the fast caches of a core, and its allocation
+     * and clearing would weigh on every assignment: with 10,000 members and 10,000 topics it
+     * would take 12.5 MB, while the sorted arrays only hold the pairs actually related.
+     */
+    static final long MAX_BITSET_BITS = 1L << 24;
+
     /** The number of members. */
     final int memberCount;
     /** The member ids, sorted. */
@@ -71,6 +83,8 @@ final class Uniform2GroupModel {
     final int[] basePartitionCount;
     /** Per topic, the number of extra partitions, each going to a distinct subscriber. */
     final int[] extraPartitionCount;
+    /** Whether the group is small enough for bitsets over its topics and members, see {@link #MAX_BITSET_BITS}. */
+    final boolean usesBitsets;
 
     /** Whether all members have the same subscription. */
     final boolean homogeneous;
@@ -125,11 +139,25 @@ final class Uniform2GroupModel {
     /** Per topic and rack, the number of subscribers of the topic in the rack, when in use. */
     final int[][] rackSubscribers;
 
-    @SuppressWarnings({"unchecked", "rawtypes"})
     Uniform2GroupModel(
         GroupSpec groupSpec,
         SubscribedTopicDescriber describer,
         boolean rackAwareEnabled
+    ) {
+        this(groupSpec, describer, rackAwareEnabled, MAX_BITSET_BITS);
+    }
+
+    /**
+     * @param maxBitsetBits The largest number of members times topics for which bitsets are used,
+     *                      {@link #MAX_BITSET_BITS} in production. Tests pass other values to
+     *                      exercise both representations on the same group.
+     */
+    @SuppressWarnings({"unchecked", "rawtypes"})
+    Uniform2GroupModel(
+        GroupSpec groupSpec,
+        SubscribedTopicDescriber describer,
+        boolean rackAwareEnabled,
+        long maxBitsetBits
     ) {
         homogeneous = groupSpec.subscriptionType() == SubscriptionType.HOMOGENEOUS;
 
@@ -141,6 +169,7 @@ final class Uniform2GroupModel {
         topicCount = topicIds.length;
         topicIndex = new TopicIndex(topicIds);
         partitionCounts = partitionCounts(describer);
+        usesBitsets = (long) memberCount * topicCount <= maxBitsetBits;
 
         Subscriptions subscriptions = homogeneous ? homogeneousSubscriptions() : heterogeneousSubscriptions(groupSpec);
         subscribers = subscriptions.subscribers;
@@ -204,6 +233,23 @@ final class Uniform2GroupModel {
      */
     int backedCount(int member) {
         return backedStart[member + 1] - backedStart[member];
+    }
+
+    /**
+     * @return A cleared bitset with one bit per topic and member, indexed by {@link #bitIndex}.
+     *         Only for groups small enough for one, see {@link #MAX_BITSET_BITS}.
+     */
+    long[] newBitset() {
+        return new long[(int) (((long) memberCount * topicCount + 63) >>> 6)];
+    }
+
+    /**
+     * @return The bit of the member and topic in a bitset of {@link #newBitset}. The topic comes
+     *         first so that the lookups of the members of one topic, which is how the phases
+     *         scan, touch neighbouring bits.
+     */
+    int bitIndex(int member, int topic) {
+        return topic * memberCount + member;
     }
 
     /**

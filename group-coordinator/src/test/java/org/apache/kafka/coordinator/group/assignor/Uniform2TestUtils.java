@@ -64,6 +64,14 @@ final class Uniform2TestUtils {
     }
 
     /**
+     * @return The bitset threshold making a {@link Uniform2GroupModel} use bitsets, or not, whatever
+     *         the size of the group, see {@link Uniform2GroupModel#MAX_BITSET_BITS}.
+     */
+    static long maxBitsetBits(boolean bitsets) {
+        return bitsets ? Long.MAX_VALUE : 0;
+    }
+
+    /**
      * @return A group spec for the members, with the subscription type derived from their
      *         subscriptions and the inverted target assignment derived from their partitions.
      */

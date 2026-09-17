@@ -248,19 +248,35 @@ final class Uniform2AssignmentBuilder {
     private final GroupSpec groupSpec;
     private final SubscribedTopicDescriber subscribedTopicDescriber;
     private final boolean rackAwareEnabled;
+    private final long maxBitsetBits;
 
     Uniform2AssignmentBuilder(
         GroupSpec groupSpec,
         SubscribedTopicDescriber subscribedTopicDescriber,
         boolean rackAwareEnabled
     ) {
+        this(groupSpec, subscribedTopicDescriber, rackAwareEnabled, Uniform2GroupModel.MAX_BITSET_BITS);
+    }
+
+    /**
+     * @param maxBitsetBits The largest number of members times topics for which the model uses
+     *                      bitsets, see {@link Uniform2GroupModel#MAX_BITSET_BITS}. Tests pass
+     *                      other values to force either representation.
+     */
+    Uniform2AssignmentBuilder(
+        GroupSpec groupSpec,
+        SubscribedTopicDescriber subscribedTopicDescriber,
+        boolean rackAwareEnabled,
+        long maxBitsetBits
+    ) {
         this.groupSpec = groupSpec;
         this.subscribedTopicDescriber = subscribedTopicDescriber;
         this.rackAwareEnabled = rackAwareEnabled;
+        this.maxBitsetBits = maxBitsetBits;
     }
 
     GroupAssignment build() {
-        Uniform2GroupModel model = new Uniform2GroupModel(groupSpec, subscribedTopicDescriber, rackAwareEnabled);
+        Uniform2GroupModel model = new Uniform2GroupModel(groupSpec, subscribedTopicDescriber, rackAwareEnabled, maxBitsetBits);
         if (model.topicCount == 0) {
             return new GroupAssignment(Map.of());
         }

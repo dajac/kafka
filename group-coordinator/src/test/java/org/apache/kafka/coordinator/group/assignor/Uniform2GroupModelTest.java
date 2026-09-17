@@ -272,6 +272,19 @@ public class Uniform2GroupModelTest {
     }
 
     @Test
+    public void testBitsetsAreUsedUpToTheThreshold() {
+        // Two members and three topics: six member and topic pairs.
+        Map<String, MemberSubscriptionAndAssignmentImpl> members = new TreeMap<>();
+        members.put("A", member(Set.of(T1, T2, T3), Assignment.EMPTY));
+        members.put("B", member(Set.of(T1, T2, T3), Assignment.EMPTY));
+        SubscribedTopicDescriber describer = describer(1, 1, 1);
+
+        assertTrue(model(members, describer, false).usesBitsets);
+        assertTrue(new Uniform2GroupModel(spec(members), describer, false, 6).usesBitsets);
+        assertFalse(new Uniform2GroupModel(spec(members), describer, false, 5).usesBitsets);
+    }
+
+    @Test
     public void testRacksAreNotUsedWhenDisabled() {
         Map<String, MemberSubscriptionAndAssignmentImpl> members = new TreeMap<>();
         members.put("A", member("r1", Set.of(T1, T2), Assignment.EMPTY));

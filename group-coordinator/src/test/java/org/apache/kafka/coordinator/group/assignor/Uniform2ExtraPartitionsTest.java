@@ -22,6 +22,8 @@ import org.apache.kafka.coordinator.group.modern.Assignment;
 import org.apache.kafka.coordinator.group.modern.MemberSubscriptionAndAssignmentImpl;
 
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.params.ParameterizedTest;
+import org.junit.jupiter.params.provider.ValueSource;
 
 import java.util.Arrays;
 import java.util.HashSet;
@@ -31,6 +33,7 @@ import java.util.TreeMap;
 
 import static org.apache.kafka.coordinator.group.AssignmentTestUtil.mkAssignment;
 import static org.apache.kafka.coordinator.group.AssignmentTestUtil.mkTopicAssignment;
+import static org.apache.kafka.coordinator.group.assignor.Uniform2TestUtils.maxBitsetBits;
 import static org.apache.kafka.coordinator.group.assignor.Uniform2TestUtils.member;
 import static org.apache.kafka.coordinator.group.assignor.Uniform2TestUtils.spec;
 import static org.junit.jupiter.api.Assertions.assertArrayEquals;
@@ -64,31 +67,35 @@ public class Uniform2ExtraPartitionsTest {
     }
 
     /**
+     * @param bitsets Whether the model uses bitsets, see {@link Uniform2GroupModel#MAX_BITSET_BITS}.
      * @return Members A, B and C without current partitions, subscribed to topic 1 with 5
      *         partitions, topic 2 with 4 and topic 3 with 8: bases 1, 1 and 2 and extra
      *         partitions 2, 1 and 2.
      */
-    private static Uniform2GroupModel model() {
+    private static Uniform2GroupModel model(boolean bitsets) {
         SubscribedTopicDescriber describer = new TestMetadataImageBuilder()
             .addTopic(TOPIC_1, "topic-1", 5, 4, 2)
             .addTopic(TOPIC_2, "topic-2", 4, 4, 2)
             .addTopic(TOPIC_3, "topic-3", 8, 4, 2)
             .buildDescriber();
-        return new Uniform2GroupModel(spec(members(3, Set.of(TOPIC_1, TOPIC_2, TOPIC_3))), describer, false);
+        return new Uniform2GroupModel(spec(members(3, Set.of(TOPIC_1, TOPIC_2, TOPIC_3))), describer, false, maxBitsetBits(bitsets));
     }
 
     @Test
     public void testModelOfTheTests() {
-        Uniform2GroupModel model = model();
+        Uniform2GroupModel model = model(true);
+        assertTrue(model.usesBitsets);
+        assertFalse(model(false).usesBitsets);
         assertEquals(3, model.memberCount);
         assertEquals(3, model.topicCount);
         assertArrayEquals(new int[] {1, 1, 2}, model.basePartitionCount);
         assertArrayEquals(new int[] {2, 1, 2}, model.extraPartitionCount);
     }
 
-    @Test
-    public void testNothingIsAssignedInitially() {
-        Uniform2GroupModel model = model();
+    @ParameterizedTest(name = "bitset={0}")
+    @ValueSource(booleans = {false, true})
+    public void testNothingIsAssignedInitially(boolean bitset) {
+        Uniform2GroupModel model = model(bitset);
         Uniform2ExtraPartitions extras = new Uniform2ExtraPartitions(model);
         for (int t = 0; t < model.topicCount; t++) {
             assertEquals(0, extras.recipientCount(t));
@@ -103,9 +110,10 @@ public class Uniform2ExtraPartitionsTest {
         }
     }
 
-    @Test
-    public void testAddGivesAnExtraPartitionToTheMember() {
-        Uniform2ExtraPartitions extras = new Uniform2ExtraPartitions(model());
+    @ParameterizedTest(name = "bitset={0}")
+    @ValueSource(booleans = {false, true})
+    public void testAddGivesAnExtraPartitionToTheMember(boolean bitset) {
+        Uniform2ExtraPartitions extras = new Uniform2ExtraPartitions(model(bitset));
         extras.add(A, T1);
 
         assertTrue(extras.has(A, T1));
@@ -124,9 +132,10 @@ public class Uniform2ExtraPartitionsTest {
         assertEquals(0, extras.freeCountOf(B));
     }
 
-    @Test
-    public void testSeveralMembersCanHoldExtraPartitionsOfTheSameTopic() {
-        Uniform2ExtraPartitions extras = new Uniform2ExtraPartitions(model());
+    @ParameterizedTest(name = "bitset={0}")
+    @ValueSource(booleans = {false, true})
+    public void testSeveralMembersCanHoldExtraPartitionsOfTheSameTopic(boolean bitset) {
+        Uniform2ExtraPartitions extras = new Uniform2ExtraPartitions(model(bitset));
         extras.add(C, T1);
         extras.add(A, T1);
 
@@ -143,9 +152,10 @@ public class Uniform2ExtraPartitionsTest {
         assertEquals(2, extras.quota(C, T1));
     }
 
-    @Test
-    public void testSortRecipientsOrdersThemByMember() {
-        Uniform2ExtraPartitions extras = new Uniform2ExtraPartitions(model());
+    @ParameterizedTest(name = "bitset={0}")
+    @ValueSource(booleans = {false, true})
+    public void testSortRecipientsOrdersThemByMember(boolean bitset) {
+        Uniform2ExtraPartitions extras = new Uniform2ExtraPartitions(model(bitset));
         extras.add(C, T3);
         extras.add(A, T3);
         extras.sortRecipients(T3);
@@ -154,9 +164,10 @@ public class Uniform2ExtraPartitionsTest {
         assertEquals(C, extras.recipientAt(T3, 1));
     }
 
-    @Test
-    public void testRemoveTakesTheExtraPartitionBack() {
-        Uniform2ExtraPartitions extras = new Uniform2ExtraPartitions(model());
+    @ParameterizedTest(name = "bitset={0}")
+    @ValueSource(booleans = {false, true})
+    public void testRemoveTakesTheExtraPartitionBack(boolean bitset) {
+        Uniform2ExtraPartitions extras = new Uniform2ExtraPartitions(model(bitset));
         extras.add(A, T1);
         extras.add(B, T1);
         extras.remove(A, T1);
@@ -185,13 +196,14 @@ public class Uniform2ExtraPartitionsTest {
         assertTopics(extras, C, T1);
     }
 
-    @Test
-    public void testRemoveARecipientFromTheMiddle() {
+    @ParameterizedTest(name = "bitset={0}")
+    @ValueSource(booleans = {false, true})
+    public void testRemoveARecipientFromTheMiddle(boolean bitset) {
         // Four members and topic 1 with 7 partitions: base 1 and three extra partitions.
         SubscribedTopicDescriber describer = new TestMetadataImageBuilder()
             .addTopic(TOPIC_1, "topic-1", 7, 4, 2)
             .buildDescriber();
-        Uniform2GroupModel model = new Uniform2GroupModel(spec(members(4, Set.of(TOPIC_1))), describer, false);
+        Uniform2GroupModel model = new Uniform2GroupModel(spec(members(4, Set.of(TOPIC_1))), describer, false, maxBitsetBits(bitset));
         assertArrayEquals(new int[] {3}, model.extraPartitionCount);
 
         Uniform2ExtraPartitions extras = new Uniform2ExtraPartitions(model);
@@ -213,9 +225,10 @@ public class Uniform2ExtraPartitionsTest {
         assertEquals(D, extras.recipientAt(T1, 2));
     }
 
-    @Test
-    public void testTopicsOfStaysSortedWhenTopicsAreAddedOutOfOrder() {
-        Uniform2ExtraPartitions extras = new Uniform2ExtraPartitions(model());
+    @ParameterizedTest(name = "bitset={0}")
+    @ValueSource(booleans = {false, true})
+    public void testTopicsOfStaysSortedWhenTopicsAreAddedOutOfOrder(boolean bitset) {
+        Uniform2ExtraPartitions extras = new Uniform2ExtraPartitions(model(bitset));
         extras.add(A, T3);
         assertTopics(extras, A, T3);
         extras.add(A, T1);
@@ -233,9 +246,10 @@ public class Uniform2ExtraPartitionsTest {
         assertTopics(extras, B);
     }
 
-    @Test
-    public void testRemoveFromTheMiddleOfTheTopics() {
-        Uniform2ExtraPartitions extras = new Uniform2ExtraPartitions(model());
+    @ParameterizedTest(name = "bitset={0}")
+    @ValueSource(booleans = {false, true})
+    public void testRemoveFromTheMiddleOfTheTopics(boolean bitset) {
+        Uniform2ExtraPartitions extras = new Uniform2ExtraPartitions(model(bitset));
         extras.add(A, T1);
         extras.add(A, T2);
         extras.add(A, T3);
@@ -265,8 +279,9 @@ public class Uniform2ExtraPartitionsTest {
         }
     }
 
-    @Test
-    public void testMemberTopicsGrowBeyondTheInitialCapacity() {
+    @ParameterizedTest(name = "bitset={0}")
+    @ValueSource(booleans = {false, true})
+    public void testMemberTopicsGrowBeyondTheInitialCapacity(boolean bitset) {
         // Six topics with 3 partitions each for two members: base 1 and one extra partition each.
         TestMetadataImageBuilder builder = new TestMetadataImageBuilder();
         Set<Uuid> topics = new HashSet<>();
@@ -275,7 +290,7 @@ public class Uniform2ExtraPartitionsTest {
             builder.addTopic(topicId, "topic-" + t, 3, 4, 2);
             topics.add(topicId);
         }
-        Uniform2GroupModel model = new Uniform2GroupModel(spec(members(2, topics)), builder.buildDescriber(), false);
+        Uniform2GroupModel model = new Uniform2GroupModel(spec(members(2, topics)), builder.buildDescriber(), false, maxBitsetBits(bitset));
         assertArrayEquals(new int[] {1, 1, 1, 1, 1, 1}, model.extraPartitionCount);
 
         Uniform2ExtraPartitions extras = new Uniform2ExtraPartitions(model);
@@ -295,8 +310,9 @@ public class Uniform2ExtraPartitionsTest {
         assertEquals(6, extras.freeCountOf(A));
     }
 
-    @Test
-    public void testFreeCountOnlyCountsExtraPartitionsWithoutABackingCurrentPartition() {
+    @ParameterizedTest(name = "bitset={0}")
+    @ValueSource(booleans = {false, true})
+    public void testFreeCountOnlyCountsExtraPartitionsWithoutABackingCurrentPartition(boolean bitset) {
         // Topic 1 with 5 partitions and topic 2 with 4 for three members: base 1 for both. A
         // holds three partitions of topic 1, more than the base, so an extra partition of topic
         // 1 is backed for A. B holds two partitions of topic 2, so an extra partition of topic 2
@@ -312,7 +328,7 @@ public class Uniform2ExtraPartitionsTest {
             mkTopicAssignment(TOPIC_1, 3), mkTopicAssignment(TOPIC_2, 0, 1)))));
         members.put("C", member(Set.of(TOPIC_1, TOPIC_2), new Assignment(mkAssignment(
             mkTopicAssignment(TOPIC_1, 4), mkTopicAssignment(TOPIC_2, 2)))));
-        Uniform2GroupModel model = new Uniform2GroupModel(spec(members), describer, false);
+        Uniform2GroupModel model = new Uniform2GroupModel(spec(members), describer, false, maxBitsetBits(bitset));
         assertArrayEquals(new int[] {1, 1}, model.basePartitionCount);
         assertArrayEquals(new int[] {2, 1}, model.extraPartitionCount);
         assertTrue(model.isBacked(A, T1));
@@ -364,9 +380,10 @@ public class Uniform2ExtraPartitionsTest {
         assertEquals(C, extras.recipientAt(T1, 0));
     }
 
-    @Test
-    public void testQuotaIsTheBasePlusOneWithAnExtraPartition() {
-        Uniform2ExtraPartitions extras = new Uniform2ExtraPartitions(model());
+    @ParameterizedTest(name = "bitset={0}")
+    @ValueSource(booleans = {false, true})
+    public void testQuotaIsTheBasePlusOneWithAnExtraPartition(boolean bitset) {
+        Uniform2ExtraPartitions extras = new Uniform2ExtraPartitions(model(bitset));
         assertEquals(1, extras.quota(A, T1));
         assertEquals(2, extras.quota(A, T3));
 
@@ -382,8 +399,9 @@ public class Uniform2ExtraPartitionsTest {
         assertEquals(2, extras.quota(A, T3));
     }
 
-    @Test
-    public void testCountInRack() {
+    @ParameterizedTest(name = "bitset={0}")
+    @ValueSource(booleans = {false, true})
+    public void testCountInRack(boolean bitset) {
         // Members A and C in rack 0 and B in rack 1, topic 1 with 5 partitions and topic 2 with
         // 4: two and one extra partitions.
         SubscribedTopicDescriber describer = new TestMetadataImageBuilder()
@@ -396,7 +414,7 @@ public class Uniform2ExtraPartitionsTest {
         members.put("A", member("rack-0", Set.of(TOPIC_1, TOPIC_2), Assignment.EMPTY));
         members.put("B", member("rack-1", Set.of(TOPIC_1, TOPIC_2), Assignment.EMPTY));
         members.put("C", member("rack-0", Set.of(TOPIC_1, TOPIC_2), Assignment.EMPTY));
-        Uniform2GroupModel model = new Uniform2GroupModel(spec(members), describer, true);
+        Uniform2GroupModel model = new Uniform2GroupModel(spec(members), describer, true, maxBitsetBits(bitset));
         assertTrue(model.usesRacks);
         assertEquals(2, model.rackCount);
         assertArrayEquals(new int[] {0, 1, 0}, model.memberRack);
@@ -428,13 +446,10 @@ public class Uniform2ExtraPartitionsTest {
         assertEquals(2, extras.recipientCount(T1));
     }
 
-    /**
-     * Checks the number of extra partitions of the member and its topics, which are the first
-     * {@code countOf} entries of {@code topicsOf}.
-     */
-    @Test
-    public void testAddRejectsMoreRecipientsThanExtraPartitions() {
-        Uniform2ExtraPartitions extras = new Uniform2ExtraPartitions(model());
+    @ParameterizedTest(name = "bitset={0}")
+    @ValueSource(booleans = {false, true})
+    public void testAddRejectsMoreRecipientsThanExtraPartitions(boolean bitset) {
+        Uniform2ExtraPartitions extras = new Uniform2ExtraPartitions(model(bitset));
         // Topic 2 has a single extra partition.
         extras.add(A, T2);
 
@@ -444,6 +459,54 @@ public class Uniform2ExtraPartitionsTest {
         assertFalse(extras.has(B, T2));
     }
 
+    @ParameterizedTest(name = "bitset={0}")
+    @ValueSource(booleans = {false, true})
+    public void testHasWithMoreThanSixtyFourMemberTopicPairs(boolean bitset) {
+        // Thirty topics with 5 partitions each for three members: base 1 and two extra partitions
+        // each, 90 member and topic pairs, more than a single word of the bitset holds.
+        TestMetadataImageBuilder builder = new TestMetadataImageBuilder();
+        Set<Uuid> topics = new HashSet<>();
+        for (int t = 0; t < 30; t++) {
+            Uuid topicId = new Uuid(1L, 1L + t);
+            builder.addTopic(topicId, "topic-" + t, 5, 4, 2);
+            topics.add(topicId);
+        }
+        Uniform2GroupModel model = new Uniform2GroupModel(spec(members(3, topics)), builder.buildDescriber(), false, maxBitsetBits(bitset));
+        assertEquals(30, model.topicCount);
+
+        Uniform2ExtraPartitions extras = new Uniform2ExtraPartitions(model);
+        // With the topic first and three members, topic 21 of A is pair 63, the last of the
+        // first word of the bitset, and topic 21 of B is pair 64, the first of the second word.
+        extras.add(A, 21);
+        extras.add(B, 21);
+        extras.add(C, 29);
+        extras.add(A, 0);
+        extras.add(B, 20);
+        extras.add(C, 22);
+        Set<Integer> expected = Set.of(A * 100 + 21, B * 100 + 21, C * 100 + 29, A * 100, B * 100 + 20, C * 100 + 22);
+        for (int m = 0; m < model.memberCount; m++) {
+            for (int t = 0; t < model.topicCount; t++) {
+                assertEquals(expected.contains(m * 100 + t), extras.has(m, t), "member " + m + " topic " + t);
+            }
+        }
+        assertTopics(extras, A, 0, 21);
+        assertTopics(extras, B, 20, 21);
+        assertTopics(extras, C, 22, 29);
+
+        // Taking back pair 64 leaves pair 63 and pair 65 alone.
+        extras.remove(B, 21);
+        assertFalse(extras.has(B, 21));
+        assertTrue(extras.has(A, 21));
+        assertTrue(extras.has(C, 22));
+        assertTopics(extras, B, 20);
+        assertEquals(1, extras.recipientCount(21));
+        assertEquals(A, extras.recipientAt(21, 0));
+    }
+
+    /**
+     * Checks the number of extra partitions of the member and its topics, which are the first
+     * {@code countOf} entries of {@code topicsOf}.
+     */
     private static void assertTopics(Uniform2ExtraPartitions extras, int member, int... expectedTopics) {
         assertEquals(expectedTopics.length, extras.countOf(member));
         if (expectedTopics.length > 0) {
