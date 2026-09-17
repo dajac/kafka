@@ -19,9 +19,11 @@ package org.apache.kafka.coordinator.group.modern;
 import org.apache.kafka.common.Uuid;
 import org.apache.kafka.coordinator.common.runtime.CoordinatorMetadataImage;
 
+import java.util.ArrayList;
 import java.util.Collection;
 import java.util.HashMap;
 import java.util.Iterator;
+import java.util.List;
 import java.util.Map;
 import java.util.NoSuchElementException;
 import java.util.Objects;
@@ -226,12 +228,24 @@ public class TopicIds implements Set<Uuid> {
 
     @Override
     public Object[] toArray() {
-        throw new UnsupportedOperationException();
+        return topicIds().toArray();
     }
 
     @Override
     public <T> T[] toArray(T[] a) {
-        throw new UnsupportedOperationException();
+        return topicIds().toArray(a);
+    }
+
+    /**
+     * @return The ids of the topic names which resolve, in iteration order. Like the iterator,
+     *         it skips the topic names without id, so the list may be shorter than the size.
+     */
+    private List<Uuid> topicIds() {
+        List<Uuid> topicIds = new ArrayList<>(topicNames.size());
+        for (Uuid topicId : this) {
+            topicIds.add(topicId);
+        }
+        return topicIds;
     }
 
     @Override

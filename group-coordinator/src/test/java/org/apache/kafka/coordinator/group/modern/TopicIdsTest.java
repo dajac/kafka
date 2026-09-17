@@ -28,6 +28,8 @@ import java.util.Set;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
+import static org.junit.jupiter.api.Assertions.assertNull;
+import static org.junit.jupiter.api.Assertions.assertSame;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
@@ -166,6 +168,53 @@ public class TopicIdsTest {
         Set<Uuid> actualIds = new HashSet<>(topicIds);
 
         assertEquals(expectedIds, actualIds);
+    }
+
+    @Test
+    public void testToArray() {
+        Uuid fooUuid = Uuid.randomUuid();
+        Uuid barUuid = Uuid.randomUuid();
+        Uuid bazUuid = Uuid.randomUuid();
+        CoordinatorMetadataImage metadataImage = new KRaftCoordinatorMetadataImage(new MetadataImageBuilder()
+            .addTopic(fooUuid, "foo", 3)
+            .addTopic(barUuid, "bar", 3)
+            .addTopic(bazUuid, "baz", 3)
+            .build());
+
+        Set<Uuid> topicIds = new TopicIds(Set.of("foo", "bar", "baz"), metadataImage);
+
+        Object[] objects = topicIds.toArray();
+        assertEquals(Object[].class, objects.getClass());
+        assertEquals(Set.of(fooUuid, barUuid, bazUuid), Set.of(objects));
+
+        Uuid[] uuids = topicIds.toArray(new Uuid[0]);
+        assertEquals(Uuid[].class, uuids.getClass());
+        assertEquals(Set.of(fooUuid, barUuid, bazUuid), Set.of(uuids));
+
+        // An array which is large enough is filled in place.
+        Uuid[] large = new Uuid[4];
+        assertSame(large, topicIds.toArray(large));
+        assertEquals(Set.of(fooUuid, barUuid, bazUuid), Set.of(large[0], large[1], large[2]));
+        assertNull(large[3]);
+    }
+
+    @Test
+    public void testToArrayOneTopicConversionFails() {
+        Uuid fooUuid = Uuid.randomUuid();
+        Uuid barUuid = Uuid.randomUuid();
+        Uuid quxUuid = Uuid.randomUuid();
+        CoordinatorMetadataImage metadataImage = new KRaftCoordinatorMetadataImage(new MetadataImageBuilder()
+            .addTopic(fooUuid, "foo", 3)
+            .addTopic(barUuid, "bar", 3)
+            .addTopic(quxUuid, "qux", 3)
+            .build());
+
+        Set<Uuid> topicIds = new TopicIds(Set.of("foo", "bar", "baz"), metadataImage);
+
+        // The arrays hold the ids of the topics which exist, so fewer than the size.
+        assertEquals(3, topicIds.size());
+        assertEquals(Set.of(fooUuid, barUuid), Set.of(topicIds.toArray()));
+        assertEquals(Set.of(fooUuid, barUuid), Set.of(topicIds.toArray(new Uuid[0])));
     }
 
     @Test
