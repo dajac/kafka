@@ -24,7 +24,6 @@ import org.apache.kafka.coordinator.group.api.assignor.SubscriptionType;
 import org.apache.kafka.coordinator.group.assignor.Uniform2FuzzScenario.Event;
 import org.apache.kafka.coordinator.group.assignor.Uniform2FuzzScenario.Kind;
 import org.apache.kafka.coordinator.group.assignor.uniform2.AssignmentBuilder;
-import org.apache.kafka.coordinator.group.assignor.uniform2.AssignmentTestUtils;
 import org.apache.kafka.coordinator.group.modern.Assignment;
 import org.apache.kafka.coordinator.group.modern.MemberSubscriptionAndAssignmentImpl;
 
@@ -47,6 +46,7 @@ import java.util.TreeSet;
 
 import static org.apache.kafka.coordinator.group.assignor.uniform2.AssignmentTestUtils.alignedPartitions;
 import static org.apache.kafka.coordinator.group.assignor.uniform2.AssignmentTestUtils.assertValidAssignment;
+import static org.apache.kafka.coordinator.group.assignor.uniform2.AssignmentTestUtils.invertedTargetAssignment;
 import static org.apache.kafka.coordinator.group.assignor.uniform2.AssignmentTestUtils.load;
 import static org.apache.kafka.coordinator.group.assignor.uniform2.AssignmentTestUtils.revocations;
 import static org.apache.kafka.coordinator.group.assignor.uniform2.AssignmentTestUtils.spec;
@@ -78,6 +78,18 @@ import static org.junit.jupiter.api.Assertions.fail;
  *     even out phases settle ties without looking ahead and occasionally reach a balance costing
  *     one move more than another one, with a single subscription as well as with several, and
  *     the summary line counts these cases per subscription kind;</li>
+ *     <li>sticky with racks: for the same small groups when rack awareness is in use, every
+ *     topic is compared with the exact optimum of its partition ids for the allocations of the
+ *     result, found with a minimum cost flow: the largest number of aligned partitions, and the
+ *     fewest moves among the assignments reaching it. A topic reaching that alignment moves at
+ *     most {@link #MAX_RACK_AWARE_EXCESS} partitions more than the fewest, and over the whole
+ *     run the moves beyond the fewest are at most 5% of the topics checked, or 10. The excess
+ *     comes from the maximum flow of the align step, which does not look at who could take a
+ *     leftover back when it chooses between the groups of partitions able to serve a rack, nor
+ *     between the members of a rack: a member whose deficit its own unalignable partitions
+ *     could cover may be served by the flow, and those partitions then have to move. The
+ *     summary line counts the topics moving more than the fewest and the moves in excess, as
+ *     well as the topics below their alignment optimum, which are not checked for moves;</li>
  *     <li>rack aware on demand: with rack awareness disabled, the racks do not change the result;
  *     enabled but with a member without rack, or a single rack, the result is the plain one;
  *     enabled and usable, the number of aligned partitions is compared with an upper bound
@@ -109,6 +121,8 @@ public class Uniform2AssignorFuzzTest {
     private static final int ORACLE_MAX_TOPICS = 4;
     /** The largest gap tolerated at a single step between the aligned partitions and their upper bound. */
     private static final int MAX_ALIGNMENT_GAP = 8;
+    /** The most moves a topic reaching its best alignment may make beyond the fewest for that alignment. */
+    private static final int MAX_RACK_AWARE_EXCESS = 8;
     /** Lets a run skip the brute force oracle, which dominates the run time of tiny groups. */
     private static final boolean ORACLE = Boolean.parseBoolean(System.getProperty("uniform2.fuzz.oracle", "true"));
     /** Whether the {@link UniformAssignor} runs on the same inputs, for the summary line only. */
@@ -128,6 +142,7 @@ public class Uniform2AssignorFuzzTest {
             }
         }
         harness.assertAlignment();
+        harness.assertRackAwareMovement();
         System.out.println(harness.summary());
     }
 
@@ -146,6 +161,15 @@ public class Uniform2AssignorFuzzTest {
         private long oracleExcessHomogeneous;
         /** Oracle checks that needed one move more than the minimum, with several subscriptions. */
         private long oracleExcessHeterogeneous;
+        /** Rack oracle checks: topics of tiny groups using racks with as many aligned partitions as possible. */
+        private long rackOracleChecks;
+        /** Rack oracle checks that moved more partitions than the fewest for their alignment. */
+        private long rackOracleExcess;
+        /** The moves of the rack oracle checks beyond the fewest for their alignment, added up. */
+        private long rackOracleExcessMoves;
+        private long rackOracleWorstExcess;
+        /** Topics of tiny groups using racks with fewer aligned partitions than possible, not checked for moves. */
+        private long rackOracleBelowAlignment;
         private long aligned;
         private long alignedBound;
         private long worstAlignmentGap;
@@ -187,6 +211,8 @@ public class Uniform2AssignorFuzzTest {
             if (!usesRacks) {
                 assertMovementBounds(members, describer, result, event, movedNow, context);
                 assertMinimalMovement(members, describer, movedNow, context);
+            } else {
+                assertMinimalRackAwareMovement(members, describer, result, context);
             }
             boolean countAlignment = rackAware && allRacked(members);
             if (countAlignment) {
@@ -350,6 +376,46 @@ public class Uniform2AssignorFuzzTest {
         }
 
         /**
+         * For tiny groups using racks, checks the choice of the partition ids topic by topic
+         * against the exact optimum of {@link RackAwareOracle} for the allocations of the result. A
+         * topic having as many aligned partitions as possible moves at most
+         * {@link #MAX_RACK_AWARE_EXCESS} partitions more than the fewest possible at that
+         * alignment. A topic below its best alignment is only counted: the alignment bound
+         * covers it, and the fewest moves at a lower alignment is another question.
+         */
+        private void assertMinimalRackAwareMovement(
+            Map<String, MemberSubscriptionAndAssignmentImpl> members,
+            SubscribedTopicDescriber describer,
+            GroupAssignment result,
+            String context
+        ) {
+            List<Uuid> topics = subscribedTopics(members);
+            if (!ORACLE || members.size() > ORACLE_MAX_MEMBERS || topics.size() > ORACLE_MAX_TOPICS) {
+                return;
+            }
+            for (Uuid topicId : topics) {
+                RackAwareOracle.Optimum optimum = RackAwareOracle.optimum(members, describer, result, topicId);
+                int alignedNow = topicAlignedPartitions(members, result, describer, topicId);
+                int movedNow = topicMovedPartitions(members, result, describer, topicId);
+                String topicContext = context + ": topic " + topicId + " has " + alignedNow
+                    + " aligned partitions and moved " + movedNow;
+                assertTrue(alignedNow <= optimum.aligned(), topicContext + ", more than the optimum of " + optimum.aligned());
+                if (alignedNow < optimum.aligned()) {
+                    rackOracleBelowAlignment++;
+                    continue;
+                }
+                rackOracleChecks++;
+                assertTrue(movedNow >= optimum.moves(), topicContext + " but the oracle needs " + optimum.moves());
+                assertTrue(movedNow - optimum.moves() <= MAX_RACK_AWARE_EXCESS, topicContext + " where " + optimum.moves() + " suffice");
+                if (movedNow > optimum.moves()) {
+                    rackOracleExcess++;
+                    rackOracleExcessMoves += movedNow - optimum.moves();
+                    rackOracleWorstExcess = Math.max(rackOracleWorstExcess, movedNow - optimum.moves());
+                }
+            }
+        }
+
+        /**
          * Records the aligned partitions of the step and their upper bound, and checks that the
          * gap of this step stays within {@link #MAX_ALIGNMENT_GAP}.
          */
@@ -407,12 +473,26 @@ public class Uniform2AssignorFuzzTest {
                     + ", worst step: " + worstAlignmentGapContext);
         }
 
+        /**
+         * Over the whole run, the topics checked against the rack oracle moved at most 5% of
+         * their number in excess of the fewest moves, or 10 when few were checked, as in a
+         * single seed run: the flow does not look at who could take a leftover back when it
+         * picks the groups serving a rack and the members it serves within a rack.
+         */
+        void assertRackAwareMovement() {
+            assertTrue(rackOracleExcessMoves <= Math.max(10, rackOracleChecks / 20),
+                "rack aware topics moved " + rackOracleExcessMoves + " partitions beyond the fewest over "
+                    + rackOracleChecks + " checks, worst excess " + rackOracleWorstExcess);
+        }
+
         String summary() {
             String summary = String.format("uniform2 fuzz rackAware=%s: %d assignments (%d seeds, 1 initial + %d events each), "
                     + "moved partitions=%d, oracle checks=%d (one move above the minimum: homogeneous=%d heterogeneous=%d), "
-                    + "aligned partitions=%d for a bound of %d",
+                    + "rack oracle checks=%d (topics above the fewest moves=%d, moves in excess=%d, worst=%d, "
+                    + "topics below the alignment=%d), aligned partitions=%d for a bound of %d",
                 rackAware, assignments, SEED == null ? SEEDS : 1, EVENTS, moved, oracleChecks, oracleExcessHomogeneous,
-                oracleExcessHeterogeneous, aligned, alignedBound);
+                oracleExcessHeterogeneous, rackOracleChecks, rackOracleExcess, rackOracleExcessMoves, rackOracleWorstExcess,
+                rackOracleBelowAlignment, aligned, alignedBound);
             if (REFERENCE) {
                 summary += String.format(", uniform: moved partitions=%d aligned partitions=%d failures=%d",
                     referenceMoved, referenceAligned, referenceFailures);
@@ -465,6 +545,185 @@ public class Uniform2AssignorFuzzTest {
         Set<Uuid> topics = new TreeSet<>();
         members.values().forEach(member -> topics.addAll(member.subscribedTopicIds()));
         return new ArrayList<>(topics);
+    }
+
+    /**
+     * @return The number of partitions of the topic having a replica in the rack of their member.
+     */
+    private static int topicAlignedPartitions(
+        Map<String, MemberSubscriptionAndAssignmentImpl> members,
+        GroupAssignment result,
+        SubscribedTopicDescriber describer,
+        Uuid topicId
+    ) {
+        int aligned = 0;
+        for (Map.Entry<String, MemberSubscriptionAndAssignmentImpl> entry : members.entrySet()) {
+            String rack = entry.getValue().rackId().orElseThrow();
+            for (int partition : result.members().get(entry.getKey()).partitions().getOrDefault(topicId, Set.of())) {
+                if (describer.racksForPartition(topicId, partition).contains(rack)) {
+                    aligned++;
+                }
+            }
+        }
+        return aligned;
+    }
+
+    /**
+     * @return The number of existing partitions of the topic that a member holds and does not get back.
+     */
+    private static int topicMovedPartitions(
+        Map<String, MemberSubscriptionAndAssignmentImpl> members,
+        GroupAssignment result,
+        SubscribedTopicDescriber describer,
+        Uuid topicId
+    ) {
+        int numPartitions = describer.numPartitions(topicId);
+        int moved = 0;
+        for (Map.Entry<String, MemberSubscriptionAndAssignmentImpl> entry : members.entrySet()) {
+            Set<Integer> kept = result.members().get(entry.getKey()).partitions().getOrDefault(topicId, Set.of());
+            for (int partition : entry.getValue().partitions().getOrDefault(topicId, Set.of())) {
+                if (partition < numPartitions && !kept.contains(partition)) {
+                    moved++;
+                }
+            }
+        }
+        return moved;
+    }
+
+    /**
+     * The exact optimum of the partition ids of one topic with racks, for the allocations of an
+     * assignment: the largest number of aligned partitions, and the fewest moved partitions among
+     * the assignments reaching it. It is a minimum cost flow from the partitions to the
+     * subscribers, each taking its allocation, in which giving a partition to a member without a
+     * replica in its rack costs far more than taking it away from its current owner. A
+     * partition nobody holds costs nothing to anyone, and one held by a member who is not a
+     * subscriber of the topic costs the same move to everyone. Members having left hold nothing.
+     */
+    private static final class RackAwareOracle {
+        private static final int MISALIGNED_COST = 1 << 20;
+
+        /** The largest number of aligned partitions, and the fewest moves among the assignments reaching it. */
+        record Optimum(int aligned, int moves) { }
+
+        static Optimum optimum(
+            Map<String, MemberSubscriptionAndAssignmentImpl> members,
+            SubscribedTopicDescriber describer,
+            GroupAssignment result,
+            Uuid topicId
+        ) {
+            int partitions = describer.numPartitions(topicId);
+            List<String> ids = new ArrayList<>(members.keySet());
+            int source = partitions + ids.size();
+            int sink = source + 1;
+            MinCostFlow flow = new MinCostFlow(sink + 1, partitions + partitions * ids.size() + ids.size());
+            for (int m = 0; m < ids.size(); m++) {
+                int allocation = result.members().get(ids.get(m)).partitions().getOrDefault(topicId, Set.of()).size();
+                if (allocation > 0) {
+                    flow.addEdge(partitions + m, sink, allocation, 0);
+                }
+            }
+            Map<Integer, String> owners = invertedTargetAssignment(members).getOrDefault(topicId, Map.of());
+            for (int p = 0; p < partitions; p++) {
+                flow.addEdge(source, p, 1, 0);
+                Set<String> racks = describer.racksForPartition(topicId, p);
+                String owner = owners.get(p);
+                for (int m = 0; m < ids.size(); m++) {
+                    MemberSubscriptionAndAssignmentImpl member = members.get(ids.get(m));
+                    if (!member.subscribedTopicIds().contains(topicId)) {
+                        continue;
+                    }
+                    int cost = racks.contains(member.rackId().orElseThrow()) ? 0 : MISALIGNED_COST;
+                    if (owner != null && !owner.equals(ids.get(m))) {
+                        cost++;
+                    }
+                    flow.addEdge(p, partitions + m, 1, cost);
+                }
+            }
+            long cost = flow.send(source, sink, partitions);
+            return new Optimum(partitions - (int) (cost / MISALIGNED_COST), (int) (cost % MISALIGNED_COST));
+        }
+    }
+
+    /**
+     * A minimum cost flow on a small network by successive shortest paths: every unit goes along
+     * the cheapest path of the residual network, found with a Bellman-Ford search since the
+     * reverse edges have negative costs. Every path carries one unit here, the edges out of the
+     * source having a capacity of one.
+     */
+    private static final class MinCostFlow {
+        private final int[] head;
+        private final int[] next;
+        private final int[] to;
+        private final int[] capacity;
+        private final int[] cost;
+        private int edges;
+
+        MinCostFlow(int nodes, int maxEdges) {
+            head = new int[nodes];
+            Arrays.fill(head, -1);
+            next = new int[2 * maxEdges];
+            to = new int[2 * maxEdges];
+            capacity = new int[2 * maxEdges];
+            cost = new int[2 * maxEdges];
+        }
+
+        /**
+         * Adds an edge and its reverse right after it, so that {@code e ^ 1} is the reverse of {@code e}.
+         */
+        void addEdge(int from, int target, int edgeCapacity, int unitCost) {
+            add(from, target, edgeCapacity, unitCost);
+            add(target, from, 0, -unitCost);
+        }
+
+        private void add(int from, int target, int edgeCapacity, int unitCost) {
+            to[edges] = target;
+            capacity[edges] = edgeCapacity;
+            cost[edges] = unitCost;
+            next[edges] = head[from];
+            head[from] = edges++;
+        }
+
+        /**
+         * @return The cost of sending the amount from the source to the sink, one unit at a time.
+         */
+        long send(int source, int sink, int amount) {
+            int nodes = head.length;
+            long[] distance = new long[nodes];
+            int[] parentEdge = new int[nodes];
+            boolean[] queued = new boolean[nodes];
+            long total = 0;
+            for (int sent = 0; sent < amount; sent++) {
+                Arrays.fill(distance, Long.MAX_VALUE);
+                Arrays.fill(parentEdge, -1);
+                distance[source] = 0;
+                ArrayDeque<Integer> queue = new ArrayDeque<>();
+                queue.add(source);
+                while (!queue.isEmpty()) {
+                    int u = queue.poll();
+                    queued[u] = false;
+                    for (int e = head[u]; e != -1; e = next[e]) {
+                        int v = to[e];
+                        if (capacity[e] > 0 && distance[u] + cost[e] < distance[v]) {
+                            distance[v] = distance[u] + cost[e];
+                            parentEdge[v] = e;
+                            if (!queued[v]) {
+                                queued[v] = true;
+                                queue.add(v);
+                            }
+                        }
+                    }
+                }
+                if (parentEdge[sink] == -1) {
+                    throw new IllegalStateException("The allocations do not cover the partitions.");
+                }
+                for (int v = sink; v != source; v = to[parentEdge[v] ^ 1]) {
+                    capacity[parentEdge[v]]--;
+                    capacity[parentEdge[v] ^ 1]++;
+                }
+                total += distance[sink];
+            }
+            return total;
+        }
     }
 
     /**
