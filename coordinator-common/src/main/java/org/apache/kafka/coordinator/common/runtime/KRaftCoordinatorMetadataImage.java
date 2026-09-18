@@ -138,19 +138,22 @@ public class KRaftCoordinatorMetadataImage implements CoordinatorMetadataImage {
 
         @Override
         public List<String> partitionRacks(int partition) {
-            List<String> racks = new ArrayList<>();
             PartitionRegistration partitionRegistration = topicImage.partitions().get(partition);
-            if (partitionRegistration != null) {
-                for (int replicaId : partitionRegistration.replicas) {
-                    BrokerRegistration broker = clusterImage.broker(replicaId);
-                    if (broker != null) {
-                        broker.rack().ifPresent(racks::add);
-                    }
-                }
-                return racks;
-            } else {
+            if (partitionRegistration == null) {
                 return List.of();
             }
+            int[] replicas = partitionRegistration.replicas;
+            List<String> racks = new ArrayList<>(replicas.length);
+            for (int replicaId : replicas) {
+                BrokerRegistration broker = clusterImage.broker(replicaId);
+                if (broker != null) {
+                    Optional<String> rack = broker.rack();
+                    if (rack.isPresent()) {
+                        racks.add(rack.get());
+                    }
+                }
+            }
+            return racks;
         }
     }
 }

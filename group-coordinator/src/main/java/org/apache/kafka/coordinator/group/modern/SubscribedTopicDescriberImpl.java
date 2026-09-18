@@ -21,7 +21,7 @@ import org.apache.kafka.coordinator.common.runtime.CoordinatorMetadataImage;
 import org.apache.kafka.coordinator.group.api.assignor.PartitionAssignor;
 import org.apache.kafka.coordinator.group.api.assignor.SubscribedTopicDescriber;
 
-import java.util.HashSet;
+import java.util.Arrays;
 import java.util.List;
 import java.util.Objects;
 import java.util.Optional;
@@ -37,8 +37,29 @@ public class SubscribedTopicDescriberImpl implements SubscribedTopicDescriber {
      */
     private final CoordinatorMetadataImage metadataImage;
 
+    /**
+     * The topic whose racks were looked up last. Assignors ask for the racks of the partitions
+     * of a topic one after the other, so remembering the last topic saves one lookup in the
+     * image per partition. Only {@link #racksForPartition} uses it: {@link #numPartitions} is
+     * asked once per topic, so remembering it there would only cost an entry per topic. The
+     * entry is immutable and replaced as a whole, so a stale read still gives a consistent answer.
+     */
+    private LastTopic lastTopic;
+
+    private record LastTopic(Uuid topicId, Optional<CoordinatorMetadataImage.TopicMetadata> topicMetadata) { }
+
     public SubscribedTopicDescriberImpl(CoordinatorMetadataImage metadataImage) {
         this.metadataImage = Objects.requireNonNull(metadataImage);
+    }
+
+    private Optional<CoordinatorMetadataImage.TopicMetadata> topicMetadata(Uuid topicId) {
+        LastTopic last = lastTopic;
+        if (last != null && last.topicId.equals(topicId)) {
+            return last.topicMetadata;
+        }
+        Optional<CoordinatorMetadataImage.TopicMetadata> topicMetadata = metadataImage.topicMetadata(topicId);
+        lastTopic = new LastTopic(topicId, topicMetadata);
+        return topicMetadata;
     }
 
     /**
@@ -50,7 +71,7 @@ public class SubscribedTopicDescriberImpl implements SubscribedTopicDescriber {
      */
     @Override
     public int numPartitions(Uuid topicId) {
-        return this.metadataImage.topicMetadata(topicId).map(CoordinatorMetadataImage.TopicMetadata::partitionCount).orElse(-1);
+        return metadataImage.topicMetadata(topicId).map(CoordinatorMetadataImage.TopicMetadata::partitionCount).orElse(-1);
     }
 
     /**
@@ -63,18 +84,34 @@ public class SubscribedTopicDescriberImpl implements SubscribedTopicDescriber {
      */
     @Override
     public Set<String> racksForPartition(Uuid topicId, int partition) {
-        Optional<CoordinatorMetadataImage.TopicMetadata> topicMetadataOp = metadataImage.topicMetadata(topicId);
+        Optional<CoordinatorMetadataImage.TopicMetadata> topicMetadataOp = topicMetadata(topicId);
         if (topicMetadataOp.isEmpty()) {
             return Set.of();
         }
 
         CoordinatorMetadataImage.TopicMetadata topicMetadata = topicMetadataOp.get();
         List<String> racks = topicMetadata.partitionRacks(partition);
-        if (racks == null) {
+        if (racks == null || racks.isEmpty()) {
             return Set.of();
-        } else {
-            return new HashSet<>(racks);
         }
+        // The replicas of a partition are in a handful of racks, so the distinct racks are found
+        // by comparison rather than through a hash table, and returned in a compact immutable set.
+        String[] distinct = new String[racks.size()];
+        int count = 0;
+        for (String rack : racks) {
+            boolean seen = false;
+            for (int i = 0; i < count && !seen; i++) {
+                seen = distinct[i].equals(rack);
+            }
+            if (!seen) {
+                distinct[count++] = rack;
+            }
+        }
+        return switch (count) {
+            case 1 -> Set.of(distinct[0]);
+            case 2 -> Set.of(distinct[0], distinct[1]);
+            default -> Set.of(count == distinct.length ? distinct : Arrays.copyOf(distinct, count));
+        };
     }
 
     @Override
