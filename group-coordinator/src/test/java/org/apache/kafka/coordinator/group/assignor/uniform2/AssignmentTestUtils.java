@@ -51,10 +51,17 @@ public final class AssignmentTestUtils {
     private AssignmentTestUtils() { }
 
     /**
-     * @return A member subscribed to the topics and currently holding the assignment.
+     * @return A member without rack.
      */
     public static MemberSubscriptionAndAssignmentImpl member(Set<Uuid> topics, Assignment assignment) {
-        return new MemberSubscriptionAndAssignmentImpl(Optional.empty(), Optional.empty(), topics, assignment);
+        return member(null, topics, assignment);
+    }
+
+    /**
+     * @return A member with the given rack, or without one when it is null.
+     */
+    public static MemberSubscriptionAndAssignmentImpl member(String rack, Set<Uuid> topics, Assignment assignment) {
+        return new MemberSubscriptionAndAssignmentImpl(Optional.ofNullable(rack), Optional.empty(), topics, assignment);
     }
 
     /**
@@ -207,6 +214,29 @@ public final class AssignmentTestUtils {
             assertSame(stableMembers.get(id).partitions(), again.members().get(id).partitions(),
                 "the assignment of " + id + " is not a fixed point");
         }
+    }
+
+    /**
+     * @return The number of partitions of the assignment having a replica in the rack of their
+     *         member.
+     */
+    public static int alignedPartitions(
+        Map<String, MemberSubscriptionAndAssignmentImpl> members,
+        GroupAssignment assignment,
+        SubscribedTopicDescriber describer
+    ) {
+        int aligned = 0;
+        for (Map.Entry<String, MemberAssignment> entry : assignment.members().entrySet()) {
+            String rack = members.get(entry.getKey()).rackId().orElse(null);
+            for (Map.Entry<Uuid, Set<Integer>> topicEntry : entry.getValue().partitions().entrySet()) {
+                for (int partition : topicEntry.getValue()) {
+                    if (describer.racksForPartition(topicEntry.getKey(), partition).contains(rack)) {
+                        aligned++;
+                    }
+                }
+            }
+        }
+        return aligned;
     }
 
     /**

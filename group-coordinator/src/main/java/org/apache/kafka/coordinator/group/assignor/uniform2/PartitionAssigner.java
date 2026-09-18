@@ -36,12 +36,16 @@ import static org.apache.kafka.coordinator.group.assignor.uniform2.GroupModel.NO
  * ascending member order. A topic in which every owner already has exactly its allocation, and the
  * owners together own every partition, is emitted as is. A member whose partitions of a topic
  * did not change gets its current set back rather than a copy.
+ *
+ * <p>{@link RackAwarePartitionAssigner} replaces the per topic assignment when racks are
+ * in use, through the {@link #isSettled} and {@link #assignTopic} hooks, and reuses the loop,
+ * the deficits and the emission from this class.
  */
-final class PartitionAssigner {
-    private final GroupModel model;
-    private final GroupModel.Owners owners;
-    private final Allocations allocations;
-    private final TopicScratch scratch;
+class PartitionAssigner {
+    final GroupModel model;
+    final GroupModel.Owners owners;
+    final Allocations allocations;
+    final TopicScratch scratch;
     private final AssignmentResult result;
 
     PartitionAssigner(GroupModel model, Allocations allocations) {
@@ -76,7 +80,7 @@ final class PartitionAssigner {
     /**
      * Assigns every partition of the topic to a member in {@link TopicScratch#owner}.
      */
-    private void assignTopic(int t) {
+    void assignTopic(int t) {
         keepCurrentPartitions(t);
         computeDeficits(t);
         fillDeficits(t);
@@ -89,7 +93,7 @@ final class PartitionAssigner {
      * consistent, every partition being owned once, which the target assignment maintained by
      * the coordinator guarantees.
      */
-    private boolean isSettled(int t) {
+    boolean isSettled(int t) {
         int owned = 0;
         for (int i = owners.start()[t]; i < owners.start()[t + 1]; i++) {
             int count = owners.validCount()[i];
@@ -134,7 +138,7 @@ final class PartitionAssigner {
      * Records the deficit of every member that may receive partitions of the topic, in ascending
      * member order.
      */
-    private void computeDeficits(int t) {
+    void computeDeficits(int t) {
         int count = receiverCount(t);
         for (int i = 0; i < count; i++) {
             recordDeficit(t, receiverAt(t, i));
@@ -148,7 +152,7 @@ final class PartitionAssigner {
      *
      * @return The number of members that may receive partitions of the topic.
      */
-    private int receiverCount(int t) {
+    int receiverCount(int t) {
         if (model.basePartitionCount()[t] > 0) {
             return model.subscribers()[t].length;
         }
@@ -160,7 +164,7 @@ final class PartitionAssigner {
      * @return The {@code i}-th member that may receive partitions of the topic, see
      *         {@link #receiverCount}.
      */
-    private int receiverAt(int t, int i) {
+    int receiverAt(int t, int i) {
         return model.basePartitionCount()[t] > 0 ? model.subscribers()[t][i] : allocations.extraReceiverAt(t, i);
     }
 
@@ -213,7 +217,7 @@ final class PartitionAssigner {
      * @return The exception for a current assignment in which a partition is owned by several
      *         members, which the algorithm relies on never happening.
      */
-    private PartitionAssignorException inconsistentAssignment(int t) {
+    PartitionAssignorException inconsistentAssignment(int t) {
         return new PartitionAssignorException("The current assignment of topic " + model.topicIds()[t]
             + " is inconsistent: a partition is owned by several members.");
     }
@@ -283,7 +287,7 @@ final class PartitionAssigner {
      * arrays are only valid up to the number of participants and are reset by {@link #participant}
      * when a participant is added, so {@link #clear} only has to forget the participants.
      */
-    private static final class TopicScratch {
+    static final class TopicScratch {
         /**
          * Per partition, the member it is assigned to, or NONE.
          */

@@ -32,6 +32,7 @@ final class AllocationBuilder {
     private final GroupModel model;
     private final GroupModel.Owners owners;
     private final GroupModel.Cohorts cohorts;
+    private final GroupModel.Racks racks;
     private final Allocations allocations;
     /**
      * The loads, with the members of every cohort sorted by load. Built once the claims are
@@ -73,6 +74,7 @@ final class AllocationBuilder {
         this.model = model;
         this.owners = model.owners();
         this.cohorts = model.cohorts();
+        this.racks = model.racks();
         allocations = new Allocations(model);
         cursors = new int[model.maxCohortsPerTopic()];
         backedCandidates = new IntArrayList[model.topicCount()];
@@ -327,7 +329,8 @@ final class AllocationBuilder {
      * Finds the best receiver of an extra partition of the topic among the subscribers not
      * getting one yet: the least loaded, then, when asked to prefer backed receivers, one
      * currently owning more partitions of the topic than the base, the first by id, since the
-     * extra partition then costs no move, then the one in the first cohort of the topic.
+     * extra partition then costs no move, then, when racks are in use, the one whose rack has
+     * the most spare replicas of the topic, then the one in the first cohort of the topic.
      * Within a cohort, the first member in its load order wins; that order depends only on the
      * input but is not the id order, see {@link Loads}. The cursors hold the scan
      * position in the order of each cohort of the topic. Everything before a cursor gets an
@@ -342,6 +345,7 @@ final class AllocationBuilder {
     private int bestReceiver(int t, boolean preferBacked) {
         int best = NONE;
         int bestLoad = Integer.MAX_VALUE;
+        int bestSpare = Integer.MIN_VALUE;
         int start = cohorts.topicCohortStart()[t];
         for (int i = start; i < cohorts.topicCohortStart()[t + 1]; i++) {
             int[] order = loads.order(cohorts.topicCohorts()[i]);
@@ -354,9 +358,15 @@ final class AllocationBuilder {
                 continue;
             }
             int m = order[at];
-            if (loads.load[m] < bestLoad) {
+            int memberLoad = loads.load[m];
+            if (memberLoad > bestLoad) {
+                continue;
+            }
+            int spare = model.usesRacks() ? rackSpare(m, t) : 0;
+            if (memberLoad < bestLoad || spare > bestSpare) {
                 best = m;
-                bestLoad = loads.load[m];
+                bestLoad = memberLoad;
+                bestSpare = spare;
             }
         }
         if (preferBacked && best != NONE) {
@@ -393,6 +403,16 @@ final class AllocationBuilder {
             backedCandidates[t] = new IntArrayList(4);
         }
         backedCandidates[t].add(m);
+    }
+
+    /**
+     * @return The number of partitions of the topic with a replica in the rack of the member,
+     *         minus the number the members of the rack get with the current extra partitions. The
+     *         higher, the more room the rack has to align one more extra partition.
+     */
+    private int rackSpare(int m, int t) {
+        int rack = racks.memberRack()[m];
+        return racks.supply()[t][rack] - cohorts.rackSubscribers()[t][rack] * model.basePartitionCount()[t] - allocations.extraCountInRack(t, rack);
     }
 
     private int cohortCount(int t) {

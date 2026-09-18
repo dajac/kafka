@@ -48,6 +48,9 @@ import java.util.Map;
  *     less.</li>
  *     <li><b>Deterministic:</b> the result only depends on the content of the input, never on
  *     the order in which members or topics are iterated.</li>
+ *     <li><b>Rack aware, on demand:</b> when enabled, members receive partitions having a
+ *     replica in their rack whenever this does not conflict with the properties above. When
+ *     disabled, none of the rack awareness code runs.</li>
  * </ul>
  *
  * <p><b>Vocabulary.</b>
@@ -64,9 +67,10 @@ import java.util.Map;
  *     <li>The <i>load</i> of a member is the sum of its allocations, that is the number of
  *     partitions it will be assigned. It is its <i>base load</i>, the base partitions of all its
  *     topics added up, plus the number of extra partitions it gets.</li>
- *     <li>A <i>cohort</i> is a set of members with the same subscription. The members of a
- *     cohort have the same base load and are eligible for the same extra partitions. A group
- *     where all members have the same subscription has a single cohort.</li>
+ *     <li>A <i>cohort</i> is a set of members with the same subscription, and the same rack
+ *     when rack awareness is in use. The members of a cohort have the same base load and are
+ *     eligible for the same extra partitions. A group where all members have the same
+ *     subscription has a single cohort, or one per rack.</li>
  *     <li>The <i>current</i> partitions of a member are the ones it owns in the input, and the
  *     member is their <i>owner</i>. A current partition is <i>stale</i> when its topic no longer
  *     exists or is no longer subscribed by its owner, or when its id is beyond the partition
@@ -74,11 +78,15 @@ import java.util.Map;
  *     <li>An extra partition is <i>backed</i> when the member getting it currently owns more
  *     partitions of the topic than the base: it lets the member keep one of them. Otherwise
  *     the extra partition is <i>free</i> and giving it to another member costs nothing.</li>
+ *     <li>A partition is <i>aligned</i> with a member when one of its replicas is in the rack
+ *     of the member. The <i>supply</i> of a rack for a topic is the number of its partitions
+ *     having a replica in the rack.</li>
  *     <li>In the partition phase, the <i>participants</i> of a topic are its subscribers owning
  *     or receiving partitions of it. A participant below its allocation is a <i>receiver</i>,
  *     and the difference is its <i>deficit</i>. The partitions an owner gives up above its
- *     allocation are <i>released</i>. In the even out phase, the <i>receiver</i> of an extra
- *     partition is the member it moves to.</li>
+ *     allocation are <i>released</i>. A released partition that the rack aware flow does not
+ *     place is a <i>leftover</i>, which returns to its owner. In the even out phase, the
+ *     <i>receiver</i> of an extra partition is the member it moves to.</li>
  * </ul>
  *
  * <p><b>Key idea.</b> The algorithm decides allocations before partition ids. The spread property
@@ -95,9 +103,11 @@ import java.util.Map;
  * order. Afterwards, every claimed extra partition is backed.
  *
  * <p><b>Phase 2, fill.</b> For every topic with unclaimed extra partitions, each of them goes
- * to the least loaded subscriber not getting one yet. Ties go to the first cohort of the topic,
- * and within it to the first member in its load order, described below. Afterwards, every
- * extra partition has a member and the spread and completeness properties are settled.
+ * to the least loaded subscriber not getting one yet. When rack aware, ties go to the member
+ * whose rack has the most spare replicas of the topic, so that its extra partition can be
+ * aligned. The remaining ties go to the first cohort of the topic, and within it to the first
+ * member in its load order, described below. Afterwards, every extra partition has a member
+ * and the spread and completeness properties are settled.
  *
  * <p><b>Phase 3, even out.</b> Claims are local to a topic, so a member that kept many of them
  * may be well above the others. While the most loaded member having a movable extra
@@ -175,6 +185,46 @@ import java.util.Map;
  * Three partitions moved, exactly the three that B is owed.
  * </pre>
  *
+ * <p><b>Rack awareness.</b> It is used when enabled, every member has a rack and there are
+ * between two and 64 distinct racks; otherwise the result is exactly the one of the plain
+ * algorithm. It never changes the allocations, so the properties above are kept as they are. It
+ * acts in two places: as the tie breaker described in the fill and even out phases, and in
+ * the partition phase, which for each topic becomes:
+ * <ol>
+ *     <li><b>Keep:</b> each current owner keeps its current aligned partitions up to its
+ *     allocation. Misaligned partitions are released so that they can be realigned, and come back
+ *     to their owner later if they cannot be. An owner with more aligned partitions than its
+ *     allocation releases first the ones most useful to the racks whose members are below their
+ *     allocations, then the ones with the most replica racks, which are the easiest to place.</li>
+ *     <li><b>Align:</b> the released partitions are grouped by the set of racks having their
+ *     replicas, and the members below their allocation are grouped by rack. The largest number of
+ *     partitions that can be handed to a member in one of their replica racks is found with
+ *     a maximum flow from the partition groups, through the racks, to the demand of each
+ *     rack. A greedy match can get stuck, for instance by giving a partition with replicas in
+ *     racks 1 and 2 to rack 1 when a partition with replicas in racks 1 and 3 was the only
+ *     one able to serve rack 1. The flow network has one node per distinct replica rack set
+ *     among the released partitions and one per rack: a handful with the usual three racks.
+ *     Within a rack, the partitions go to the members below their allocation, the current owners
+ *     of the topic first, then its other subscribers, each in member id order. Within a group,
+ *     the partitions handed out are first those that have to move anyway: the ones nobody
+ *     owns, and the ones whose previous owner has no deficit left once the flow is served, or
+ *     already has as many of them set aside as its deficit. The partitions whose owner can
+ *     take them back are only handed out when the flow needs more of the group, so that they
+ *     are the ones left over.</li>
+ *     <li><b>Leftovers:</b> the partitions that cannot be aligned go back to their previous
+ *     owner if it is still below its allocation, then to the remaining members below their
+ *     allocation in that same order. Thanks to the order of the align step, a leftover goes
+ *     back to its owner whenever its group has enough other partitions to hand out.</li>
+ *     <li><b>Swap:</b> for each partition still misaligned, look for a partition owned by a
+ *     member in one of its replica racks which has itself a replica in the rack of the
+ *     misaligned owner, and swap the two. Both members keep their allocations. Partitions that
+ *     were not previously owned by their member are preferred as partners, as swapping them
+ *     costs nothing more. This repairs the misalignments left by the greedy keep step.</li>
+ * </ol>
+ * A settled topic whose partitions are all aligned is emitted as is. With two replicas per
+ * partition spread over three racks and a similar number of members per rack, every partition
+ * ends up aligned in practice.
+ *
  * <p><b>Determinism and stability.</b> Members and topics are sorted by id, and the members of
  * a cohort are kept in a load order that only depends on the input: it starts in id order and
  * every change of a load moves one member within it in a fixed way. Ties between equally
@@ -192,33 +242,43 @@ import java.util.Map;
  * updates when a load changes by one, so the phases distributing the extra partitions are
  * linear in their number times the number of cohorts subscribed to the topic, plus, for the
  * extra partitions that the even out phase moves, the members that claimed one of the same
- * topic without getting it. The partition phase is linear in the total number of partitions.
+ * topic without getting it. The partition
+ * phase is linear in the total number of partitions. Rack awareness adds, per topic with
+ * partitions to realign, a maximum flow over a network with one node per distinct replica
+ * rack set among the released partitions, and a scan of the partitions for the swaps.
  *
  * <p><b>Structure.</b> The code follows the phases. {@link GroupModel} normalizes the
  * input: members and topics numbered, subscribers, current partitions, base and extra partition
- * counts and cohorts. {@link AllocationBuilder} builds the {@link Allocations} through the
- * claims, fill and even out phases, tracking loads with {@link Loads}.
- * {@link PartitionAssigner} runs the partition phase, and {@link AssignmentResult} builds the
- * group assignment.
+ * counts, cohorts and racks. {@link AllocationBuilder} builds the {@link Allocations} through
+ * the claims, fill and even out phases, tracking loads with {@link Loads}.
+ * {@link PartitionAssigner} runs the partition phase, with
+ * {@link RackAwarePartitionAssigner} taking over when racks are in use, and
+ * {@link AssignmentResult} builds the group assignment.
  */
 public final class AssignmentBuilder {
     private final GroupSpec groupSpec;
     private final SubscribedTopicDescriber subscribedTopicDescriber;
+    private final boolean rackAwareEnabled;
 
     public AssignmentBuilder(
         GroupSpec groupSpec,
-        SubscribedTopicDescriber subscribedTopicDescriber
+        SubscribedTopicDescriber subscribedTopicDescriber,
+        boolean rackAwareEnabled
     ) {
         this.groupSpec = groupSpec;
         this.subscribedTopicDescriber = subscribedTopicDescriber;
+        this.rackAwareEnabled = rackAwareEnabled;
     }
 
     public GroupAssignment build() {
-        GroupModel model = new GroupModel(groupSpec, subscribedTopicDescriber);
+        GroupModel model = new GroupModel(groupSpec, subscribedTopicDescriber, rackAwareEnabled);
         if (model.topicCount() == 0) {
             return new GroupAssignment(Map.of());
         }
         Allocations allocations = new AllocationBuilder(model).build();
-        return new PartitionAssigner(model, allocations).assign();
+        PartitionAssigner partitionAssigner = model.usesRacks()
+            ? new RackAwarePartitionAssigner(model, allocations)
+            : new PartitionAssigner(model, allocations);
+        return partitionAssigner.assign();
     }
 }

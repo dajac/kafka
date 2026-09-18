@@ -74,7 +74,8 @@ import java.util.concurrent.TimeUnit;
  *     <li>{@code distribution}: how the partitions are split over the topics, see
  *     {@link Distribution}.</li>
  *     <li>{@code subscription}: how the members subscribe, see {@link Subscription}.</li>
- *     <li>{@code rack}: whether the members have a rack, see {@link Rack}.</li>
+ *     <li>{@code rack}: whether the members have a rack, and whether the assignor is asked to
+ *     use it, see {@link Rack}.</li>
  *     <li>{@code assignor}: the assignor.</li>
  *     <li>{@code event}: what happened to the group, see {@link Event}. The group has
  *     {@code memberCount} members when the assignment is computed, and the joining or leaving
@@ -117,7 +118,7 @@ public class ConsumerAssignorBenchmark {
         UNIFORM,
 
         /**
-         * The uniform2 assignor.
+         * The uniform2 assignor, rack aware when the rack mode asks for it.
          */
         UNIFORM2
     }
@@ -182,9 +183,17 @@ public class ConsumerAssignorBenchmark {
         NONE,
 
         /**
-         * The members are spread over the racks of the brokers.
+         * The members are spread over the racks of the brokers, and the assignors having a
+         * switch for rack awareness are asked not to use it.
          */
-        PROVIDED
+        PROVIDED_DISABLED,
+
+        /**
+         * The members are spread over the racks of the brokers, and the assignors having a
+         * switch for rack awareness, uniform2 at the moment, are asked to use it. The two values
+         * thus measure the cost of rack awareness on the same input.
+         */
+        PROVIDED_ENABLED
     }
 
     /**
@@ -554,7 +563,7 @@ public class ConsumerAssignorBenchmark {
     @Param({"HOMOGENEOUS", "HETEROGENEOUS_DISJOINT", "HETEROGENEOUS_NESTED"})
     private Subscription subscription;
 
-    @Param({"NONE", "PROVIDED"})
+    @Param({"NONE", "PROVIDED_DISABLED", "PROVIDED_ENABLED"})
     private Rack rack;
 
     @Param({"RANGE", "UNIFORM", "UNIFORM2"})
@@ -602,7 +611,7 @@ public class ConsumerAssignorBenchmark {
         return switch (assignor) {
             case RANGE -> new RangeAssignor();
             case UNIFORM -> new UniformAssignor();
-            case UNIFORM2 -> new Uniform2Assignor();
+            case UNIFORM2 -> new Uniform2Assignor(rack == Rack.PROVIDED_ENABLED);
         };
     }
 

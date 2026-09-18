@@ -35,15 +35,17 @@ import static org.apache.kafka.coordinator.group.assignor.uniform2.AssignmentTes
 import static org.apache.kafka.coordinator.group.assignor.uniform2.AssignmentTestUtils.member;
 import static org.apache.kafka.coordinator.group.assignor.uniform2.AssignmentTestUtils.spec;
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertNotSame;
 import static org.junit.jupiter.api.Assertions.assertSame;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 /**
- * Tests of the partition phase, see {@link PartitionAssigner}: which partition ids every
- * member gets once the allocations are known. The allocations come from
- * {@link AllocationBuilder}, and every expectation is worked out by hand in the comments.
+ * Tests of the partition phase without racks, see {@link PartitionAssigner}: which
+ * partition ids every member gets once the allocations are known. The allocations come from
+ * {@link AllocationBuilder}, and every expectation is worked out by hand in the
+ * comments.
  */
 public class PartitionAssignerTest {
     // Topics and members are sorted by id, so T1 is processed before T2 and A before B, and so on.
@@ -71,13 +73,14 @@ public class PartitionAssignerTest {
     }
 
     /**
-     * Runs the extra partition phases, then the partition phase.
+     * Runs the extra partition phases, then the partition phase without racks.
      */
     private static GroupAssignment assign(
         Map<String, MemberSubscriptionAndAssignmentImpl> members,
         SubscribedTopicDescriber describer
     ) {
-        GroupModel model = new GroupModel(spec(members), describer);
+        GroupModel model = new GroupModel(spec(members), describer, false);
+        assertFalse(model.usesRacks());
         Allocations allocations = new AllocationBuilder(model).build();
         return new PartitionAssigner(model, allocations).assign();
     }

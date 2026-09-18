@@ -16,6 +16,7 @@
  */
 package org.apache.kafka.coordinator.group.assignor;
 
+import org.apache.kafka.common.Configurable;
 import org.apache.kafka.coordinator.group.api.assignor.ConsumerGroupPartitionAssignor;
 import org.apache.kafka.coordinator.group.api.assignor.GroupAssignment;
 import org.apache.kafka.coordinator.group.api.assignor.GroupSpec;
@@ -34,22 +35,62 @@ import java.util.Map;
  *     <li>the total number of partitions per member is balanced (within one for homogeneous
  *     subscriptions, and up to a local optimum for heterogeneous subscriptions);</li>
  *     <li>partitions stay on their current owner whenever the two properties above allow it
- *     (stickiness).</li>
+ *     (stickiness);</li>
+ *     <li>optionally, when rack awareness is enabled and every member has a rack, members
+ *     are aligned with partitions that have a replica in their rack.</li>
  * </ul>
  *
  * The same algorithm is used for homogeneous and heterogeneous subscriptions.
  *
  * <p>The assignor is not registered as a built-in assignor yet: a coordinator enables it by
- * naming its class in {@code group.consumer.assignors}.
+ * naming its class in {@code group.consumer.assignors}. Rack awareness is disabled by default
+ * and enabled with {@link #RACK_AWARE_ENABLE_CONFIG} in the coordinator configuration, which is
+ * passed to {@link #configure}.
  *
  * @see AssignmentBuilder
  */
-public class Uniform2Assignor implements ConsumerGroupPartitionAssignor {
+public class Uniform2Assignor implements ConsumerGroupPartitionAssignor, Configurable {
     public static final String NAME = "uniform2";
+
+    /**
+     * Whether the rack aware mode of the uniform2 assignor is enabled. When enabled,
+     * rack awareness is only used for groups whose members all have a rack id.
+     */
+    public static final String RACK_AWARE_ENABLE_CONFIG = "group.consumer.assignor.uniform2.rack.aware.enable";
+    public static final boolean RACK_AWARE_ENABLE_DEFAULT = false;
+
+    private volatile boolean rackAwareEnabled;
+
+    public Uniform2Assignor() {
+        this(RACK_AWARE_ENABLE_DEFAULT);
+    }
+
+    public Uniform2Assignor(boolean rackAwareEnabled) {
+        this.rackAwareEnabled = rackAwareEnabled;
+    }
 
     @Override
     public String name() {
         return NAME;
+    }
+
+    /**
+     * @return Whether the rack aware mode is enabled.
+     */
+    public boolean rackAwareEnabled() {
+        return rackAwareEnabled;
+    }
+
+    @Override
+    public void configure(Map<String, ?> configs) {
+        Object value = configs.get(RACK_AWARE_ENABLE_CONFIG);
+        if (value == null) {
+            rackAwareEnabled = RACK_AWARE_ENABLE_DEFAULT;
+        } else if (value instanceof Boolean bool) {
+            rackAwareEnabled = bool;
+        } else {
+            rackAwareEnabled = Boolean.parseBoolean(value.toString().trim());
+        }
     }
 
     @Override
@@ -60,6 +101,6 @@ public class Uniform2Assignor implements ConsumerGroupPartitionAssignor {
         if (groupSpec.memberIds().isEmpty())
             return new GroupAssignment(Map.of());
 
-        return new AssignmentBuilder(groupSpec, subscribedTopicDescriber).build();
+        return new AssignmentBuilder(groupSpec, subscribedTopicDescriber, rackAwareEnabled).build();
     }
 }

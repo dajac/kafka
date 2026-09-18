@@ -74,7 +74,7 @@ public class AllocationsTest {
             .addTopic(TOPIC_2, "topic-2", 4, 4, 2)
             .addTopic(TOPIC_3, "topic-3", 8, 4, 2)
             .buildDescriber();
-        return new GroupModel(spec(members(3, Set.of(TOPIC_1, TOPIC_2, TOPIC_3))), describer);
+        return new GroupModel(spec(members(3, Set.of(TOPIC_1, TOPIC_2, TOPIC_3))), describer, false);
     }
 
     @Test
@@ -191,7 +191,7 @@ public class AllocationsTest {
         SubscribedTopicDescriber describer = new TestMetadataImageBuilder()
             .addTopic(TOPIC_1, "topic-1", 7, 4, 2)
             .buildDescriber();
-        GroupModel model = new GroupModel(spec(members(4, Set.of(TOPIC_1))), describer);
+        GroupModel model = new GroupModel(spec(members(4, Set.of(TOPIC_1))), describer, false);
         assertArrayEquals(new int[] {3}, model.extraPartitionCount());
 
         Allocations allocations = new Allocations(model);
@@ -275,7 +275,7 @@ public class AllocationsTest {
             builder.addTopic(topicId, "topic-" + t, 3, 4, 2);
             topics.add(topicId);
         }
-        GroupModel model = new GroupModel(spec(members(2, topics)), builder.buildDescriber());
+        GroupModel model = new GroupModel(spec(members(2, topics)), builder.buildDescriber(), false);
         assertArrayEquals(new int[] {1, 1, 1, 1, 1, 1}, model.extraPartitionCount());
 
         Allocations allocations = new Allocations(model);
@@ -312,7 +312,7 @@ public class AllocationsTest {
             mkTopicAssignment(TOPIC_1, 3), mkTopicAssignment(TOPIC_2, 0, 1)))));
         members.put("C", member(Set.of(TOPIC_1, TOPIC_2), new Assignment(mkAssignment(
             mkTopicAssignment(TOPIC_1, 4), mkTopicAssignment(TOPIC_2, 2)))));
-        GroupModel model = new GroupModel(spec(members), describer);
+        GroupModel model = new GroupModel(spec(members), describer, false);
         assertArrayEquals(new int[] {1, 1}, model.basePartitionCount());
         assertArrayEquals(new int[] {2, 1}, model.extraPartitionCount());
         assertTrue(model.isBacked(A, T1));
@@ -383,6 +383,52 @@ public class AllocationsTest {
     }
 
     @Test
+    public void testCountInRack() {
+        // Members A and C in rack 0 and B in rack 1, topic 1 with 5 partitions and topic 2 with
+        // 4: two and one extra partitions.
+        SubscribedTopicDescriber describer = new TestMetadataImageBuilder()
+            .addBroker(0, "rack-0")
+            .addBroker(1, "rack-1")
+            .addTopic(TOPIC_1, "topic-1", 5, 2, 2)
+            .addTopic(TOPIC_2, "topic-2", 4, 2, 2)
+            .buildDescriber();
+        Map<String, MemberSubscriptionAndAssignmentImpl> members = new TreeMap<>();
+        members.put("A", member("rack-0", Set.of(TOPIC_1, TOPIC_2), Assignment.EMPTY));
+        members.put("B", member("rack-1", Set.of(TOPIC_1, TOPIC_2), Assignment.EMPTY));
+        members.put("C", member("rack-0", Set.of(TOPIC_1, TOPIC_2), Assignment.EMPTY));
+        GroupModel model = new GroupModel(spec(members), describer, true);
+        assertTrue(model.usesRacks());
+        assertEquals(2, model.racks().count());
+        assertArrayEquals(new int[] {0, 1, 0}, model.racks().memberRack());
+
+        Allocations allocations = new Allocations(model);
+        assertEquals(0, allocations.extraCountInRack(T1, 0));
+        assertEquals(0, allocations.extraCountInRack(T1, 1));
+
+        allocations.addExtra(A, T1);
+        assertEquals(1, allocations.extraCountInRack(T1, 0));
+        assertEquals(0, allocations.extraCountInRack(T1, 1));
+        assertEquals(0, allocations.extraCountInRack(T2, 0));
+
+        allocations.addExtra(B, T1);
+        assertEquals(1, allocations.extraCountInRack(T1, 0));
+        assertEquals(1, allocations.extraCountInRack(T1, 1));
+
+        allocations.addExtra(C, T2);
+        assertEquals(1, allocations.extraCountInRack(T2, 0));
+        assertEquals(0, allocations.extraCountInRack(T2, 1));
+
+        allocations.removeExtra(A, T1);
+        assertEquals(0, allocations.extraCountInRack(T1, 0));
+        assertEquals(1, allocations.extraCountInRack(T1, 1));
+
+        allocations.addExtra(C, T1);
+        assertEquals(1, allocations.extraCountInRack(T1, 0));
+        assertEquals(1, allocations.extraCountInRack(T1, 1));
+        assertEquals(2, allocations.extraReceiverCount(T1));
+    }
+
+    @Test
     public void testAddRejectsMoreReceiversThanExtraPartitions() {
         Allocations allocations = new Allocations(model());
         // Topic 2 has a single extra partition.
@@ -405,7 +451,7 @@ public class AllocationsTest {
             builder.addTopic(topicId, "topic-" + t, 5, 4, 2);
             topics.add(topicId);
         }
-        GroupModel model = new GroupModel(spec(members(3, topics)), builder.buildDescriber());
+        GroupModel model = new GroupModel(spec(members(3, topics)), builder.buildDescriber(), false);
         assertEquals(30, model.topicCount());
 
         Allocations allocations = new Allocations(model);

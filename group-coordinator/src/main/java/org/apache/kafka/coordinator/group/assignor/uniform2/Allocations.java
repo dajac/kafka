@@ -27,10 +27,12 @@ import java.util.Arrays;
  * the topics of which it gets an extra partition in ascending order. Whether a member gets an
  * extra partition of a topic is answered by a bitset over the members and topics, see
  * {@link GroupModel#newBitset}. The per member count of free extra partitions,
- * those not backed by a current partition, is maintained too.
+ * those not backed by a current partition, is maintained too. When racks are in use, the number
+ * of extra partitions per topic and rack is also maintained.
  */
 final class Allocations {
     private final GroupModel model;
+    private final GroupModel.Racks racks;
     /**
      * Per topic, the row of its receivers in {@link #receivers}, sized to its extra partitions.
      */
@@ -56,6 +58,11 @@ final class Allocations {
      */
     private final int[] freeCountPerMember;
     /**
+     * Per topic and rack, the number of extra partitions of members of the rack, when racks are in
+     * use.
+     */
+    private final int[][] countPerRack;
+    /**
      * Per member and topic, whether the member gets an extra partition of the topic, indexed by
      * {@link GroupModel#bitIndex}.
      */
@@ -63,6 +70,7 @@ final class Allocations {
 
     Allocations(GroupModel model) {
         this.model = model;
+        this.racks = model.racks();
         receiverStart = new int[model.topicCount() + 1];
         for (int t = 0; t < model.topicCount(); t++) {
             receiverStart[t + 1] = receiverStart[t] + model.extraPartitionCount()[t];
@@ -72,6 +80,7 @@ final class Allocations {
         topicsPerMember = new int[model.memberCount()][];
         countPerMember = new int[model.memberCount()];
         freeCountPerMember = new int[model.memberCount()];
+        countPerRack = model.usesRacks() ? new int[model.topicCount()][racks.count()] : null;
         bits = model.newBitset();
     }
 
@@ -122,6 +131,9 @@ final class Allocations {
         topics[at] = topic;
         int bit = model.bitIndex(member, topic);
         bits[bit >>> 6] |= 1L << bit;
+        if (countPerRack != null) {
+            countPerRack[topic][racks.memberRack()[member]]++;
+        }
     }
 
     /**
@@ -146,6 +158,9 @@ final class Allocations {
         bits[bit >>> 6] &= ~(1L << bit);
         if (!model.isBacked(member, topic)) {
             freeCountPerMember[member]--;
+        }
+        if (countPerRack != null) {
+            countPerRack[topic][racks.memberRack()[member]]--;
         }
     }
 
@@ -192,5 +207,12 @@ final class Allocations {
      */
     int freeExtraCount(int member) {
         return freeCountPerMember[member];
+    }
+
+    /**
+     * @return The number of extra partitions of the topic given to members of the rack.
+     */
+    int extraCountInRack(int topic, int rack) {
+        return countPerRack[topic][rack];
     }
 }

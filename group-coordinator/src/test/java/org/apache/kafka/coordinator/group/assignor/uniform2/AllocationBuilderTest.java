@@ -26,6 +26,7 @@ import org.apache.kafka.coordinator.group.modern.MemberSubscriptionAndAssignment
 import org.junit.jupiter.api.Test;
 
 import java.util.HashSet;
+import java.util.List;
 import java.util.Map;
 import java.util.Set;
 import java.util.TreeMap;
@@ -67,11 +68,24 @@ public class AllocationBuilderTest {
         return builder.buildDescriber();
     }
 
+    /**
+     * @return A describer with broker 0 in rack r1 and broker 1 in rack r2, and T1 with the given
+     *         replicas per partition.
+     */
+    private static SubscribedTopicDescriber rackDescriber(List<List<Integer>> replicasPerPartition) {
+        return new TestMetadataImageBuilder()
+            .addBroker(0, "r1")
+            .addBroker(1, "r2")
+            .addTopic(T1, "topic-1", replicasPerPartition)
+            .buildDescriber();
+    }
+
     private static GroupModel model(
         Map<String, MemberSubscriptionAndAssignmentImpl> members,
-        SubscribedTopicDescriber describer
+        SubscribedTopicDescriber describer,
+        boolean rackAwareEnabled
     ) {
-        return new GroupModel(spec(members), describer);
+        return new GroupModel(spec(members), describer, rackAwareEnabled);
     }
 
     /**
@@ -138,7 +152,7 @@ public class AllocationBuilderTest {
         members.put("A", member(Set.of(T1, T2), Assignment.EMPTY));
         members.put("B", member(Set.of(T1, T2), Assignment.EMPTY));
         members.put("C", member(Set.of(T1, T2), Assignment.EMPTY));
-        GroupModel model = model(members, describer(5, 4));
+        GroupModel model = model(members, describer(5, 4), false);
 
         Allocations allocations = assign(model);
 
@@ -170,7 +184,7 @@ public class AllocationBuilderTest {
         members.put("B", member(Set.of(T1, T2), new Assignment(Map.of(T1, Set.of(2, 3), T2, Set.of(1)))));
         members.put("C", member(Set.of(T1, T2), new Assignment(Map.of(T1, Set.of(4), T2, Set.of(2, 3)))));
         members.put("D", member(Set.of(T1, T2), Assignment.EMPTY));
-        GroupModel model = model(members, describer(5, 4));
+        GroupModel model = model(members, describer(5, 4), false);
 
         Allocations allocations = assign(model);
 
@@ -201,7 +215,7 @@ public class AllocationBuilderTest {
         members.put("A", member(Set.of(T1, T2), new Assignment(Map.of(T1, Set.of(0, 1), T2, Set.of(0, 1)))));
         members.put("B", member(Set.of(T1, T2), new Assignment(Map.of(T1, Set.of(2), T2, Set.of(2, 3)))));
         members.put("C", member(Set.of(T1, T2), new Assignment(Map.of(T1, Set.of(3)))));
-        GroupModel model = model(members, describer(4, 4));
+        GroupModel model = model(members, describer(4, 4), false);
 
         Allocations allocations = assign(model);
 
@@ -227,7 +241,7 @@ public class AllocationBuilderTest {
         Map<String, MemberSubscriptionAndAssignmentImpl> members = new TreeMap<>();
         members.put("A", member(Set.of(T1, T2), new Assignment(Map.of(T1, Set.of(0, 1, 2), T2, Set.of(0, 1, 2)))));
         members.put("B", member(Set.of(T1, T2), Assignment.EMPTY));
-        GroupModel model = model(members, describer(3, 3));
+        GroupModel model = model(members, describer(3, 3), false);
 
         Allocations allocations = assign(model);
 
@@ -247,7 +261,7 @@ public class AllocationBuilderTest {
         Map<String, MemberSubscriptionAndAssignmentImpl> members = new TreeMap<>();
         members.put("A", member(Set.of(T1, T2), new Assignment(Map.of(T1, Set.of(0, 1, 2), T2, Set.of(0)))));
         members.put("B", member(Set.of(T1, T2), new Assignment(Map.of(T2, Set.of(1)))));
-        GroupModel model = model(members, describer(3, 2));
+        GroupModel model = model(members, describer(3, 2), false);
 
         Allocations allocations = assign(model);
 
@@ -280,7 +294,7 @@ public class AllocationBuilderTest {
         members.put("A", member(Set.of(T1, T2), new Assignment(Map.of(T1, Set.of(0, 1, 2)))));
         members.put("B", member(Set.of(T1, T2, T3), new Assignment(Map.of(T3, Set.of(0)))));
         members.put("C", member(Set.of(T3), Assignment.EMPTY));
-        GroupModel model = model(members, describer(3, 3, 1));
+        GroupModel model = model(members, describer(3, 3, 1), false);
 
         Allocations allocations = assign(model);
 
@@ -315,7 +329,7 @@ public class AllocationBuilderTest {
             T1, Set.of(0, 1, 2, 3), T2, Set.of(0, 1, 2, 3), T3, Set.of(0, 1, 2, 3)))));
         members.put("B", member(topics, new Assignment(Map.of(T4, Set.of(0, 1, 2, 3), T5, Set.of(0, 1, 2, 3)))));
         members.put("C", member(topics, Assignment.EMPTY));
-        GroupModel model = model(members, describer(4, 4, 4, 4, 4));
+        GroupModel model = model(members, describer(4, 4, 4, 4, 4), false);
 
         Allocations allocations = assign(model);
 
@@ -349,7 +363,7 @@ public class AllocationBuilderTest {
         members.put("A", member(Set.of(T1, T3), new Assignment(Map.of(T1, Set.of(0, 1, 2)))));
         members.put("B", member(Set.of(T1, T2), new Assignment(Map.of(T2, Set.of(0, 1, 2)))));
         members.put("C", member(Set.of(T2, T4), Assignment.EMPTY));
-        GroupModel model = model(members, describer);
+        GroupModel model = model(members, describer, false);
 
         Allocations allocations = assign(model);
 
@@ -360,11 +374,39 @@ public class AllocationBuilderTest {
         assertLoads(model, allocations, 4, 3, 2);
 
         // The full assignor reaches the same loads, and the assignment has every property.
-        GroupAssignment result = new Uniform2Assignor().assign(spec(members), describer);
+        GroupAssignment result = new Uniform2Assignor(false).assign(spec(members), describer);
         assertValidAssignment(members, describer, result);
         assertEquals(4, load(result, "A"));
         assertEquals(3, load(result, "B"));
         assertEquals(2, load(result, "C"));
+    }
+
+    /**
+     * When rack aware, the fill breaks ties between equally loaded members in favor of the one
+     * whose rack has the most spare replicas of the topic. A in rack r1 and B in rack r2 subscribe
+     * to T1 with 3 partitions: 1 base partition each and one extra partition, equal loads. Both
+     * racks have a replica for the base partition of their member; only the rack with two replicas
+     * has one left for the extra partition, so its member gets it, whatever its id.
+     */
+    @Test
+    public void testFillBreaksTiesByRackSpareReplicas() {
+        // Brokers 0 and 1 are in r1 and r2. Two partitions have their replica in r1 and one in r2.
+        SubscribedTopicDescriber mostlyInR1 = rackDescriber(List.of(List.of(0), List.of(0), List.of(1)));
+        // Two partitions have their replica in r2 and one in r1.
+        SubscribedTopicDescriber mostlyInR2 = rackDescriber(List.of(List.of(1), List.of(1), List.of(0)));
+        Map<String, MemberSubscriptionAndAssignmentImpl> members = new TreeMap<>();
+        members.put("A", member("r1", Set.of(T1), Assignment.EMPTY));
+        members.put("B", member("r2", Set.of(T1), Assignment.EMPTY));
+
+        GroupModel model = model(members, mostlyInR1, true);
+        assertExtraPartitions(model, assign(model), 0, A);
+
+        model = model(members, mostlyInR2, true);
+        assertExtraPartitions(model, assign(model), 0, B);
+
+        // Without rack awareness, the tie goes to A whatever the replicas.
+        model = model(members, mostlyInR2, false);
+        assertExtraPartitions(model, assign(model), 0, A);
     }
 
     /**
@@ -377,7 +419,7 @@ public class AllocationBuilderTest {
         Map<String, MemberSubscriptionAndAssignmentImpl> members = new TreeMap<>();
         members.put("A", member(Set.of(T1, T2, T3), Assignment.EMPTY));
         members.put("B", member(Set.of(T1, T2, T3), Assignment.EMPTY));
-        GroupModel model = model(members, describer(4, 0, 3));
+        GroupModel model = model(members, describer(4, 0, 3), false);
 
         Allocations allocations = assign(model);
 
@@ -415,7 +457,7 @@ public class AllocationBuilderTest {
         members.put("B", member(Set.of(T1, T2, T3), Assignment.EMPTY));
         members.put("C", member(Set.of(T1, T2, T3), Assignment.EMPTY));
         members.put("D", member(Set.of(T1, T2, T3), new Assignment(Map.of(T1, Set.of(2, 3)))));
-        GroupModel model = model(members, describer(5, 5, 5));
+        GroupModel model = model(members, describer(5, 5, 5), false);
 
         Allocations allocations = assign(model);
 
