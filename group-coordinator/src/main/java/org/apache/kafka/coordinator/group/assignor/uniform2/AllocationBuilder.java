@@ -49,6 +49,25 @@ final class AllocationBuilder {
      * no move, see {@link #backedReceiver}.
      */
     private final IntArrayList[] backedCandidates;
+    /**
+     * Per topic, the receiver {@link #bestReceiver} found for the even out phase and the version
+     * at which it was found, see {@link #eligibleReceiver}. The version counts the changes of
+     * loads and receivers: a change of the load of a member stamps its cohort and a change of
+     * the receivers of a topic stamps the topic, so a memoized receiver is known to be current
+     * when its version is at least those of the topic and of its cohorts.
+     */
+    private final int[] memoReceiver;
+    private final int[] memoVersion;
+    private final int[] cohortVersion;
+    private final int[] topicVersion;
+    private int version;
+    /**
+     * Per topic, whether its best receiver is memoized: only when the topic has at least
+     * {@link #MEMO_MIN_SUBSCRIBERS} subscribers, since below that the scan a memo saves is as
+     * cheap as checking that the memo is current.
+     */
+    private final boolean[] memoized;
+    private static final int MEMO_MIN_SUBSCRIBERS = 64;
 
     AllocationBuilder(GroupModel model) {
         this.model = model;
@@ -57,6 +76,15 @@ final class AllocationBuilder {
         allocations = new Allocations(model);
         cursors = new int[model.maxCohortsPerTopic()];
         backedCandidates = new IntArrayList[model.topicCount()];
+        memoReceiver = new int[model.topicCount()];
+        memoVersion = new int[model.topicCount()];
+        Arrays.fill(memoVersion, -1);
+        cohortVersion = new int[cohorts.count()];
+        topicVersion = new int[model.topicCount()];
+        memoized = new boolean[model.topicCount()];
+        for (int t = 0; t < model.topicCount(); t++) {
+            memoized[t] = model.subscribers()[t].length >= MEMO_MIN_SUBSCRIBERS;
+        }
     }
 
     /**
@@ -254,13 +282,45 @@ final class AllocationBuilder {
     }
 
     /**
+     * The best receiver of a topic only depends on the loads of the members of its cohorts and on
+     * its receivers, so it is memoized until one of them changes: the even out phase checks the
+     * topics of many givers between two moves, and every check would otherwise scan the members
+     * of the topic already getting an extra partition of it.
+     *
      * @return The best receiver of an extra partition of the topic when it is at least two below
      *         the giver, NONE otherwise.
      */
     private int eligibleReceiver(int giver, int t) {
-        Arrays.fill(cursors, 0, cohortCount(t), 0);
-        int receiver = bestReceiver(t, true);
+        int receiver;
+        if (!memoized[t]) {
+            Arrays.fill(cursors, 0, cohortCount(t), 0);
+            receiver = bestReceiver(t, true);
+        } else if (memoCurrent(t)) {
+            receiver = memoReceiver[t];
+        } else {
+            Arrays.fill(cursors, 0, cohortCount(t), 0);
+            receiver = bestReceiver(t, true);
+            memoReceiver[t] = receiver;
+            memoVersion[t] = version;
+        }
         return receiver != NONE && loads.load[receiver] <= loads.load[giver] - 2 ? receiver : NONE;
+    }
+
+    /**
+     * @return Whether the memoized receiver of the topic is current: nothing it depends on
+     *         changed since it was found.
+     */
+    private boolean memoCurrent(int t) {
+        int v = memoVersion[t];
+        if (v < topicVersion[t]) {
+            return false;
+        }
+        for (int i = cohorts.topicCohortStart()[t]; i < cohorts.topicCohortStart()[t + 1]; i++) {
+            if (v < cohortVersion[cohorts.topicCohorts()[i]]) {
+                return false;
+            }
+        }
+        return true;
     }
 
     /**
@@ -356,6 +416,7 @@ final class AllocationBuilder {
         if (backedCandidates[t] != null) {
             backedCandidates[t].remove(m);
         }
+        stamp(m, t);
     }
 
     private void take(int m, int t) {
@@ -364,5 +425,16 @@ final class AllocationBuilder {
         if (model.isBacked(m, t)) {
             addBackedCandidate(m, t);
         }
+        stamp(m, t);
+    }
+
+    /**
+     * Records that the load of the member and the receivers of the topic changed, see
+     * {@link #memoCurrent}.
+     */
+    private void stamp(int m, int t) {
+        version++;
+        cohortVersion[cohorts.memberCohort()[m]] = version;
+        topicVersion[t] = version;
     }
 }
